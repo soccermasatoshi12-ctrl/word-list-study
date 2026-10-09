@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Word List Study</title>
+  <style>
+    :root{
+      --bg:#f6f7f9;--panel:#fff;--text:#1f2328;--muted:#6b7280;
+      --border:#d9dde3;--accent:#2563eb;--cover:#dfe3e8;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+    .app{max-width:820px;margin:0 auto;padding:12px}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:10px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button,label.file-btn,input,select{font:inherit;color:var(--text)}
+    button,.file-btn,select{min-height:38px;border:1px solid var(--border);background:#fff;border-radius:10px;padding:8px 11px;cursor:pointer;color:var(--text);-webkit-text-fill-color:var(--text)}
+    button.primary{background:var(--accent);color:#fff;-webkit-text-fill-color:#fff;border-color:var(--accent)}
+    button:disabled{opacity:.5;cursor:default}
+    .file-btn input{display:none}
+    .filters button.active,.sorts button.active{border-color:var(--accent);color:var(--accent);-webkit-text-fill-color:var(--accent)}
+    .count{margin-left:auto;color:var(--muted);font-size:.9rem}
+    .hint{font-size:.84rem;color:var(--muted);line-height:1.45;margin-top:6px}
+    .status{font-size:.9rem;margin-top:6px}.status.good{color:#18794e}.status.bad{color:#b42318}
+    .filter-option{display:flex;align-items:center;gap:6px;min-height:38px;padding:0 2px}
+    .filter-option input{width:18px;height:18px;accent-color:var(--accent)}
+    .filter-option select{min-height:34px;padding:5px 8px}
+    .tabs{display:flex;gap:6px;overflow-x:auto;white-space:nowrap;padding:2px 0 8px;scrollbar-width:thin}
+    .tabs button{flex:0 0 auto;min-height:34px;padding:6px 10px}
+    .tabs button.active{border-color:var(--accent);color:var(--accent);-webkit-text-fill-color:var(--accent);font-weight:600}
+    .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:8px}
+    .word-row{display:grid;grid-template-columns:minmax(120px,1fr) 48px minmax(140px,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
+    .word-cell{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:2px 4px}
+    .word-main{font-weight:650;word-break:break-word}
+    .word-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:.75rem;color:var(--muted)}
+    .recent{letter-spacing:.08em;white-space:nowrap}
+    .streak{white-space:nowrap}
+    .check-cell{display:flex;align-items:center;justify-content:center}.check-cell input{width:23px;height:23px;accent-color:var(--accent)}
+    .meaning-cell{position:relative;min-height:48px;overflow:hidden;border-radius:8px;background:#fafafa;border:1px solid var(--border)}
+    .meaning-text{position:absolute;inset:0;display:flex;align-items:center;padding:8px 10px;word-break:break-word}
+    .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
+    .curtain-handle{position:absolute;z-index:21;height:34px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;user-select:none}.curtain-handle.hidden{display:none}
+    .curtain-handle::before{content:"";width:58px;height:5px;border-radius:999px;background:#7d848d;box-shadow:0 0 0 6px rgba(223,227,232,.95)}
+    textarea{width:100%;min-height:120px;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;resize:vertical}#sessionUrl{width:100%;margin-top:8px}
+    @media(max-width:560px){
+      .app{padding:8px}
+      .word-row{grid-template-columns:minmax(96px,1fr) 42px minmax(110px,1fr);gap:6px;padding:6px}
+      .word-main{font-size:.98rem}.word-meta{font-size:.7rem;gap:7px}.meaning-text{padding:7px 8px}
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="panel">
+    <div class="row">
+      <label class="file-btn">CSV読込<input id="csvFile" type="file" accept=".csv,text/csv"></label>
+      <button id="resetCurtain">最初に戻す</button>
+      <button id="clearData">データ消去</button>
+      <span id="count" class="count">0語</span>
+    </div>
+    <div class="hint">CSV形式: <code>id,word,meaning</code>。同じidなら再読込しても学習履歴を引き継ぎます。</div>
+  </div>
+
+  <div class="panel filters">
+    <div class="row">
+      <button data-filter="all" class="active">すべて</button>
+      <button data-filter="hasMiss">非正答あり</button>
+      <label class="filter-option">
+        <input id="excludeStreak" type="checkbox">
+        連続正答
+        <select id="excludeStreakN" aria-label="除外する連続正答回数">
+          <option value="2">2</option><option value="3" selected>3</option><option value="4">4</option>
+          <option value="5">5</option><option value="6">6</option><option value="7">7</option>
+          <option value="8">8</option><option value="9">9</option><option value="10">10</option>
+        </select>
+        回以上を除外
+      </label>
+    </div>
+  </div>
+
+  <div class="panel sorts">
+    <div class="row">
+      <button id="normalOrder" class="active">通常順</button>
+      <button id="randomOrder">ランダム</button>
+      <button id="reshuffle">再シャッフル</button>
+    </div>
+    <div class="hint">ランダム順は再シャッフルするまで端末内に保持します。</div>
+  </div>
+
+  <div class="panel">
+    <div id="tabs" class="tabs"></div>
+    <div class="hint">フィルタ・並び順を適用した結果を50語ずつ表示します。</div>
+  </div>
+
+  <div id="listWrap" class="list-wrap">
+    <div id="words" class="words"></div>
+    <div id="meaningCurtain" class="meaning-curtain hidden"></div>
+    <div id="curtainHandle" class="curtain-handle hidden" aria-label="意味カバーを上下に動かす"></div>
+  </div>
+
+  <div class="panel" style="margin-top:10px">
+    <div class="row">
+      <button id="makeSession" class="primary">この50語をGPT用URLにする</button>
+      <button id="copySession" disabled>URLをコピー</button>
+    </div>
+    <input id="sessionUrl" type="text" readonly placeholder="ここにGPT用URLが出ます">
+    <div class="hint">現在表示中の最大50語をGPT学習対象にします。</div>
+  </div>
+
+  <div class="panel">
+    <div class="row"><strong>GPT学習結果を反映</strong><button id="applyResults">結果JSONを反映</button></div>
+    <textarea id="resultJson" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
+    <div id="resultStatus" class="status"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const PAGE_SIZE=50, SESSION_TTL_MS=5*60*1000, MAX_RECENT=10;
+  const STORAGE_WORDS="wordlist.words.v2";
+  const STORAGE_STATE="wordlist.state.v2";
+  const STORAGE_GPT_SESSIONS="wordlist.gptSessions.v2";
+  const STORAGE_ACTIVE_SESSION="wordlist.activeStudySession.v2";
+  const STORAGE_RANDOM_ORDER="wordlist.randomOrder.v1";
+  const STORAGE_VIEW="wordlist.view.v1";
+
+  let words=loadJson(STORAGE_WORDS,[]);
+  let state=loadJson(STORAGE_STATE,{});
+  let gptSessions=loadJson(STORAGE_GPT_SESSIONS,{});
+  let randomIds=loadJson(STORAGE_RANDOM_ORDER,[]);
+  const savedView=loadJson(STORAGE_VIEW,{});
+
+  let filter=savedView.filter==="hasMiss"?"hasMiss":"all";
+  let sortMode=savedView.sortMode==="random"?"random":"normal";
+  let excludeStreak=!!savedView.excludeStreak;
+  let excludeStreakN=Math.min(10,Math.max(2,Number(savedView.excludeStreakN||3)));
+  let pageIndex=Math.max(0,Number(savedView.pageIndex||0));
+  let revealY=0, lastSessionUrl="", activeSession=null;
+
+  const els={
+    csvFile:document.getElementById("csvFile"),resetCurtain:document.getElementById("resetCurtain"),clearData:document.getElementById("clearData"),
+    count:document.getElementById("count"),tabs:document.getElementById("tabs"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
+    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),
+    excludeStreak:document.getElementById("excludeStreak"),excludeStreakN:document.getElementById("excludeStreakN"),
+    normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
+    makeSession:document.getElementById("makeSession"),copySession:document.getElementById("copySession"),sessionUrl:document.getElementById("sessionUrl"),
+    resultJson:document.getElementById("resultJson"),applyResults:document.getElementById("applyResults"),resultStatus:document.getElementById("resultStatus")
+  };
+
+  function loadJson(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
+  function persistCore(){
+    localStorage.setItem(STORAGE_WORDS,JSON.stringify(words));
+    localStorage.setItem(STORAGE_STATE,JSON.stringify(state));
+    localStorage.setItem(STORAGE_GPT_SESSIONS,JSON.stringify(gptSessions));
+  }
+  function persistView(){
+    localStorage.setItem(STORAGE_VIEW,JSON.stringify({filter,sortMode,excludeStreak,excludeStreakN,pageIndex}));
+  }
+
+  function deriveStreak(results){let n=0;for(let i=results.length-1;i>=0&&results[i]===true;i--)n++;return n}
+  function defaultState(){return{studyCount:0,correctCount:0,recentResults:[],currentStreak:0,lastStudiedAt:null}}
+  function normalizeState(raw){
+    const recent=Array.isArray(raw?.recentResults)?raw.recentResults.slice(-MAX_RECENT).map(Boolean):[];
+    return{
+      studyCount:Number(raw?.studyCount||0),correctCount:Number(raw?.correctCount||0),recentResults:recent,
+      currentStreak:Number.isFinite(Number(raw?.currentStreak))?Number(raw.currentStreak):deriveStreak(recent),
+      lastStudiedAt:raw?.lastStudiedAt||null
+    };
+  }
+  function getState(id){if(!state[id])state[id]=defaultState();state[id]=normalizeState(state[id]);return state[id]}
+  function nonCorrectCount(st){return Math.max(0,(st.studyCount||0)-(st.correctCount||0))}
+  function appendResult(st,value){
+    const correct=!!value;
+    st.recentResults=[...(st.recentResults||[]),correct].slice(-MAX_RECENT);
+    st.currentStreak=correct?(st.currentStreak||0)+1:0;
+  }
+  function recentThree(st){
+    const arr=(st.recentResults||[]).slice(-3).map(v=>v?"○":"×");
+    while(arr.length<3)arr.unshift("·");
+    return arr.join(" ");
+  }
+
+  function parseCsv(text){
+    const rows=[];let row=[],field="",quote=false;
+    for(let i=0;i<text.length;i++){
+      const c=text[i],n=text[i+1];
+      if(quote){if(c==='"'&&n==='"'){field+='"';i++}else if(c==='"'){quote=false}else field+=c}
+      else{if(c==='"')quote=true;else if(c===","){row.push(field);field=""}else if(c==="\n"){row.push(field);rows.push(row);row=[];field=""}else if(c!=="\r")field+=c}
+    }
+    row.push(field);rows.push(row);
+    return rows.filter(r=>r.some(v=>v.trim()!==""));
+  }
+
+  function sameIdSet(orderIds,currentIds){
+    if(!Array.isArray(orderIds)||orderIds.length!==currentIds.length)return false;
+    const s=new Set(currentIds);
+    return orderIds.every(id=>s.has(String(id)))&&new Set(orderIds.map(String)).size===currentIds.length;
+  }
+  function validateRandomOrder(){
+    const ids=words.map(w=>String(w.id));
+    if(!sameIdSet(randomIds,ids)){
+      randomIds=[];
+      localStorage.removeItem(STORAGE_RANDOM_ORDER);
+      if(sortMode==="random")sortMode="normal";
+    }
+  }
+  function shuffledIds(){
+    const a=words.map(w=>String(w.id));
+    for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+    return a;
+  }
+  function ensureRandomOrder(){
+    validateRandomOrder();
+    if(!randomIds.length&&words.length){randomIds=shuffledIds();localStorage.setItem(STORAGE_RANDOM_ORDER,JSON.stringify(randomIds))}
+  }
+
+  function importCsv(text){
+    finalizeSession();
+    const oldIds=words.map(w=>String(w.id));
+    const rows=parseCsv(text);
+    if(rows.length<2)throw new Error("CSVにデータ行がありません。");
+    const header=rows[0].map(s=>s.trim().toLowerCase());
+    const idI=header.indexOf("id"),wordI=header.indexOf("word"),meaningI=header.indexOf("meaning");
+    if(idI<0||wordI<0||meaningI<0)throw new Error("ヘッダーは id,word,meaning が必要です。");
+    const seen=new Set();
+    const next=rows.slice(1).map((r,idx)=>{
+      const id=(r[idI]??"").trim(),word=(r[wordI]??"").trim(),meaning=(r[meaningI]??"").trim();
+      if(!id||!word)throw new Error(`${idx+2}行目: id と word は必須です。`);
+      if(seen.has(id))throw new Error(`id が重複しています: ${id}`);
+      seen.add(id);return{id,word,meaning};
+    });
+    words=next;for(const w of words)getState(w.id);
+    const newIds=words.map(w=>String(w.id));
+    if(!sameIdSet(oldIds,newIds)){
+      randomIds=[];localStorage.removeItem(STORAGE_RANDOM_ORDER);sortMode="normal";
+    }
+    filter="all";excludeStreak=false;excludeStreakN=3;pageIndex=0;revealY=0;activeSession=null;
+    localStorage.removeItem(STORAGE_ACTIVE_SESSION);
+    persistCore();persistView();startSession(true);render();
+  }
+
+  function baseFilteredWords(){
+    return words.filter(w=>{
+      const st=getState(w.id);
+      if(filter==="hasMiss"&&nonCorrectCount(st)<=0)return false;
+      if(excludeStreak&&(st.currentStreak||0)>=excludeStreakN)return false;
+      return true;
+    });
+  }
+  function filteredWords(){
+    const result=baseFilteredWords();
+    if(sortMode!=="random")return result;
+    ensureRandomOrder();
+    const rank=new Map(randomIds.map((id,i)=>[String(id),i]));
+    return result.slice().sort((a,b)=>(rank.get(String(a.id))??Number.MAX_SAFE_INTEGER)-(rank.get(String(b.id))??Number.MAX_SAFE_INTEGER));
+  }
+  function pageWords(){
+    const filtered=filteredWords();
+    const maxPage=Math.max(0,Math.ceil(filtered.length/PAGE_SIZE)-1);
+    if(pageIndex>maxPage){pageIndex=maxPage;persistView()}
+    const start=pageIndex*PAGE_SIZE;
+    return filtered.slice(start,start+PAGE_SIZE);
+  }
+
+  function sessionKey(){return `${filter}:${excludeStreak?excludeStreakN:"off"}:${sortMode}:${pageIndex}`}
+  function saveActiveSession(){
+    if(!activeSession)return;
+    activeSession.updatedAt=Date.now();activeSession.revealY=revealY;
+    localStorage.setItem(STORAGE_ACTIVE_SESSION,JSON.stringify(activeSession));
+  }
+  function finalizeStoredPendingAsWrong(stored){
+    const id=stored?.pendingId;
+    if(!id)return;
+    const finalized=Array.isArray(stored.finalizedIds)?stored.finalizedIds:[];
+    if(!finalized.includes(id))appendResult(getState(id),false);
+    persistCore();
+  }
+  function tryRestoreSession(){
+    const stored=loadJson(STORAGE_ACTIVE_SESSION,null);
+    if(!stored)return false;
+    const expired=Date.now()-Number(stored.updatedAt||0)>SESSION_TTL_MS;
+    if(expired){finalizeStoredPendingAsWrong(stored);localStorage.removeItem(STORAGE_ACTIVE_SESSION);return false}
+    if(stored.key!==sessionKey())return false;
+    activeSession={
+      key:stored.key,updatedAt:stored.updatedAt,revealY:Number(stored.revealY||0),
+      studiedIds:Array.isArray(stored.studiedIds)?stored.studiedIds:[],
+      checkedIds:Array.isArray(stored.checkedIds)?stored.checkedIds:[],
+      finalizedIds:Array.isArray(stored.finalizedIds)?stored.finalizedIds:[],
+      pendingId:stored.pendingId||null
+    };
+    revealY=activeSession.revealY;return true;
+  }
+  function startSession(forceNew=false){
+    if(!forceNew&&tryRestoreSession())return;
+    activeSession={key:sessionKey(),updatedAt:Date.now(),revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+    revealY=0;saveActiveSession();
+  }
+  function finalizePendingAsWrong(){
+    if(!activeSession?.pendingId)return;
+    const id=activeSession.pendingId;
+    if(!activeSession.finalizedIds.includes(id)){appendResult(getState(id),false);activeSession.finalizedIds.push(id)}
+    activeSession.pendingId=null;
+  }
+  function finalizeSession(){
+    if(!activeSession)return;
+    finalizePendingAsWrong();persistCore();localStorage.removeItem(STORAGE_ACTIVE_SESSION);activeSession=null;
+  }
+
+  function markStudied(id){
+    if(!activeSession)startSession();
+    if(activeSession.studiedIds.includes(id))return;
+    finalizePendingAsWrong();
+    const st=getState(id);st.studyCount+=1;st.lastStudiedAt=new Date().toISOString();
+    activeSession.studiedIds.push(id);activeSession.pendingId=id;
+    persistCore();saveActiveSession();
+  }
+  function markCorrect(id){
+    if(!activeSession)return;
+    if(!activeSession.studiedIds.includes(id))return;
+    if(activeSession.finalizedIds.includes(id))return;
+    if(activeSession.checkedIds.includes(id))return;
+    const st=getState(id);
+    st.correctCount+=1;appendResult(st,true);
+    activeSession.checkedIds.push(id);activeSession.finalizedIds.push(id);
+    if(activeSession.pendingId===id)activeSession.pendingId=null;
+    persistCore();saveActiveSession();renderRowsOnly();
+  }
+
+  function renderTabs(){
+    const filtered=filteredWords();
+    const pages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
+    if(pageIndex>=pages){pageIndex=Math.max(0,pages-1);persistView()}
+    els.tabs.replaceChildren();
+    if(filtered.length===0){const b=document.createElement("button");b.textContent="0件";b.disabled=true;els.tabs.appendChild(b);return}
+    for(let i=0;i<pages;i++){
+      const start=i*PAGE_SIZE+1,end=Math.min((i+1)*PAGE_SIZE,filtered.length);
+      const b=document.createElement("button");b.textContent=`${start}–${end}`;b.classList.toggle("active",i===pageIndex);
+      b.addEventListener("click",()=>{
+        if(i===pageIndex)return;
+        finalizeSession();pageIndex=i;revealY=0;persistView();startSession(true);render();
+      });
+      els.tabs.appendChild(b);
+    }
+  }
+
+  function renderRowsOnly(){
+    const current=pageWords();els.words.replaceChildren();
+    for(const w of current){
+      const st=getState(w.id);
+      const row=document.createElement("div");row.className="word-row";row.dataset.id=w.id;
+
+      const wc=document.createElement("div");wc.className="word-cell";
+      const main=document.createElement("div");main.className="word-main";main.textContent=w.word;
+      const meta=document.createElement("div");meta.className="word-meta";
+      const recent=document.createElement("span");recent.className="recent";recent.textContent=`直近 ${recentThree(st)}`;
+      const streak=document.createElement("span");streak.className="streak";streak.textContent=`連続 ${st.currentStreak||0}`;
+      meta.append(recent,streak);wc.append(main,meta);
+
+      const cc=document.createElement("div");cc.className="check-cell";
+      const cb=document.createElement("input");cb.type="checkbox";
+      cb.checked=!!activeSession?.checkedIds?.includes(w.id);
+      const revealed=!!activeSession?.studiedIds?.includes(w.id);
+      const finalized=!!activeSession?.finalizedIds?.includes(w.id);
+      cb.disabled=!revealed||finalized&&!cb.checked;
+      cb.setAttribute("aria-label",`${w.word} を今回正答として記録`);
+      cb.addEventListener("change",()=>{if(cb.checked)markCorrect(w.id);else cb.checked=true});
+      cc.appendChild(cb);
+
+      const mc=document.createElement("div");mc.className="meaning-cell";mc.dataset.id=w.id;
+      const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.meaning;mc.appendChild(mt);
+      row.append(wc,cc,mc);els.words.appendChild(row);
+    }
+    requestAnimationFrame(positionCurtain);
+  }
+
+  function render(){
+    renderTabs();renderRowsOnly();
+    const filtered=filteredWords(),current=pageWords();
+    const start=filtered.length?pageIndex*PAGE_SIZE+1:0,end=filtered.length?start+current.length-1:0;
+    els.count.textContent=filtered.length?`${start}–${end} / ${filtered.length}語`:`0語`;
+    document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
+    els.excludeStreak.checked=excludeStreak;els.excludeStreakN.value=String(excludeStreakN);
+    els.normalOrder.classList.toggle("active",sortMode==="normal");els.randomOrder.classList.toggle("active",sortMode==="random");
+  }
+
+  function geometry(){
+    const cells=[...els.words.querySelectorAll(".meaning-cell")];if(!cells.length)return null;
+    const wrapRect=els.listWrap.getBoundingClientRect(),firstRect=cells[0].getBoundingClientRect(),lastRect=cells[cells.length-1].getBoundingClientRect();
+    const top=firstRect.top-wrapRect.top,left=firstRect.left-wrapRect.left,width=firstRect.width,bottom=lastRect.bottom-wrapRect.top;
+    const thresholds=cells.map(cell=>{const r=cell.getBoundingClientRect();return{id:cell.dataset.id,bottom:r.bottom-wrapRect.top-top}});
+    return{top,left,width,height:bottom-top,thresholds};
+  }
+  function processRevealProgress(){const g=geometry();if(!g||!activeSession)return;for(const t of g.thresholds)if(revealY>=t.bottom-1)markStudied(t.id)}
+  function positionCurtain(){
+    const g=geometry();
+    if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");return}
+    revealY=Math.max(0,Math.min(revealY,g.height));
+    els.meaningCurtain.classList.remove("hidden");els.curtainHandle.classList.remove("hidden");
+    els.meaningCurtain.style.left=`${g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${g.top+revealY}px`;els.meaningCurtain.style.height=`${Math.max(0,g.height-revealY)}px`;
+    els.curtainHandle.style.left=`${g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${g.top+revealY}px`;
+    saveActiveSession();
+  }
+  function resetCurtain(){revealY=0;positionCurtain()}
+
+  function attachCurtainDrag(){
+    let dragging=false,startClientY=0,startRevealY=0;
+    els.curtainHandle.addEventListener("pointerdown",e=>{
+      if(els.curtainHandle.classList.contains("hidden"))return;
+      dragging=true;startClientY=e.clientY;startRevealY=revealY;els.curtainHandle.setPointerCapture(e.pointerId);e.preventDefault();
+    });
+    els.curtainHandle.addEventListener("pointermove",e=>{
+      if(!dragging)return;const g=geometry();if(!g)return;
+      revealY=Math.max(0,Math.min(startRevealY+(e.clientY-startClientY),g.height));positionCurtain();processRevealProgress();e.preventDefault();
+    });
+    const finish=e=>{
+      if(!dragging)return;dragging=false;processRevealProgress();saveActiveSession();
+      try{els.curtainHandle.releasePointerCapture(e.pointerId)}catch{}
+      renderRowsOnly();
+    };
+    els.curtainHandle.addEventListener("pointerup",finish);els.curtainHandle.addEventListener("pointercancel",finish);
+  }
+
+  function makeGptSession(){
+    const current=pageWords();if(!current.length){alert("表示中の単語がありません。");return}
+    const sessionId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const payload={version:1,sessionId,mode:"en-to-ja",words:current.map(({id,word,meaning})=>({id,word,meaning}))};
+    gptSessions[sessionId]={createdAt:new Date().toISOString(),applied:false};persistCore();
+    const url=new URL(location.href);url.search="";url.hash="";
+    url.searchParams.set("study",btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
+    lastSessionUrl=url.toString();els.sessionUrl.value=lastSessionUrl;els.copySession.disabled=false;
+  }
+  async function copyText(text){
+    if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return true}catch{}}
+    const ta=document.createElement("textarea");ta.value=text;document.body.appendChild(ta);ta.select();const ok=document.execCommand("copy");ta.remove();return ok;
+  }
+  function applyGptResults(){
+    els.resultStatus.className="status";
+    try{
+      const obj=JSON.parse(els.resultJson.value);
+      if(obj.version!==1||!obj.sessionId||!Array.isArray(obj.results))throw new Error("結果JSONの形式が不正です。");
+      if(gptSessions[obj.sessionId]?.applied)throw new Error("このセッション結果はすでに反映済みです。");
+      const known=new Set(words.map(w=>String(w.id))),now=new Date().toISOString();let applied=0;
+      for(const r of obj.results){
+        const id=String(r.id);if(!known.has(id))continue;
+        if(!["correct","wrong","uncertain","skipped"].includes(r.result))throw new Error(`未知のresult: ${r.result}`);
+        if(r.result==="skipped")continue;
+        const st=getState(id);st.studyCount+=1;st.lastStudiedAt=now;
+        if(r.result==="correct"){st.correctCount+=1;appendResult(st,true)}else appendResult(st,false);
+        applied++;
+      }
+      gptSessions[obj.sessionId]={...(gptSessions[obj.sessionId]||{}),applied:true,appliedAt:now};persistCore();render();
+      els.resultStatus.textContent=`${applied}件を反映しました。`;els.resultStatus.className="status good";
+    }catch(err){els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad"}
+  }
+
+  function restartViewSession(){finalizeSession();pageIndex=0;revealY=0;persistView();startSession(true);render()}
+
+  document.querySelectorAll("[data-filter]").forEach(btn=>btn.addEventListener("click",()=>{
+    const next=btn.dataset.filter;if(next===filter)return;filter=next;restartViewSession();
+  }));
+  els.excludeStreak.addEventListener("change",()=>{excludeStreak=els.excludeStreak.checked;restartViewSession()});
+  els.excludeStreakN.addEventListener("change",()=>{excludeStreakN=Number(els.excludeStreakN.value);restartViewSession()});
+
+  els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;sortMode="normal";restartViewSession()});
+  els.randomOrder.addEventListener("click",()=>{ensureRandomOrder();if(sortMode==="random"){render();return}sortMode="random";restartViewSession()});
+  els.reshuffle.addEventListener("click",()=>{
+    finalizeSession();randomIds=shuffledIds();localStorage.setItem(STORAGE_RANDOM_ORDER,JSON.stringify(randomIds));sortMode="random";pageIndex=0;revealY=0;persistView();startSession(true);render();
+  });
+
+  els.csvFile.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{importCsv(await file.text())}catch(err){alert(err.message||String(err))}e.target.value=""});
+  els.resetCurtain.addEventListener("click",resetCurtain);
+  els.clearData.addEventListener("click",()=>{
+    if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
+    words=[];state={};gptSessions={};randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;excludeStreakN=3;pageIndex=0;revealY=0;
+    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_RANDOM_ORDER,STORAGE_VIEW])localStorage.removeItem(key);
+    startSession(true);render();
+  });
+  els.makeSession.addEventListener("click",makeGptSession);
+  els.copySession.addEventListener("click",async()=>{if(!lastSessionUrl)return;const ok=await copyText(lastSessionUrl);els.copySession.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copySession.textContent="URLをコピー",1200)});
+  els.applyResults.addEventListener("click",applyGptResults);
+
+  validateRandomOrder();persistView();attachCurtainDrag();
+  window.addEventListener("resize",positionCurtain);window.addEventListener("beforeunload",()=>{saveActiveSession();persistView()});
+  startSession(false);render();requestAnimationFrame(()=>{revealY=Number(activeSession?.revealY||0);positionCurtain()});
+})();
+</script>
+</body>
+</html>
