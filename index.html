@@ -115,19 +115,22 @@
   </div>
 </div>
 
+<script src="study-core.js"></script>
 <script>
 (() => {
-  const PAGE_SIZE=50, SESSION_TTL_MS=5*60*1000, MAX_RECENT=10;
+  const PAGE_SIZE=50, SESSION_TTL_MS=5*60*1000, MAX_RECENT=StudyCore.MAX_RECENT;
   const STORAGE_WORDS="wordlist.words.v2";
   const STORAGE_STATE="wordlist.state.v2";
   const STORAGE_GPT_SESSIONS="wordlist.gptSessions.v2";
   const STORAGE_ACTIVE_SESSION="wordlist.activeStudySession.v2";
   const STORAGE_RANDOM_ORDER="wordlist.randomOrder.v1";
   const STORAGE_VIEW="wordlist.view.v1";
+  const STORAGE_LEDGER="wordlist.studyLedger.v1";
+  const savedCore=StudyCore.loadCore(localStorage,STORAGE_LEDGER,{stateKey:STORAGE_STATE,gptSessionsKey:STORAGE_GPT_SESSIONS,activeSessionKey:STORAGE_ACTIVE_SESSION});
 
   let words=loadJson(STORAGE_WORDS,[]);
-  let state=loadJson(STORAGE_STATE,{});
-  let gptSessions=loadJson(STORAGE_GPT_SESSIONS,{});
+  let state=savedCore.state;
+  let gptSessions=savedCore.gptSessions;
   let randomIds=loadJson(STORAGE_RANDOM_ORDER,[]);
   const savedView=loadJson(STORAGE_VIEW,{});
 
@@ -136,7 +139,7 @@
   let excludeStreak=!!savedView.excludeStreak;
   let excludeStreakN=Math.min(10,Math.max(2,Number(savedView.excludeStreakN||3)));
   let pageIndex=Math.max(0,Number(savedView.pageIndex||0));
-  let revealY=0, lastSessionUrl="", activeSession=null;
+  let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession;
 
   const els={
     csvFile:document.getElementById("csvFile"),resetCurtain:document.getElementById("resetCurtain"),clearData:document.getElementById("clearData"),
@@ -151,30 +154,16 @@
   function loadJson(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
   function persistCore(){
     localStorage.setItem(STORAGE_WORDS,JSON.stringify(words));
-    localStorage.setItem(STORAGE_STATE,JSON.stringify(state));
-    localStorage.setItem(STORAGE_GPT_SESSIONS,JSON.stringify(gptSessions));
+    writeCoreSnapshot();
   }
+  function writeCoreSnapshot(){StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions})}
   function persistView(){
     localStorage.setItem(STORAGE_VIEW,JSON.stringify({filter,sortMode,excludeStreak,excludeStreakN,pageIndex}));
   }
 
-  function deriveStreak(results){let n=0;for(let i=results.length-1;i>=0&&results[i]===true;i--)n++;return n}
-  function defaultState(){return{studyCount:0,correctCount:0,recentResults:[],currentStreak:0,lastStudiedAt:null}}
-  function normalizeState(raw){
-    const recent=Array.isArray(raw?.recentResults)?raw.recentResults.slice(-MAX_RECENT).map(Boolean):[];
-    return{
-      studyCount:Number(raw?.studyCount||0),correctCount:Number(raw?.correctCount||0),recentResults:recent,
-      currentStreak:Number.isFinite(Number(raw?.currentStreak))?Number(raw.currentStreak):deriveStreak(recent),
-      lastStudiedAt:raw?.lastStudiedAt||null
-    };
-  }
+  const defaultState=StudyCore.defaultState, normalizeState=StudyCore.normalizeState, appendResult=StudyCore.appendResult;
   function getState(id){if(!state[id])state[id]=defaultState();state[id]=normalizeState(state[id]);return state[id]}
   function nonCorrectCount(st){return Math.max(0,(st.studyCount||0)-(st.correctCount||0))}
-  function appendResult(st,value){
-    const correct=!!value;
-    st.recentResults=[...(st.recentResults||[]),correct].slice(-MAX_RECENT);
-    st.currentStreak=correct?(st.currentStreak||0)+1:0;
-  }
   function recentThree(st){
     const arr=(st.recentResults||[]).slice(-3).map(v=>v?"○":"×");
     while(arr.length<3)arr.unshift("·");
@@ -264,25 +253,28 @@
   }
 
   function sessionKey(){return `${filter}:${excludeStreak?excludeStreakN:"off"}:${sortMode}:${pageIndex}`}
-  function saveActiveSession(){
+  function saveActiveSession(touch=false){
     if(!activeSession)return;
-    activeSession.updatedAt=Date.now();activeSession.revealY=revealY;
-    localStorage.setItem(STORAGE_ACTIVE_SESSION,JSON.stringify(activeSession));
+    if(touch)activeSession.updatedAt=Date.now();activeSession.revealY=revealY;
+    writeCoreSnapshot();
   }
-  function finalizeStoredPendingAsWrong(stored){
-    const id=stored?.pendingId;
-    if(!id)return;
-    const finalized=Array.isArray(stored.finalizedIds)?stored.finalizedIds:[];
-    if(!finalized.includes(id))appendResult(getState(id),false);
+  function finalizeStoredSession(stored){
+    if(!stored)return;
+    const session={studiedIds:Array.isArray(stored.studiedIds)?stored.studiedIds:[],checkedIds:Array.isArray(stored.checkedIds)?stored.checkedIds:[],finalizedIds:Array.isArray(stored.finalizedIds)?stored.finalizedIds:[]};
+    StudyCore.finalizeStudySession(session,getState);activeSession=null;
     persistCore();
   }
   function tryRestoreSession(){
-    const stored=loadJson(STORAGE_ACTIVE_SESSION,null);
+    const stored=activeSession||loadJson(STORAGE_ACTIVE_SESSION,null);
     if(!stored)return false;
-    const expired=Date.now()-Number(stored.updatedAt||0)>SESSION_TTL_MS;
-    if(expired){finalizeStoredPendingAsWrong(stored);localStorage.removeItem(STORAGE_ACTIVE_SESSION);return false}
-    if(stored.key!==sessionKey())return false;
+    const expired=StudyCore.sessionExpired(stored,Date.now(),SESSION_TTL_MS);
+    if(expired){finalizeStoredSession(stored);localStorage.removeItem(STORAGE_ACTIVE_SESSION);return false}
+    if(stored.key!==sessionKey()){
+      finalizeStoredSession(stored);localStorage.removeItem(STORAGE_ACTIVE_SESSION);activeSession=null;
+      return false;
+    }
     activeSession={
+      sessionId:stored.sessionId||`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
       key:stored.key,updatedAt:stored.updatedAt,revealY:Number(stored.revealY||0),
       studiedIds:Array.isArray(stored.studiedIds)?stored.studiedIds:[],
       checkedIds:Array.isArray(stored.checkedIds)?stored.checkedIds:[],
@@ -293,38 +285,40 @@
   }
   function startSession(forceNew=false){
     if(!forceNew&&tryRestoreSession())return;
-    activeSession={key:sessionKey(),updatedAt:Date.now(),revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+    activeSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(),updatedAt:Date.now(),revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
     revealY=0;saveActiveSession();
   }
-  function finalizePendingAsWrong(){
-    if(!activeSession?.pendingId)return;
-    const id=activeSession.pendingId;
-    if(!activeSession.finalizedIds.includes(id)){appendResult(getState(id),false);activeSession.finalizedIds.push(id)}
-    activeSession.pendingId=null;
+  function finalizeSessionResults(){
+    if(!activeSession)return;
+    StudyCore.finalizeStudySession(activeSession,getState);activeSession.pendingId=null;
   }
   function finalizeSession(){
     if(!activeSession)return;
-    finalizePendingAsWrong();persistCore();localStorage.removeItem(STORAGE_ACTIVE_SESSION);activeSession=null;
+    finalizeSessionResults();activeSession=null;persistCore();localStorage.removeItem(STORAGE_ACTIVE_SESSION);
   }
 
   function markStudied(id){
     if(!activeSession)startSession();
-    if(activeSession.studiedIds.includes(id))return;
-    finalizePendingAsWrong();
-    const st=getState(id);st.studyCount+=1;st.lastStudiedAt=new Date().toISOString();
-    activeSession.studiedIds.push(id);activeSession.pendingId=id;
-    persistCore();saveActiveSession();
+    const st=getState(id);if(!StudyCore.recordStudy(activeSession,id,st))return;activeSession.pendingId=id;
+    activeSession.updatedAt=Date.now();persistCore();renderCheckboxFor(id);
   }
-  function markCorrect(id){
+  function markAnswer(id,checked){
     if(!activeSession)return;
-    if(!activeSession.studiedIds.includes(id))return;
-    if(activeSession.finalizedIds.includes(id))return;
-    if(activeSession.checkedIds.includes(id))return;
-    const st=getState(id);
-    st.correctCount+=1;appendResult(st,true);
-    activeSession.checkedIds.push(id);activeSession.finalizedIds.push(id);
-    if(activeSession.pendingId===id)activeSession.pendingId=null;
-    persistCore();saveActiveSession();renderRowsOnly();
+    const changed=StudyCore.setSessionAnswer(activeSession,id,checked);
+    if(!changed){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);const cb=row?.querySelector('.check-cell input');if(cb)cb.checked=activeSession.checkedIds.includes(id);return}
+    saveActiveSession(true);
+  }
+
+  function renderCheckboxFor(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(!row)return;const cb=row.querySelector('.check-cell input');if(cb){cb.disabled=false}}
+  function refreshVisibleRows(){
+    const scrollX=window.scrollX,scrollY=window.scrollY;
+    for(const row of els.words.querySelectorAll('.word-row')){
+      const id=row.dataset.id,st=getState(id),cb=row.querySelector('.check-cell input');
+      row.querySelector('.recent').textContent=`直近 ${recentThree(st)}`;
+      row.querySelector('.streak').textContent=`連続 ${st.currentStreak||0}`;
+      if(cb){cb.checked=!!activeSession?.checkedIds?.includes(id);cb.disabled=!activeSession?.studiedIds?.includes(id)||!!activeSession?.finalizedIds?.includes(id)}
+    }
+    window.scrollTo(scrollX,scrollY);
   }
 
   function renderTabs(){
@@ -362,9 +356,9 @@
       cb.checked=!!activeSession?.checkedIds?.includes(w.id);
       const revealed=!!activeSession?.studiedIds?.includes(w.id);
       const finalized=!!activeSession?.finalizedIds?.includes(w.id);
-      cb.disabled=!revealed||finalized&&!cb.checked;
+      cb.disabled=!revealed||finalized;
       cb.setAttribute("aria-label",`${w.word} を今回正答として記録`);
-      cb.addEventListener("change",()=>{if(cb.checked)markCorrect(w.id);else cb.checked=true});
+      cb.addEventListener("change",()=>markAnswer(w.id,cb.checked));
       cc.appendChild(cb);
 
       const mc=document.createElement("div");mc.className="meaning-cell";mc.dataset.id=w.id;
@@ -401,7 +395,7 @@
     els.curtainHandle.style.left=`${g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${g.top+revealY}px`;
     saveActiveSession();
   }
-  function resetCurtain(){revealY=0;positionCurtain()}
+  function resetCurtain(){revealY=0;positionCurtain();saveActiveSession(true)}
 
   function attachCurtainDrag(){
     let dragging=false,startClientY=0,startRevealY=0;
@@ -411,12 +405,11 @@
     });
     els.curtainHandle.addEventListener("pointermove",e=>{
       if(!dragging)return;const g=geometry();if(!g)return;
-      revealY=Math.max(0,Math.min(startRevealY+(e.clientY-startClientY),g.height));positionCurtain();processRevealProgress();e.preventDefault();
+      revealY=Math.max(0,Math.min(startRevealY+(e.clientY-startClientY),g.height));positionCurtain();processRevealProgress();saveActiveSession(true);e.preventDefault();
     });
     const finish=e=>{
-      if(!dragging)return;dragging=false;processRevealProgress();saveActiveSession();
+      if(!dragging)return;dragging=false;processRevealProgress();saveActiveSession(true);
       try{els.curtainHandle.releasePointerCapture(e.pointerId)}catch{}
-      renderRowsOnly();
     };
     els.curtainHandle.addEventListener("pointerup",finish);els.curtainHandle.addEventListener("pointercancel",finish);
   }
@@ -425,7 +418,7 @@
     const current=pageWords();if(!current.length){alert("表示中の単語がありません。");return}
     const sessionId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
     const payload={version:1,sessionId,mode:"en-to-ja",words:current.map(({id,word,meaning})=>({id,word,meaning}))};
-    gptSessions[sessionId]={createdAt:new Date().toISOString(),applied:false};persistCore();
+    gptSessions[sessionId]={createdAt:new Date().toISOString(),applied:false,ids:current.map(w=>String(w.id))};persistCore();
     const url=new URL(location.href);url.search="";url.hash="";
     url.searchParams.set("study",btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
     lastSessionUrl=url.toString();els.sessionUrl.value=lastSessionUrl;els.copySession.disabled=false;
@@ -438,19 +431,12 @@
     els.resultStatus.className="status";
     try{
       const obj=JSON.parse(els.resultJson.value);
-      if(obj.version!==1||!obj.sessionId||!Array.isArray(obj.results))throw new Error("結果JSONの形式が不正です。");
-      if(gptSessions[obj.sessionId]?.applied)throw new Error("このセッション結果はすでに反映済みです。");
-      const known=new Set(words.map(w=>String(w.id))),now=new Date().toISOString();let applied=0;
-      for(const r of obj.results){
-        const id=String(r.id);if(!known.has(id))continue;
-        if(!["correct","wrong","uncertain","skipped"].includes(r.result))throw new Error(`未知のresult: ${r.result}`);
-        if(r.result==="skipped")continue;
-        const st=getState(id);st.studyCount+=1;st.lastStudiedAt=now;
-        if(r.result==="correct"){st.correctCount+=1;appendResult(st,true)}else appendResult(st,false);
-        applied++;
-      }
-      gptSessions[obj.sessionId]={...(gptSessions[obj.sessionId]||{}),applied:true,appliedAt:now};persistCore();render();
-      els.resultStatus.textContent=`${applied}件を反映しました。`;els.resultStatus.className="status good";
+      const draft=StudyCore.prepareGptImport(obj,gptSessions,words.map(w=>w.id),state,activeSession);
+      if(draft.activeSession)draft.activeSession.updatedAt=Date.now();
+      StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions});
+      state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;
+      refreshVisibleRows();
+      els.resultStatus.textContent=`${draft.applied}件を反映しました。`;els.resultStatus.className="status good";
     }catch(err){els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad"}
   }
 
@@ -473,7 +459,7 @@
   els.clearData.addEventListener("click",()=>{
     if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
     words=[];state={};gptSessions={};randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;excludeStreakN=3;pageIndex=0;revealY=0;
-    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_RANDOM_ORDER,STORAGE_VIEW])localStorage.removeItem(key);
+    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW])localStorage.removeItem(key);
     startSession(true);render();
   });
   els.makeSession.addEventListener("click",makeGptSession);
