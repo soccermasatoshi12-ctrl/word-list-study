@@ -63,6 +63,21 @@
     }
     return {pages,total,sortMode};
   }
+  function buildRandomFixedPage(words,state,{pageSize=50,randomIds=[],filter="all",excludeStreak=false,masteryThreshold=3,startIndex=0}={}) {
+    const size=[10,20,50,100].includes(Number(pageSize))?Number(pageSize):50;
+    const rank=new Map(randomIds.map((id,index)=>[String(id),index]));
+    const ordered=words.slice().sort((a,b)=>(rank.get(String(a.id))??Number.MAX_SAFE_INTEGER)-(rank.get(String(b.id))??Number.MAX_SAFE_INTEGER));
+    const requested=Number(startIndex),offset=Number.isFinite(requested)?Math.max(0,Math.floor(requested)):0;
+    const start=Math.min(offset,ordered.length),end=Math.min(start+size,ordered.length);
+    const entries=[];
+    for(let index=start;index<end;index++) {
+      const word=ordered[index],st=state[String(word.id)]||defaultState();
+      if(filter==="hasMiss"&&Math.max(0,(st.studyCount||0)-(st.correctCount||0))<=0)continue;
+      if(excludeStreak&&(st.currentStreak||0)>=masteryThreshold)continue;
+      entries.push({...word,displayNumber:index+1});
+    }
+    return {sortMode:"random",startIndex:start,endIndex:end,total:ordered.length,entries};
+  }
   function safePageIndex(pages,desired=0) {
     if(!pages.length)return 0;
     const index=Math.min(Math.max(0,Math.floor(Number(desired)||0)),pages.length-1);
@@ -219,7 +234,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,normalizeGptSessionRecords,normalizePreferences,buildPageModel,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

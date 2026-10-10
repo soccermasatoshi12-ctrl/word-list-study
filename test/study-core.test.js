@@ -61,6 +61,73 @@ test('random order applies filters first and numbers the remaining words continu
   const empty=C.buildPageModel(words,allMastered,{pageSize:10,sortMode:'random',randomIds,excludeStreak:true,masteryThreshold:2});
   assert.equal(empty.pages.length,0);
 });
+test('fixed random page slices the persisted order before applying filters and keeps numbering gaps', () => {
+  const words='abcdefghijkl'.split('').map(id=>({id})),randomIds=['d','a','f','b','e','c','g','h','i','j','k','l'];
+  const state={d:{currentStreak:3},f:{currentStreak:3},b:{currentStreak:3}};
+  const page=C.buildRandomFixedPage(words,state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:3,startIndex:0});
+  assert.deepEqual([page.startIndex,page.endIndex,page.total],[0,10,12]);
+  assert.deepEqual(page.entries.map(word=>[word.id,word.displayNumber]),[['a',2],['e',5],['c',6],['g',7],['h',8],['i',9],['j',10]]);
+  const next=C.buildRandomFixedPage(words,state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:3,startIndex:10});
+  assert.deepEqual(next.entries.map(word=>[word.id,word.displayNumber]),[['k',11],['l',12]]);
+});
+test('fixed random page applies hasMiss, mastery exclusion, both filters, or neither within its fixed range', () => {
+  const words='abcdefghijkl'.split('').map(id=>({id})),randomIds=['d','a','f','b','e','c','g','h','i','j','k','l'];
+  const clean={studyCount:1,correctCount:1,currentStreak:0};
+  const state={d:{studyCount:1,correctCount:0,currentStreak:0},a:{...clean,currentStreak:3},f:{studyCount:1,correctCount:0,currentStreak:0},b:{studyCount:1,correctCount:0,currentStreak:3},e:clean,c:{studyCount:0,correctCount:0},g:{...clean,currentStreak:3},h:clean,i:clean,j:clean};
+  const options={pageSize:10,randomIds,startIndex:0};
+  const misses=C.buildRandomFixedPage(words,state,{...options,filter:'hasMiss'});
+  assert.deepEqual(misses.entries.map(word=>[word.id,word.displayNumber]),[['d',1],['f',3],['b',4]]);
+  const unmastered=C.buildRandomFixedPage(words,state,{...options,excludeStreak:true,masteryThreshold:3});
+  assert.deepEqual(unmastered.entries.map(word=>[word.id,word.displayNumber]),[['d',1],['f',3],['e',5],['c',6],['h',8],['i',9],['j',10]]);
+  const combined=C.buildRandomFixedPage(words,state,{...options,filter:'hasMiss',excludeStreak:true,masteryThreshold:3});
+  assert.deepEqual(combined.entries.map(word=>[word.id,word.displayNumber]),[['d',1],['f',3]]);
+  const unfiltered=C.buildRandomFixedPage(words,state,options);
+  assert.deepEqual(unfiltered.entries.map(word=>[word.id,word.displayNumber]),randomIds.slice(0,10).map((id,index)=>[id,index+1]));
+  assert.equal(unfiltered.total,12);
+});
+test('fixed random page supports any start offset and page-size changes without moving the start', () => {
+  const words=Array.from({length:120},(_,i)=>({id:String(i+1)}));
+  const randomIds=words.map(word=>word.id).reverse();
+  for(const pageSize of [10,20,50,100]) {
+    const page=C.buildRandomFixedPage(words,{}, {pageSize,randomIds,startIndex:50});
+    assert.equal(page.startIndex,50);
+    assert.equal(page.endIndex,Math.min(50+pageSize,120));
+    assert.equal(page.entries[0].displayNumber,51);
+    assert.equal(page.entries.at(-1).displayNumber,Math.min(50+pageSize,120));
+  }
+  const first=C.buildRandomFixedPage(words,{}, {pageSize:50,randomIds,startIndex:50});
+  const smaller=C.buildRandomFixedPage(words,{}, {pageSize:20,randomIds,startIndex:first.startIndex});
+  const larger=C.buildRandomFixedPage(words,{}, {pageSize:100,randomIds,startIndex:first.startIndex});
+  assert.deepEqual([smaller.entries[0].displayNumber,smaller.entries.at(-1).displayNumber],[51,70]);
+  assert.deepEqual([larger.entries[0].displayNumber,larger.entries.at(-1).displayNumber],[51,120]);
+});
+test('fixed random page keeps a filtered empty range and does not backfill from later words', () => {
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1)})),randomIds=words.map(word=>word.id);
+  const state=Object.fromEntries(words.slice(10,20).map(word=>[word.id,{currentStreak:3}]));
+  const empty=C.buildRandomFixedPage(words,state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:3,startIndex:10});
+  assert.deepEqual([empty.startIndex,empty.endIndex,empty.total,empty.entries.length],[10,20,30,0]);
+  const following=C.buildRandomFixedPage(words,state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:3,startIndex:20});
+  assert.deepEqual(following.entries.map(word=>word.displayNumber),[21,22,23,24,25,26,27,28,29,30]);
+});
+test('fixed random page handles empty, single-word, and short final ranges safely', () => {
+  const empty=C.buildRandomFixedPage([],{}, {pageSize:50,randomIds:[],startIndex:50});
+  assert.deepEqual([empty.startIndex,empty.endIndex,empty.total,empty.entries], [0,0,0,[]]);
+  const one=C.buildRandomFixedPage([{id:'one'}],{}, {pageSize:10,randomIds:['one']});
+  assert.deepEqual([one.startIndex,one.endIndex,one.total,one.entries.map(word=>word.displayNumber)],[0,1,1,[1]]);
+  const words=Array.from({length:51},(_,i)=>({id:String(i+1)}));
+  const last=C.buildRandomFixedPage(words,{}, {pageSize:50,randomIds:words.map(word=>word.id),startIndex:50});
+  assert.deepEqual([last.startIndex,last.endIndex,last.total,last.entries.map(word=>word.displayNumber)],[50,51,51,[51]]);
+  const beyond=C.buildRandomFixedPage(words,{}, {pageSize:50,randomIds:words.map(word=>word.id),startIndex:100});
+  assert.deepEqual([beyond.startIndex,beyond.endIndex,beyond.entries],[51,51,[]]);
+});
+test('existing page-model calls retain normal behavior and the legacy random path', () => {
+  const words=['a','b','c','d'].map(id=>({id})),randomIds=['c','a','b','d'];
+  const legacy=C.buildPageModel(words,{a:{studyCount:1,correctCount:0},b:{studyCount:1,correctCount:0}}, {pageSize:10,sortMode:'random',randomIds,filter:'hasMiss'});
+  assert.deepEqual(legacy.pages[0].entries.map(word=>[word.id,word.displayNumber]),[['a',1],['b',2]]);
+  const normalWords=Array.from({length:11},(_,index)=>({id:String(index+1)}));
+  const normal=C.buildPageModel(normalWords,{}, {pageSize:10});
+  assert.deepEqual(normal.pages.map(page=>page.entries.map(word=>word.displayNumber)),[Array.from({length:10},(_,index)=>index+1),[11]]);
+});
 test('preferences persist, restore, migrate prior mastery threshold, and default safely', () => {
   const store=memoryStorage();
   const value={pageSize:20,masteryThreshold:4};store.setItem('preferences',JSON.stringify(value));
