@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const C = require('../study-core.js');
 
 function memoryStorage(seed={}) {
@@ -9,16 +10,25 @@ function memoryStorage(seed={}) {
 function runRestore(storage,config,now) {
   const snapshot=C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
   const restored=C.tryRestoreSession(snapshot.activeSession,{...config,now,ttl:300000});
-  if(restored)snapshot.activeSession=restored;
+  if(restored)snapshot.activeSession={...restored,targetIds:restored.targetIds||config.currentPageIds.map(String)};
   else {
     const stored=snapshot.activeSession;
     const session={studiedIds:stored?.studiedIds||[],checkedIds:stored?.checkedIds||[],finalizedIds:stored?.finalizedIds||[]};
     C.finalizeStudySession(session,id=>snapshot.state[id]||(snapshot.state[id]=C.defaultState()));
-    snapshot.activeSession={sessionId:'new-session',key:config.currentKey,updatedAt:now,revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[]};
+    snapshot.activeSession={sessionId:'new-session',key:config.currentKey,updatedAt:now,revealY:0,targetIds:config.currentPageIds.map(String),studiedIds:[],checkedIds:[],finalizedIds:[]};
   }
   C.saveCore(storage,'ledger',snapshot);
   return C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
 }
+
+test('filter button handler forwards the selected filter into the view transition', () => {
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const handler=html.match(/document\.querySelectorAll\("\[data-filter\]"\)\.forEach\(btn=>btn\.addEventListener\("click",\(\)=>\{([\s\S]*?)\n  \}\)\);/);
+  assert.ok(handler,'filter button click handler should remain present');
+  assert.match(handler[1],/const next=btn\.dataset\.filter/);
+  assert.match(handler[1],/const view=\{\.\.\.currentView\(\),filter:next\}/);
+  assert.match(handler[1],/restartViewSession\(view\)/);
+});
 
 test('recent history is capped at ten while streak remains exact', () => {
   const s=C.defaultState();
@@ -118,7 +128,17 @@ test('fixed random page handles empty, single-word, and short final ranges safel
   const last=C.buildRandomFixedPage(words,{}, {pageSize:50,randomIds:words.map(word=>word.id),startIndex:50});
   assert.deepEqual([last.startIndex,last.endIndex,last.total,last.entries.map(word=>word.displayNumber)],[50,51,51,[51]]);
   const beyond=C.buildRandomFixedPage(words,{}, {pageSize:50,randomIds:words.map(word=>word.id),startIndex:100});
-  assert.deepEqual([beyond.startIndex,beyond.endIndex,beyond.entries],[51,51,[]]);
+  assert.deepEqual([beyond.startIndex,beyond.endIndex,beyond.entries.map(word=>word.displayNumber)],[50,51,[51]]);
+});
+test('randomStart defaults, clamps invalid values, and round-trips independently from the normal page index', () => {
+  assert.deepEqual([C.normalizeRandomStart(undefined,80),C.normalizeRandomStart(-4,80),C.normalizeRandomStart(2.9,80),C.normalizeRandomStart('bad',80),C.normalizeRandomStart(100,80)],[0,0,2,0,79]);
+  const store=memoryStorage(),view={filter:'hasMiss',sortMode:'random',excludeStreak:true,masteryThreshold:4,pageIndex:7,randomStart:50};
+  store.setItem('view',JSON.stringify(C.serializeView(view)));
+  const restored=C.normalizeView(JSON.parse(store.getItem('view')),120);
+  assert.deepEqual([restored.filter,restored.sortMode,restored.excludeStreak,restored.masteryThreshold,restored.pageIndex,restored.randomStart],['hasMiss','random',true,4,7,50]);
+  assert.equal(C.studySessionKey({...view,pageIndex:1},20),C.studySessionKey({...view,pageIndex:99},20));
+  assert.notEqual(C.studySessionKey(view,20),C.studySessionKey({...view,randomStart:70},20));
+  assert.notEqual(C.studySessionKey({...view,sortMode:'normal',pageIndex:1},20),C.studySessionKey({...view,sortMode:'normal',pageIndex:2},20));
 });
 test('existing page-model calls retain normal behavior and the legacy random path', () => {
   const words=['a','b','c','d'].map(id=>({id})),randomIds=['c','a','b','d'];
@@ -212,14 +232,29 @@ test('repeat study finalizes only pending results, reapplies mastery filter, res
   assert.deepEqual([state.b.studyCount,state.b.correctCount,state.b.recentResults,state.b.currentStreak],[1,2,[true,true],2]);
   const filtered=C.buildPageModel(words,state,{pageSize:50,excludeStreak:true,masteryThreshold:2});
   assert.deepEqual(filtered.pages[0].entries.map(w=>w.id),['a']);
-  const next={sessionId:'repeat-session',key:'all:2:normal:50:0',updatedAt:2000,revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+  const next={sessionId:'repeat-session',key:'all:2:normal:50:0',updatedAt:2000,revealY:0,targetIds:['a'],studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
   const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:next});
   const restoredSnapshot=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
-  const restored=C.tryRestoreSession(restoredSnapshot.activeSession,{now:2001,ttl:300000,currentKey:next.key});
+  const restored=C.tryRestoreSession(restoredSnapshot.activeSession,{now:2001,ttl:300000,currentKey:next.key,currentPageIds:['a']});
   assert.equal(restored.sessionId,'repeat-session');
   assert.deepEqual([restored.revealY,restored.studiedIds,restored.checkedIds,restored.finalizedIds],[0,[],[],[]]);
   assert.equal(C.recordStudy(restored,'a',restoredSnapshot.state.a,'later'),true);
   assert.equal(restoredSnapshot.state.a.studyCount,2);
+});
+test('page transition draft finalizes exposed answers once and retains the random fixed range', () => {
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1)})),randomIds=words.map(word=>word.id);
+  const state=Object.fromEntries(words.map(word=>[word.id,C.defaultState()]));
+  state['11'].studyCount=1;state['11'].currentStreak=2;
+  state['12'].studyCount=1;
+  const active={sessionId:'page-2',targetIds:Array.from({length:10},(_,i)=>String(i+11)),studiedIds:['11','12'],checkedIds:['11'],finalizedIds:[]};
+  const draft=C.finalizeSessionDraft(state,active);
+  assert.deepEqual(state['11'].recentResults,[]);assert.equal(state['12'].recentResults.length,0);
+  assert.deepEqual([draft.state['11'].studyCount,draft.state['11'].correctCount,draft.state['11'].currentStreak],[1,1,3]);
+  assert.deepEqual(draft.state['12'].recentResults,[false]);
+  const again=C.finalizeSessionDraft(draft.state,{...active,finalizedIds:['11','12']});
+  assert.deepEqual(again.state,draft.state);
+  const page=C.buildRandomFixedPage(words,draft.state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:3,startIndex:10});
+  assert.deepEqual([page.startIndex,page.endIndex,page.entries.map(word=>word.id)],[10,20,['12','13','14','15','16','17','18','19','20']]);
 });
 test('unlearned words cannot be checked or included in session finalization', () => {
   const s=C.defaultState(),session={studiedIds:[],checkedIds:[],finalizedIds:[]};
@@ -268,6 +303,27 @@ test('a failed snapshot write leaves the previous committed snapshot intact', ()
   const broken={...store,setItem(){throw new Error('write interrupted')}};
   assert.throws(()=>C.saveCore(broken,'ledger',{state:{a:{studyCount:2}},gptSessions:{},activeSession:null}));
   assert.deepEqual(JSON.parse(store.getItem('ledger')).state,{a:{studyCount:1}});
+});
+test('failed view transition rolls back related keys and can be retried without double finalization', () => {
+  const state={a:C.defaultState()};state.a.studyCount=1;
+  const active={sessionId:'old',targetIds:['a'],studiedIds:['a'],checkedIds:['a'],finalizedIds:[],revealY:40};
+  const oldSnapshot={state,activeSession:active,gptSessions:{},registeredGptSessionIds:[]};
+  const store=memoryStorage({ledger:JSON.stringify(oldSnapshot),view:JSON.stringify({sortMode:'random',randomStart:0}),order:JSON.stringify(['a','b']),words:JSON.stringify([{id:'a'}])});
+  const nextState=JSON.parse(JSON.stringify(state)),nextActive=JSON.parse(JSON.stringify(active));
+  C.finalizeStudySession(nextActive,id=>nextState[id]);
+  const nextSnapshot={state:nextState,activeSession:{sessionId:'new',targetIds:['b'],studiedIds:[],checkedIds:[],finalizedIds:[]},gptSessions:{},registeredGptSessionIds:[]};
+  const writes=[{key:'order',value:JSON.stringify(['b','a'])},{key:'view',value:JSON.stringify({sortMode:'random',randomStart:1})},{key:'words',value:JSON.stringify([{id:'a'},{id:'b'}])}];
+  const broken={getItem:store.getItem,removeItem:store.removeItem,setItem(key,value){if(key==='ledger')throw new Error('quota failure');store.setItem(key,value)}};
+  assert.throws(()=>C.saveCoreTransition(broken,'ledger',nextSnapshot,writes),/quota failure/);
+  assert.equal(store.getItem('view'),JSON.stringify({sortMode:'random',randomStart:0}));
+  assert.equal(store.getItem('order'),JSON.stringify(['a','b']));
+  assert.deepEqual(JSON.parse(store.getItem('ledger')).state,state);
+  assert.deepEqual(state.a.recentResults,[]);
+  C.saveCoreTransition(store,'ledger',nextSnapshot,writes);
+  const saved=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.deepEqual(saved.state.a.recentResults,[true]);assert.equal(saved.state.a.correctCount,1);
+  assert.equal(JSON.parse(store.getItem('view')).randomStart,1);
+  assert.deepEqual(saved.activeSession.targetIds,['b']);
 });
 test('corrupt or incomplete snapshot falls back to legacy migration inputs', () => {
   const legacy={state:{a:{studyCount:4}},gptSessions:{g:{applied:false}},activeSession:null};
@@ -349,8 +405,23 @@ test('legacy restore rejects order mismatch, expired, unreconstructable, and inc
   assert.equal(C.tryRestoreSession(base,{...args,masteryThreshold:4,legacyThreshold:3,excludeStreak:true}),null);
   assert.equal(C.tryRestoreSession({...base,studiedIds:['unknown']},args),null);
   assert.equal(C.tryRestoreSession({...base,revealY:'invalid'},args),null);
-  assert.equal(C.tryRestoreSession({...base,key:args.currentKey},{...args,now:1001}).sessionId,'legacy');
+  assert.equal(C.tryRestoreSession({...base,key:args.currentKey},{...args,now:1001}),null);
+  const current={...base,key:args.currentKey,targetIds:['a','b']};
+  assert.equal(C.tryRestoreSession(current,{...args,now:1001}).sessionId,'legacy');
+  assert.equal(C.tryRestoreSession(current,{...args,now:1001,currentPageIds:['b','a']}),null);
   assert.equal(C.tryRestoreSession({...base,key:'all:off:random:50:1'},args),null);
+});
+test('current random session restoration requires the same saved position and ordered target IDs', () => {
+  const words=['a','b','c','d'].map(id=>({id})),randomIds=['c','a','b','d'];
+  const page=C.buildRandomFixedPage(words,{}, {pageSize:2,randomIds,startIndex:2});
+  const view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:9,randomStart:2};
+  const key=C.studySessionKey(view,2);
+  const session={sessionId:'random-page',key,updatedAt:1000,revealY:42,targetIds:page.entries.map(word=>word.id),viewState:C.serializeView(view),studiedIds:['b'],checkedIds:['b'],finalizedIds:[]};
+  const args={now:1001,ttl:300000,currentKey:key,currentPageIds:['b','d']};
+  assert.equal(C.tryRestoreSession(session,args).sessionId,'random-page');
+  assert.equal(C.tryRestoreSession(session,{...args,currentKey:C.studySessionKey({...view,randomStart:0},2)}),null);
+  assert.equal(C.tryRestoreSession(session,{...args,currentPageIds:['d','b']}),null);
+  assert.equal(C.tryRestoreSession({...session,targetIds:['b','b']},args),null);
 });
 test('expired legacy session is finalized once through snapshot reload and replaced', () => {
   const words=[{id:'a'}],state={a:{...C.defaultState(),studyCount:1}};

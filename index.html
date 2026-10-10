@@ -159,17 +159,23 @@
   let gptSessions=savedCore.gptSessions;
   let registeredGptSessionIds=savedCore.registeredGptSessionIds||[];
   let randomIds=loadJson(STORAGE_RANDOM_ORDER,[]);
-  const savedView=loadJson(STORAGE_VIEW,{});
-  const savedPreferences=loadJson(STORAGE_PREFERENCES,{});
+  const rawSavedView=loadJson(STORAGE_VIEW,{});
+  const rawSavedPreferences=loadJson(STORAGE_PREFERENCES,{});
+  const savedSessionView=savedCore.activeSession?.viewState;
+  const canRecoverSavedSessionView=savedSessionView&& !StudyCore.sessionExpired(savedCore.activeSession,Date.now(),SESSION_TTL_MS);
+  const savedView=canRecoverSavedSessionView?{...rawSavedView,...savedSessionView}:rawSavedView;
+  const savedPreferences=canRecoverSavedSessionView&&savedSessionView.pageSize?{...rawSavedPreferences,pageSize:savedSessionView.pageSize,masteryThreshold:savedSessionView.masteryThreshold}:rawSavedPreferences;
   const PAGE_SIZES=[10,20,50,100], MASTERY_THRESHOLDS=[2,3,4,5];
   const initialPreferences=StudyCore.normalizePreferences(savedPreferences,savedView);
   let pageSize=initialPreferences.pageSize;
 
-  let filter=savedView.filter==="hasMiss"?"hasMiss":"all";
-  let sortMode=savedView.sortMode==="random"?"random":"normal";
-  let excludeStreak=!!savedView.excludeStreak;
+  const normalizedView=StudyCore.normalizeView(savedView,randomIds.length);
+  let filter=normalizedView.filter;
+  let sortMode=normalizedView.sortMode;
+  let excludeStreak=normalizedView.excludeStreak;
   let masteryThreshold=initialPreferences.masteryThreshold;
-  let pageIndex=Math.max(0,Math.floor(Number(savedView.pageIndex)||0));
+  let pageIndex=normalizedView.pageIndex;
+  let randomStart=normalizedView.randomStart;
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession;
 
   const els={
@@ -191,10 +197,12 @@
     writeCoreSnapshot();
   }
   function writeCoreSnapshot(){StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds})}
-  function persistView(){
-    localStorage.setItem(STORAGE_VIEW,JSON.stringify({filter,sortMode,excludeStreak,excludeStreakN:masteryThreshold,pageIndex}));
+  function currentView(){return{filter,sortMode,excludeStreak,excludeStreakN:masteryThreshold,masteryThreshold,pageIndex,randomStart}}
+  function sessionView(view=currentView(),size=pageSize){return{...view,pageSize:size}}
+  function persistView(view=currentView()){
+    localStorage.setItem(STORAGE_VIEW,JSON.stringify(StudyCore.serializeView(view)));
   }
-  function persistPreferences(){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize,masteryThreshold}))}
+  function persistPreferences(size=pageSize,threshold=masteryThreshold){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize:size,masteryThreshold:threshold}))}
   if(savedCore.gptSessionMigrationNeeded){try{writeCoreSnapshot()}catch{}}
 
   const defaultState=StudyCore.defaultState, normalizeState=StudyCore.normalizeState, appendResult=StudyCore.appendResult;
@@ -214,6 +222,7 @@
     const ids=words.map(w=>String(w.id));
     if(!sameIdSet(randomIds,ids)){
       randomIds=[];
+      randomStart=0;
       localStorage.removeItem(STORAGE_RANDOM_ORDER);
       if(sortMode==="random")sortMode="normal";
     }
@@ -229,65 +238,95 @@
   }
 
   function importCsv(text){
-    finalizeSession();
-    const oldIds=words.map(w=>String(w.id));
-    const next=StudyCore.parseWordCsv(text);
-    words=next;for(const w of words)getState(w.id);
-    const newIds=words.map(w=>String(w.id));
-    if(!sameIdSet(oldIds,newIds)){
-      randomIds=[];localStorage.removeItem(STORAGE_RANDOM_ORDER);sortMode="normal";
-    }
-    filter="all";excludeStreak=false;pageIndex=0;revealY=0;activeSession=null;
-    localStorage.removeItem(STORAGE_ACTIVE_SESSION);
-    persistCore();persistView();startSession(true);render();
+    const nextWords=StudyCore.parseWordCsv(text),oldIds=words.map(w=>String(w.id)),newIds=nextWords.map(w=>String(w.id));
+    const idsChanged=!sameIdSet(oldIds,newIds),nextRandomIds=idsChanged?[]:randomIds;
+    const nextView={...currentView(),filter:"all",excludeStreak:false,pageIndex:0,sortMode:idsChanged?"normal":sortMode,randomStart:idsChanged?0:randomStart};
+    const nextState=JSON.parse(JSON.stringify(state));
+    for(const word of nextWords)nextState[word.id]=normalizeState(nextState[word.id]||defaultState());
+    requestViewTransition(nextView,{nextWords,nextState,nextRandomIds,writeWords:true,finalize:true});
   }
 
-  function pageModel(){return StudyCore.buildPageModel(words,state,{pageSize,sortMode,randomIds,filter,excludeStreak,masteryThreshold})}
-  function pageWords(){const model=pageModel(),index=StudyCore.safePageIndex(model.pages,pageIndex);return model.pages[index]?.entries||[]}
+  function buildTarget(view=currentView(),sourceState=state,sourceWords=words,sourceOrder=randomIds,size=pageSize){
+    if(view.sortMode==="random"){
+      const start=StudyCore.normalizeRandomStart(view.randomStart,sourceOrder.length);
+      const page=StudyCore.buildRandomFixedPage(sourceWords,sourceState,{pageSize:size,randomIds:sourceOrder,filter:view.filter,excludeStreak:view.excludeStreak,masteryThreshold:view.masteryThreshold,startIndex:start});
+      return{view:{...view,randomStart:page.startIndex},page,ids:page.entries.map(word=>String(word.id))};
+    }
+    const model=StudyCore.buildPageModel(sourceWords,sourceState,{pageSize:size,sortMode:"normal",filter:view.filter,excludeStreak:view.excludeStreak,masteryThreshold:view.masteryThreshold});
+    const index=StudyCore.safePageIndex(model.pages,view.pageIndex),page=model.pages[index];
+    return{view:{...view,pageIndex:index},page,model,ids:(page?.entries||[]).map(word=>String(word.id))};
+  }
+  function randomTabPages(){
+    const starts=[];
+    for(let start=0;start<randomIds.length;start+=pageSize)starts.push(start);
+    if(randomStart<randomIds.length&&!starts.includes(randomStart))starts.push(randomStart);
+    starts.sort((a,b)=>a-b);
+    return starts.map(start=>{
+      const page=StudyCore.buildRandomFixedPage(words,state,{pageSize,randomIds,filter,excludeStreak,masteryThreshold,startIndex:start});
+      return{...page,index:start,start:page.startIndex+1,end:page.endIndex};
+    });
+  }
+  function pageModel(){
+    if(sortMode==="random")return{pages:randomTabPages(),total:StudyCore.buildPageModel(words,state,{pageSize,sortMode,randomIds,filter,excludeStreak,masteryThreshold}).total,sortMode};
+    return StudyCore.buildPageModel(words,state,{pageSize,sortMode,randomIds,filter,excludeStreak,masteryThreshold});
+  }
+  function currentPage(){
+    if(sortMode==="random")return StudyCore.buildRandomFixedPage(words,state,{pageSize,randomIds,filter,excludeStreak,masteryThreshold,startIndex:randomStart});
+    const model=pageModel(),index=StudyCore.safePageIndex(model.pages,pageIndex);
+    if(index!==pageIndex){pageIndex=index;persistView()}
+    return model.pages[index]||null;
+  }
+  function pageWords(){return currentPage()?.entries||[]}
 
-  function sessionKey(){return `${filter}:${excludeStreak?masteryThreshold:"off"}:${sortMode}:${pageSize}:${pageIndex}`}
+  function sessionKey(view=currentView(),size=pageSize){
+    return StudyCore.studySessionKey(view,size);
+  }
   function saveActiveSession(touch=false){
     if(!activeSession)return;
-    if(touch)activeSession.updatedAt=Date.now();activeSession.revealY=revealY;
+    if(touch)activeSession.updatedAt=Date.now();activeSession.revealY=revealY;activeSession.viewState=sessionView();
     writeCoreSnapshot();
   }
   function finalizeStoredSession(stored){
     if(!stored)return;
     const session={studiedIds:Array.isArray(stored.studiedIds)?stored.studiedIds:[],checkedIds:Array.isArray(stored.checkedIds)?stored.checkedIds:[],finalizedIds:Array.isArray(stored.finalizedIds)?stored.finalizedIds:[]};
-    StudyCore.finalizeStudySession(session,getState);activeSession=null;
-    persistCore();
+    const draft=StudyCore.finalizeSessionDraft(state,session);
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds});
+    state=draft.state;activeSession=null;
   }
   function tryRestoreSession(){
-    const stored=activeSession||loadJson(STORAGE_ACTIVE_SESSION,null);
+    const stored=activeSession;
     if(!stored)return false;
     const legacyThreshold=Math.min(10,Math.max(2,Number(savedView.excludeStreakN||3)));
+    const target=buildTarget();
+    filter=target.view.filter;sortMode=target.view.sortMode;excludeStreak=target.view.excludeStreak;pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
     const legacyKey=`${filter}:${excludeStreak?legacyThreshold:"off"}:${sortMode}:${pageIndex}`;
-    const model=pageModel(),visibleIndex=StudyCore.safePageIndex(model.pages,pageIndex);
-    const currentPageIds=model.pages[visibleIndex]?.entries.map(word=>String(word.id))||[];
     const restored=StudyCore.tryRestoreSession(stored,{
-      now:Date.now(),ttl:SESSION_TTL_MS,currentKey:sessionKey(),legacyKey,filter,sortMode,pageIndex,
-      excludeStreak,masteryThreshold,legacyThreshold,words,state,randomIds,currentPageIds
+      now:Date.now(),ttl:SESSION_TTL_MS,currentKey:sessionKey(target.view),legacyKey,filter,sortMode,pageIndex,
+      excludeStreak,masteryThreshold,legacyThreshold,words,state,randomIds,currentPageIds:target.ids
     });
     if(!restored){
-      finalizeStoredSession(stored);localStorage.removeItem(STORAGE_ACTIVE_SESSION);activeSession=null;
+      finalizeStoredSession(stored);activeSession=null;
       return false;
     }
-    activeSession={
+    const restoredSession={
       sessionId:restored.sessionId||`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
-      key:sessionKey(),updatedAt:restored.updatedAt,revealY:Number(restored.revealY||0),
+      key:sessionKey(target.view),updatedAt:restored.updatedAt,revealY:Number(restored.revealY||0),targetIds:[...target.ids],viewState:sessionView(target.view),
       studiedIds:Array.isArray(restored.studiedIds)?restored.studiedIds:[],
       checkedIds:Array.isArray(restored.checkedIds)?restored.checkedIds:[],
       finalizedIds:Array.isArray(restored.finalizedIds)?restored.finalizedIds:[],
       pendingId:restored.pendingId||null
     };
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession:restoredSession,gptSessions,registeredGptSessionIds});
+    activeSession=restoredSession;
     revealY=activeSession.revealY;return true;
   }
   function startSession(forceNew=false){
     if(!forceNew&&tryRestoreSession())return;
-    const model=pageModel(),safeIndex=StudyCore.safePageIndex(model.pages,pageIndex);
-    if(safeIndex!==pageIndex){pageIndex=safeIndex;persistView()}
-    activeSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(),updatedAt:Date.now(),revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
-    revealY=0;saveActiveSession();
+    const target=buildTarget();pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
+    const nextSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+    persistView(target.view);
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession:nextSession,gptSessions,registeredGptSessionIds});
+    activeSession=nextSession;revealY=0;
   }
   function finalizeSessionResults(){
     if(!activeSession)return;
@@ -295,7 +334,35 @@
   }
   function finalizeSession(){
     if(!activeSession)return;
-    finalizeSessionResults();activeSession=null;persistCore();localStorage.removeItem(STORAGE_ACTIVE_SESSION);
+    const draft=StudyCore.finalizeSessionDraft(state,activeSession);
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds});
+    state=draft.state;activeSession=null;localStorage.removeItem(STORAGE_ACTIVE_SESSION);
+  }
+  function applyView(view,size,threshold){
+    filter=view.filter;sortMode=view.sortMode;excludeStreak=view.excludeStreak;masteryThreshold=threshold;pageIndex=view.pageIndex;randomStart=view.randomStart;pageSize=size;
+  }
+  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,finalize=true,resetCurtain=finalize}={}){
+    let draftState=JSON.parse(JSON.stringify(nextState||state));
+    const priorSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
+    if(finalize&&priorSession)draftState=StudyCore.finalizeSessionDraft(draftState,priorSession).state;
+    let view={...nextView,masteryThreshold:nextThreshold,randomStart:StudyCore.normalizeRandomStart(nextView.randomStart,nextRandomIds.length)};
+    const target=buildTarget(view,draftState,nextWords,nextRandomIds,nextPageSize);view=target.view;
+    const nextSession=finalize||!priorSession
+      ?{sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(view,nextPageSize),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null}
+      :{...priorSession,key:sessionKey(view,nextPageSize),targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),updatedAt:Date.now()};
+    const writes=[];
+    if(writeWords)writes.push({key:STORAGE_WORDS,value:JSON.stringify(nextWords)});
+    if(writeRandomOrder)writes.push({key:STORAGE_RANDOM_ORDER,value:JSON.stringify(nextRandomIds)});
+    if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold})});
+    writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
+    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds},writes);
+    state=draftState;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;applyView(view,nextPageSize,nextThreshold);
+    if(resetCurtain)revealY=0;else revealY=Number(nextSession.revealY||0);
+    render();
+  }
+  function requestViewTransition(view,options){
+    try{transitionView(view,options);return true}
+    catch(error){alert(`保存に失敗したため操作を適用できませんでした。${error.message||error}`);return false}
   }
 
   function markStudied(id){
@@ -326,10 +393,16 @@
     els.tabs.replaceChildren();
     if(!model.pages.length){const b=document.createElement("button");b.textContent="0語";b.disabled=true;els.tabs.appendChild(b);return}
     for(const page of model.pages){
-      const i=page.index,b=document.createElement("button");b.textContent=`${page.start}–${page.end}（残り${page.entries.length}語）`;b.disabled=page.entries.length===0;b.classList.toggle("active",i===pageIndex&&page.entries.length>0);
+      const i=page.index,b=document.createElement("button");b.textContent=`${page.start}–${page.end}（残り${page.entries.length}語）`;b.disabled=sortMode==="random"?false:page.entries.length===0;b.classList.toggle("active",sortMode==="random"?page.startIndex===randomStart:i===pageIndex&&page.entries.length>0);
       b.addEventListener("click",()=>{
-        if(i===pageIndex||b.disabled)return;
-        finalizeSession();pageIndex=i;revealY=0;persistView();startSession(true);render();
+        if(b.disabled)return;
+        if(sortMode==="random"){
+          if(page.startIndex===randomStart)return;
+          requestViewTransition({...currentView(),randomStart:page.startIndex});
+        }else{
+          if(i===pageIndex)return;
+          requestViewTransition({...currentView(),pageIndex:i});
+        }
       });
       els.tabs.appendChild(b);
     }
@@ -367,16 +440,23 @@
   }
 
   function render(){
-    const model=pageModel(),safeIndex=StudyCore.safePageIndex(model.pages,pageIndex);
-    if(safeIndex!==pageIndex){pageIndex=safeIndex;persistView()}
-    const page=model.pages[pageIndex],current=page?.entries||[];
+    const model=pageModel();let page,current;
+    if(sortMode==="random"){
+      page=StudyCore.buildRandomFixedPage(words,state,{pageSize,randomIds,filter,excludeStreak,masteryThreshold,startIndex:randomStart});
+      if(page.startIndex!==randomStart){randomStart=page.startIndex;persistView()}
+      current=page.entries;
+    }else{
+      const safeIndex=StudyCore.safePageIndex(model.pages,pageIndex);
+      if(safeIndex!==pageIndex){pageIndex=safeIndex;persistView()}
+      page=model.pages[pageIndex];current=page?.entries||[];
+    }
     renderTabs(model);renderRowsOnly(current);
     els.repeatStudy.disabled=current.length===0;
-    els.count.textContent=page?`${page.start}–${page.end}範囲 / ${current.length}語（全${model.total}語）`:`0語`;
+    els.count.textContent=page&&!(sortMode==="random"&&page.total===0)?`${sortMode==="random"?page.startIndex+1:page.start}–${sortMode==="random"?page.endIndex:page.end}範囲 / ${current.length}語（全${model.total}語）`:`0語`;
     document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
     els.excludeStreak.checked=excludeStreak;els.masteryRule.textContent=`（連続正答 ${masteryThreshold}回以上）`;
     els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.gptPageSize.textContent=String(pageSize);
-    els.tabHint.textContent=sortMode==="normal"?`通常順: CSV登録順を${pageSize}語ずつ固定範囲に分けてからフィルタします。`:`ランダム順: フィルタ後に保存済み順序で${pageSize}語ずつ表示します。`;
+    els.tabHint.textContent=sortMode==="normal"?`通常順: CSV登録順を${pageSize}語ずつ固定範囲に分けてからフィルタします。`:`ランダム順: 保存済み順序の固定範囲から${pageSize}語ずつ表示します。`;
     els.normalOrder.classList.toggle("active",sortMode==="normal");els.randomOrder.classList.toggle("active",sortMode==="random");
   }
 
@@ -403,10 +483,7 @@
     const action=StudyCore.repeatStudyAction(activeSession,visibleIds);
     if(action==="empty")return;
     if(action==="confirm"&&!confirm("途中までの学習結果を確定して、もう一度学習しますか？"))return;
-    finalizeSession();
-    const model=pageModel();pageIndex=StudyCore.safePageIndex(model.pages,pageIndex);persistView();revealY=0;
-    if(model.pages[pageIndex]?.entries.length)startSession(true);
-    render();
+    requestViewTransition(currentView());
   }
 
   function attachCurtainDrag(){
@@ -459,18 +536,16 @@
     finally{els.resultJson.value=""}
   }
 
-  function restartViewSession(){finalizeSession();pageIndex=0;revealY=0;persistView();startSession(true);render()}
-  function changeDisplaySettings(change){
-    const before=pageModel();
-    change();
-    const model=pageModel(),plan=StudyCore.displayChangePlan(before,model,pageIndex);
-    pageIndex=plan.pageIndex;persistPreferences();persistView();
-    if(plan.targetChanged){
-      finalizeSession();revealY=0;startSession(true);
-    }else if(activeSession){
-      activeSession.key=sessionKey();saveActiveSession(true);
-    }
-    render();
+  function restartViewSession(nextView=currentView()){
+    if(nextView.sortMode==="normal")nextView={...nextView,pageIndex:0};
+    requestViewTransition(nextView);
+  }
+  function changeDisplaySettings(nextPageSize,nextThreshold){
+    const view={...currentView(),masteryThreshold:nextThreshold};
+    const before=buildTarget(currentView(),state,words,randomIds,pageSize).ids;
+    const after=buildTarget(view,state,words,randomIds,nextPageSize).ids;
+    const targetChanged=!StudyCore.sameOrderedIds(before,after);
+    requestViewTransition(view,{nextPageSize,nextThreshold,writePreferences:true,finalize:targetChanged,resetCurtain:targetChanged});
   }
 
   els.openSettings.addEventListener("click",()=>{if(!els.settingsPanel.open)els.settingsPanel.showModal()});
@@ -478,26 +553,33 @@
   els.openGpt.addEventListener("click",()=>{if(!els.gptPanel.open)els.gptPanel.showModal()});
   els.closeGpt.addEventListener("click",()=>els.gptPanel.close());
   document.querySelectorAll("[data-filter]").forEach(btn=>btn.addEventListener("click",()=>{
-    const next=btn.dataset.filter;if(next===filter)return;filter=next;restartViewSession();
+    const next=btn.dataset.filter;if(next===filter)return;const view={...currentView(),filter:next};restartViewSession(view);
   }));
-  els.excludeStreak.addEventListener("change",()=>{excludeStreak=els.excludeStreak.checked;restartViewSession()});
+  els.excludeStreak.addEventListener("change",()=>restartViewSession({...currentView(),excludeStreak:els.excludeStreak.checked}));
   els.pageSize.addEventListener("change",()=>{
     const next=Number(els.pageSize.value);if(!PAGE_SIZES.includes(next)||next===pageSize)return;
-    changeDisplaySettings(()=>{pageSize=next});
+    changeDisplaySettings(next,masteryThreshold);
   });
   els.masteryThreshold.addEventListener("change",()=>{
     const next=Number(els.masteryThreshold.value);if(!MASTERY_THRESHOLDS.includes(next)||next===masteryThreshold)return;
-    changeDisplaySettings(()=>{masteryThreshold=next});
+    changeDisplaySettings(pageSize,next);
   });
   els.resetSettings.addEventListener("click",()=>{
     if(pageSize===50&&masteryThreshold===3)return;
-    changeDisplaySettings(()=>{pageSize=50;masteryThreshold=3});
+    changeDisplaySettings(50,3);
   });
 
-  els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;sortMode="normal";restartViewSession()});
-  els.randomOrder.addEventListener("click",()=>{ensureRandomOrder();if(sortMode==="random"){render();return}sortMode="random";restartViewSession()});
+  els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
+  els.randomOrder.addEventListener("click",()=>{
+    if(sortMode==="random"){render();return}
+    let order=randomIds,writeRandomOrder=false;
+    if(!sameIdSet(order,words.map(word=>String(word.id)))){order=shuffledIds();writeRandomOrder=words.length>0}
+    requestViewTransition({...currentView(),sortMode:"random"},{nextRandomIds:order,writeRandomOrder});
+  });
   els.reshuffle.addEventListener("click",()=>{
-    finalizeSession();randomIds=shuffledIds();localStorage.setItem(STORAGE_RANDOM_ORDER,JSON.stringify(randomIds));sortMode="random";pageIndex=0;revealY=0;persistView();startSession(true);render();
+    const visibleIds=pageWords().map(word=>String(word.id));
+    if(StudyCore.repeatStudyAction(activeSession,visibleIds)==="confirm"&&!confirm("途中までの学習結果を確定して、再シャッフルしますか？"))return;
+    const order=shuffledIds();requestViewTransition({...currentView(),sortMode:"random",randomStart:0},{nextRandomIds:order,writeRandomOrder:true});
   });
 
   els.csvFile.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{importCsv(await file.text())}catch(err){alert(err.message||String(err))}e.target.value=""});
@@ -505,7 +587,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
-    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=50;masteryThreshold=3;pageIndex=0;revealY=0;
+    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=50;masteryThreshold=3;pageIndex=0;randomStart=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES])localStorage.removeItem(key);
     startSession(true);render();
   });

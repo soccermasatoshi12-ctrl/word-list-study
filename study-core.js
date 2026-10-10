@@ -34,6 +34,21 @@
     storage.setItem(snapshotKey,JSON.stringify({state:snapshot.state,gptSessions:normalized.gptSessions,
       registeredGptSessionIds:normalized.registeredGptSessionIds,activeSession:snapshot.activeSession}));
   }
+  function saveCoreTransition(storage,snapshotKey,snapshot,writes=[]) {
+    const backup=writes.map(write=>({key:write.key,value:storage.getItem(write.key)}));
+    try {
+      for(const write of writes) {
+        if(write.remove)storage.removeItem(write.key);
+        else storage.setItem(write.key,String(write.value));
+      }
+      saveCore(storage,snapshotKey,snapshot);
+    } catch(error) {
+      const rollbackErrors=[];
+      for(const prior of backup.reverse())try{if(prior.value===null)storage.removeItem(prior.key);else storage.setItem(prior.key,prior.value)}catch(rollbackError){rollbackErrors.push(rollbackError)}
+      if(rollbackErrors.length)error.message=`${error.message} (関連キーの復元にも失敗しました: ${rollbackErrors.map(e=>e.message).join("; ")})`;
+      throw error;
+    }
+  }
   function normalizePreferences(raw={},legacyView={}) {
     const pageSize=[10,20,50,100].includes(Number(raw.pageSize))?Number(raw.pageSize):50;
     const storedThreshold=Number(raw.masteryThreshold),oldThreshold=Number(legacyView.excludeStreakN||3);
@@ -67,8 +82,7 @@
     const size=[10,20,50,100].includes(Number(pageSize))?Number(pageSize):50;
     const rank=new Map(randomIds.map((id,index)=>[String(id),index]));
     const ordered=words.slice().sort((a,b)=>(rank.get(String(a.id))??Number.MAX_SAFE_INTEGER)-(rank.get(String(b.id))??Number.MAX_SAFE_INTEGER));
-    const requested=Number(startIndex),offset=Number.isFinite(requested)?Math.max(0,Math.floor(requested)):0;
-    const start=Math.min(offset,ordered.length),end=Math.min(start+size,ordered.length);
+    const start=normalizeRandomStart(startIndex,ordered.length),end=Math.min(start+size,ordered.length);
     const entries=[];
     for(let index=start;index<end;index++) {
       const word=ordered[index],st=state[String(word.id)]||defaultState();
@@ -77,6 +91,29 @@
       entries.push({...word,displayNumber:index+1});
     }
     return {sortMode:"random",startIndex:start,endIndex:end,total:ordered.length,entries};
+  }
+  function normalizeRandomStart(value,total) {
+    const length=Number.isFinite(Number(total))?Math.max(0,Math.floor(Number(total))):0;
+    const requested=Number(value),offset=Number.isFinite(requested)?Math.max(0,Math.floor(requested)):0;
+    return Math.min(offset,length?length-1:0);
+  }
+  function normalizeView(raw={},randomTotal=0) {
+    const threshold=Number(raw.masteryThreshold??raw.excludeStreakN),page=Number(raw.pageIndex);
+    return{filter:raw.filter==="hasMiss"?"hasMiss":"all",sortMode:raw.sortMode==="random"?"random":"normal",
+      excludeStreak:!!raw.excludeStreak,masteryThreshold:[2,3,4,5].includes(threshold)?threshold:3,
+      pageIndex:Number.isFinite(page)?Math.max(0,Math.floor(page)):0,randomStart:normalizeRandomStart(raw.randomStart,randomTotal)};
+  }
+  function serializeView(view={}) {
+    const normalized=normalizeView(view,Number.MAX_SAFE_INTEGER);
+    return{filter:normalized.filter,sortMode:normalized.sortMode,excludeStreak:normalized.excludeStreak,
+      excludeStreakN:normalized.masteryThreshold,pageIndex:normalized.pageIndex,randomStart:normalized.randomStart};
+  }
+  function studySessionKey(view,pageSize) {
+    const position=view.sortMode==="random"?`random:${view.randomStart}`:`normal:${view.pageIndex}`;
+    return`${view.filter}:${view.excludeStreak?view.masteryThreshold:"off"}:${view.sortMode}:${pageSize}:${position}`;
+  }
+  function sameOrderedIds(left,right) {
+    return Array.isArray(left)&&Array.isArray(right)&&left.length===right.length&&left.every((id,index)=>String(id)===String(right[index]));
   }
   function safePageIndex(pages,desired=0) {
     if(!pages.length)return 0;
@@ -87,9 +124,21 @@
   }
   function tryRestoreSession(stored,{now,ttl,currentKey,legacyKey,filter="all",sortMode="normal",pageIndex=0,excludeStreak=false,masteryThreshold=3,legacyThreshold=3,words=[],state={},randomIds=[],currentPageIds=[]}={}) {
     if(sessionExpired(stored,now,ttl))return null;
+    if(typeof stored?.sessionId!=="string"||!stored.sessionId||!Number.isFinite(Number(stored.updatedAt))||!Number.isFinite(Number(stored.revealY||0)))return null;
+    const visibleIds=currentPageIds.map(String);
+    if(new Set(visibleIds).size!==visibleIds.length)return null;
+    if(Array.isArray(stored?.targetIds)) {
+      if(new Set(stored.targetIds.map(String)).size!==stored.targetIds.length)return null;
+      if(!sameOrderedIds(stored.targetIds,visibleIds))return null;
+    } else if(stored?.key===currentKey)return null;
+    const studied=stored?.studiedIds,checked=stored?.checkedIds,finalized=stored?.finalizedIds;
+    if(!Array.isArray(studied)||!Array.isArray(checked)||!Array.isArray(finalized))return null;
+    const target=new Set(visibleIds),known=id=>target.has(String(id));
+    if(studied.some(id=>!known(id))||checked.some(id=>!known(id))||finalized.some(id=>!known(id)))return null;
+    if(new Set(studied.map(String)).size!==studied.length||new Set(checked.map(String)).size!==checked.length||new Set(finalized.map(String)).size!==finalized.length)return null;
+    if(checked.some(id=>!studied.map(String).includes(String(id)))||finalized.some(id=>!studied.map(String).includes(String(id))))return null;
     if(stored?.key===currentKey)return {...stored};
     if(stored?.key!==legacyKey)return null;
-    if(typeof stored.sessionId!=="string"||!stored.sessionId||!Number.isFinite(Number(stored.updatedAt))||!Number.isFinite(Number(stored.revealY||0)))return null;
     if(excludeStreak&&Number(masteryThreshold)!==Number(legacyThreshold))return null;
 
     let legacyWords=words.filter(word=>{
@@ -107,15 +156,7 @@
     const oldIndex=Number(pageIndex);
     if(!Number.isInteger(oldIndex)||oldIndex<0)return null;
     const legacyIds=legacyWords.slice(oldIndex*50,(oldIndex+1)*50).map(word=>String(word.id));
-    const visibleIds=currentPageIds.map(String);
     if(legacyIds.length!==visibleIds.length||legacyIds.some((id,index)=>id!==visibleIds[index]))return null;
-
-    const studied=stored.studiedIds,checked=stored.checkedIds,finalized=stored.finalizedIds;
-    if(!Array.isArray(studied)||!Array.isArray(checked)||!Array.isArray(finalized))return null;
-    const target=new Set(legacyIds),known=id=>target.has(String(id));
-    if(studied.some(id=>!known(id))||checked.some(id=>!known(id))||finalized.some(id=>!known(id)))return null;
-    if(new Set(studied.map(String)).size!==studied.length||new Set(checked.map(String)).size!==checked.length||new Set(finalized.map(String)).size!==finalized.length)return null;
-    if(checked.some(id=>!studied.map(String).includes(String(id)))||finalized.some(id=>!studied.map(String).includes(String(id))))return null;
 
     return {...stored,key:currentKey,studiedIds:[...studied],checkedIds:[...checked],finalizedIds:[...finalized]};
   }
@@ -182,6 +223,11 @@
       appendResult(st,correct); session.finalizedIds.push(id);
     }
   }
+  function finalizeSessionDraft(state,session) {
+    const nextState=JSON.parse(JSON.stringify(state||{})),nextSession=session?JSON.parse(JSON.stringify(session)):null;
+    if(nextSession)finalizeStudySession(nextSession,id=>nextState[id]=normalizeState(nextState[id]||defaultState()));
+    return{state:nextState,activeSession:null,finalizedIds:nextSession?.finalizedIds||[]};
+  }
   function sessionExpired(session, now, ttl) { return now-Number(session?.updatedAt||0)>ttl; }
   function inspectGptResults(obj, sessions, registeredIds, knownIds) {
     if(obj.version!==1||typeof obj.sessionId!=="string"||!obj.sessionId||!Array.isArray(obj.results)) throw new Error("結果JSONの形式が不正です。");
@@ -234,7 +280,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
