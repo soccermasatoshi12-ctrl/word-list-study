@@ -170,26 +170,27 @@ test('GPT validation rejects invalid batches before caller applies any result', 
   for(const obj of invalid) assert.throws(()=>C.validateGptResults(obj,record,['a','b']));
   assert.deepEqual(record,{ids:['a','b'],applied:false});
 });
-test('GPT validation requires issued, unapplied session and preserves skipped', () => {
+test('GPT validation requires an issued pending session and preserves skipped', () => {
   const rec={ids:['a','b'],applied:false};
   assert.deepEqual(C.validateGptResults({version:1,sessionId:'s',results:[{id:'a',result:'skipped'}]},rec,['a','b']),[{id:'a',result:'skipped'}]);
   assert.throws(()=>C.validateGptResults({version:1,sessionId:'z',results:[]},null,['a']));
   assert.throws(()=>C.validateGptResults({version:1,sessionId:'s',results:[]},{...rec,applied:true},['a','b']));
+  assert.deepEqual(C.inspectGptResults({version:1,sessionId:'s',results:[{id:'a',result:'correct'}]},{},['s'],['a']).isReplay,true);
 });
 test('legacy individual keys migrate when no integrated snapshot exists', () => {
   const legacy={state:{a:{studyCount:3}},gptSessions:{g:{applied:false}},active:{key:'all',updatedAt:50,studiedIds:['a'],checkedIds:[],finalizedIds:[],revealY:80}};
   const store=memoryStorage({oldState:JSON.stringify(legacy.state),oldGpt:JSON.stringify(legacy.gptSessions),oldActive:JSON.stringify(legacy.active)});
   const loaded=C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'});
-  assert.deepEqual(loaded,{state:legacy.state,gptSessions:legacy.gptSessions,activeSession:legacy.active});
+  assert.deepEqual(loaded,{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:legacy.active});
   C.saveCore(store,'ledger',loaded);
-  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),loaded);
+  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:legacy.active});
 });
 test('integrated snapshot wins over stale legacy keys and preserves session progress', () => {
   const store=memoryStorage({oldState:JSON.stringify({a:{studyCount:90}}),oldGpt:JSON.stringify({old:{applied:false}}),oldActive:'null'});
   const snapshot={state:{a:{studyCount:2,correctCount:1,recentResults:[true],currentStreak:1}},gptSessions:{g:{ids:['a'],applied:false}},activeSession:{key:'all:off:normal:0',updatedAt:100,revealY:140,studiedIds:['a'],checkedIds:['a'],finalizedIds:['a']}};
   C.saveCore(store,'ledger',snapshot);
   const loaded=C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'});
-  assert.deepEqual(loaded,snapshot);
+  assert.deepEqual(loaded,{state:snapshot.state,gptSessions:{g:{createdAt:null,ids:['a']}},registeredGptSessionIds:[],activeSession:snapshot.activeSession});
   const st=loaded.state.a, session=loaded.activeSession;
   assert.equal(C.recordStudy(session,'a',st),false);
   assert.equal(C.setSessionAnswer(session,'a',true),false);
@@ -205,9 +206,9 @@ test('corrupt or incomplete snapshot falls back to legacy migration inputs', () 
   const legacy={state:{a:{studyCount:4}},gptSessions:{g:{applied:false}},activeSession:null};
   const seed={ledger:'{"state":{"a":{"studyCount":99}}',oldState:JSON.stringify(legacy.state),oldGpt:JSON.stringify(legacy.gptSessions),oldActive:'null'};
   const store=memoryStorage(seed);
-  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),legacy);
+  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:null});
   store.setItem('ledger',JSON.stringify({state:{a:{studyCount:99}},gptSessions:{}}));
-  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),legacy);
+  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:null});
 });
 test('five minute reload restores pending state; expiry finalizes it exactly once', () => {
   const s={sessionId:'s1',updatedAt:1000,revealY:75,studiedIds:['a','b'],checkedIds:['a'],finalizedIds:['b']};
@@ -298,21 +299,24 @@ test('expired legacy session is finalized once through snapshot reload and repla
 });
 test('GPT application persists outcomes and replay is rejected after reload', () => {
   const store=memoryStorage(), state={a:C.defaultState(),b:C.defaultState(),c:C.defaultState(),d:C.defaultState()};
-  const sessions={s:{ids:['a','b','c','d'],applied:false}};
+  const sessions={s:{ids:['a','b','c','d'],createdAt:'issued'}};const registered=[];
   const obj={version:1,sessionId:'s',results:[{id:'a',result:'correct'},{id:'b',result:'wrong'},{id:'c',result:'uncertain'},{id:'d',result:'skipped'}]};
-  assert.equal(C.applyGptResults(obj,sessions,['a','b','c','d'],state,'2026-01-01T00:00:00Z'),3);
-  C.saveCore(store,'ledger',{state,gptSessions:sessions,activeSession:null});
+  assert.equal(C.applyGptResults(obj,sessions,['a','b','c','d'],state,'2026-01-01T00:00:00Z',null,undefined,registered),3);
+  assert.deepEqual(sessions,{});assert.deepEqual(registered,['s']);
+  C.saveCore(store,'ledger',{state,gptSessions:sessions,registeredGptSessionIds:registered,activeSession:null});
   const restored=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
   assert.deepEqual(restored.state.a.recentResults,[true]); assert.equal(restored.state.a.correctCount,1);
   assert.deepEqual(restored.state.b.recentResults,[false]); assert.deepEqual(restored.state.c.recentResults,[false]);
-  assert.equal(restored.state.d.studyCount,0); assert.equal(restored.gptSessions.s.applied,true);
-  assert.throws(()=>C.applyGptResults(obj,restored.gptSessions,['a','b','c','d'],restored.state));
+  assert.equal(restored.state.d.studyCount,0);assert.deepEqual(restored.gptSessions,{});assert.deepEqual(restored.registeredGptSessionIds,['s']);
+  assert.throws(()=>C.prepareGptImport(obj,restored.gptSessions,['a','b','c','d'],restored.state,null,undefined,restored.registeredGptSessionIds),{code:'GPT_REPLAY_CONFIRMATION_REQUIRED'});
+  const replay=C.prepareGptImport(obj,restored.gptSessions,['a','b','c','d'],restored.state,null,undefined,restored.registeredGptSessionIds,true);
+  assert.deepEqual(replay.registeredGptSessionIds,['s']);assert.equal(replay.state.a.correctCount,2);
 });
 test('GPT import does not prematurely commit or overwrite an active app answer', () => {
   const state={a:C.defaultState()}, active={studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
   state.a.studyCount=1;
-  const sessions={g:{ids:['a'],applied:false}};
-  C.applyGptResults({version:1,sessionId:'g',results:[{id:'a',result:'wrong'}]},sessions,['a'],state,'2026-01-01T00:00:00Z',active,id=>state[id]);
+  const sessions={g:{ids:['a']}},registered=[];
+  C.applyGptResults({version:1,sessionId:'g',results:[{id:'a',result:'wrong'}]},sessions,['a'],state,'2026-01-01T00:00:00Z',active,id=>state[id],registered);
   assert.deepEqual(state.a.recentResults,[true,false]);
   assert.deepEqual([state.a.studyCount,state.a.correctCount,active.studiedIds,active.checkedIds,active.finalizedIds],[2,1,['a'],['a'],['a']]);
   assert.equal(C.setSessionAnswer(active,'a',false),false);
@@ -321,16 +325,16 @@ test('successful GPT import partially finalizes input and leaves session open fo
   const state={a:C.defaultState(),b:C.defaultState(),c:C.defaultState()};
   const active={sessionId:'app',key:'all:off:normal:0',updatedAt:10,revealY:90,studiedIds:['a','b'],checkedIds:['a'],finalizedIds:[]};
   state.a.studyCount=1;state.b.studyCount=1;
-  const sessions={g1:{ids:['a'],applied:false},g2:{ids:['c'],applied:false}};
+  const sessions={g1:{ids:['a']},g2:{ids:['c']}},registered=[];
   const store=memoryStorage();
-  C.applyGptResults({version:1,sessionId:'g1',results:[{id:'a',result:'wrong'}]},sessions,['a','b','c'],state,'2026-01-01T00:00:00Z',active,id=>state[id]);
-  C.saveCore(store,'ledger',{state,gptSessions:sessions,activeSession:active});
+  C.applyGptResults({version:1,sessionId:'g1',results:[{id:'a',result:'wrong'}]},sessions,['a','b','c'],state,'2026-01-01T00:00:00Z',active,id=>state[id],registered);
+  C.saveCore(store,'ledger',{state,gptSessions:sessions,registeredGptSessionIds:registered,activeSession:active});
   assert.deepEqual([state.a.recentResults,state.b.recentResults],[ [true,false],[false] ]);
   assert.deepEqual([active.studiedIds,active.checkedIds,active.finalizedIds,active.revealY], [['a','b'],['a'],['a','b'],90]);
   assert.equal(C.recordStudy(active,'a',state.a,'later'),false);
   assert.equal(C.recordStudy(active,'c',state.c,'later'),true);
   C.setSessionAnswer(active,'c',true);
-  C.applyGptResults({version:1,sessionId:'g2',results:[{id:'c',result:'wrong'}]},sessions,['a','b','c'],state,'2026-01-01T00:01:00Z',active,id=>state[id]);
+  C.applyGptResults({version:1,sessionId:'g2',results:[{id:'c',result:'wrong'}]},sessions,['a','b','c'],state,'2026-01-01T00:01:00Z',active,id=>state[id],registered);
   assert.deepEqual([state.a.recentResults,state.b.recentResults,state.c.recentResults], [[true,false],[false],[true,false]]);
   assert.equal(active.studiedIds.length,3);assert.equal(active.finalizedIds.length,3);
   assert.equal(C.setSessionAnswer(active,'c',false),false);
@@ -349,17 +353,17 @@ test('GPT import draft commits app answers and GPT outcome in one snapshot write
   const active={sessionId:'app',updatedAt:1,revealY:40,studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
   state.a.studyCount=1;
   const before=JSON.stringify({state,sessions,active});
-  const draft=C.prepareGptImport({version:1,sessionId:'g',results:[{id:'a',result:'wrong'}]},sessions,['a'],state,active,'2026-01-01T00:00:00Z');
+  const draft=C.prepareGptImport({version:1,sessionId:'g',results:[{id:'a',result:'wrong'}]},sessions,['a'],state,active,'2026-01-01T00:00:00Z',[]);
   assert.equal(JSON.stringify({state,sessions,active}),before);
   const store=memoryStorage({ledger:JSON.stringify({state:{a:C.defaultState()},gptSessions:{},activeSession:null})});
   const broken={...store,setItem(){throw new Error('write failed')}};
-  assert.throws(()=>C.saveCore(broken,'ledger',{state:draft.state,gptSessions:draft.gptSessions,activeSession:draft.activeSession}));
+  assert.throws(()=>C.saveCore(broken,'ledger',{state:draft.state,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,activeSession:draft.activeSession}));
   assert.equal(JSON.stringify({state,sessions,active}),before);
-  C.saveCore(store,'ledger',{state:draft.state,gptSessions:draft.gptSessions,activeSession:draft.activeSession});
+  C.saveCore(store,'ledger',{state:draft.state,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,activeSession:draft.activeSession});
   const saved=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
   assert.deepEqual(saved.state.a.recentResults,[true,false]);
   assert.deepEqual(saved.activeSession.finalizedIds,['a']);
-  assert.equal(saved.gptSessions.g.applied,true);
+  assert.deepEqual(saved.gptSessions,{});assert.deepEqual(saved.registeredGptSessionIds,['g']);
 });
 test('invalid GPT JSON batches are atomic, including malformed JSON at caller boundary', () => {
   const state={a:C.defaultState(),b:C.defaultState()}, sessions={s:{ids:['a','b'],applied:false}};
@@ -375,4 +379,70 @@ test('invalid GPT JSON batches are atomic, including malformed JSON at caller bo
   assert.equal(JSON.stringify({state,sessions,active}),before);
   assert.throws(()=>JSON.parse('{bad json'));
   assert.equal(JSON.stringify({state,sessions,active}),before);
+});
+
+test('GPT payload carries a JSON-only result contract and string word IDs', () => {
+  const payload=C.makeGptPayload('issued-id',[{id:17,word:'word',meaning:'意味'}]);
+  assert.equal(payload.version,1);assert.equal(payload.sessionId,'issued-id');
+  assert.deepEqual(payload.words,[{id:'17',word:'word',meaning:'意味'}]);
+  assert.match(payload.outputInstructions,/JSONのみ/);assert.match(payload.outputInstructions,/correct、wrong、uncertain、skipped/);
+  assert.match(payload.outputInstructions,/重複させない/);
+});
+
+test('legacy pending and applied GPT records migrate without changing study history and persist on reload', () => {
+  const state={a:{...C.defaultState(),studyCount:4,correctCount:2,recentResults:[true,false],currentStreak:0}};
+  const oldRecords={pending:{createdAt:'issued-time',applied:false,ids:['a','b']},done:{createdAt:'old-time',applied:true,ids:['a']}};
+  const store=memoryStorage({oldState:JSON.stringify(state),oldGpt:JSON.stringify(oldRecords),oldActive:'null'});
+  const before=JSON.stringify(state),keys={stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'};
+  const loaded=C.loadCore(store,'ledger',keys);
+  assert.deepEqual(loaded.gptSessions,{pending:{createdAt:'issued-time',ids:['a','b']}});
+  assert.deepEqual(loaded.registeredGptSessionIds,['done']);assert.equal(JSON.stringify(loaded.state),before);
+  assert.equal(loaded.gptSessionMigrationNeeded,true);
+  C.saveCore(store,'ledger',loaded);
+  const restored=C.loadCore(store,'ledger',keys);
+  assert.deepEqual(restored.gptSessions,loaded.gptSessions);assert.deepEqual(restored.registeredGptSessionIds,['done']);
+  assert.equal(restored.gptSessionMigrationNeeded,false);assert.equal(JSON.stringify(restored.state),before);
+});
+
+test('initial all-skipped import moves the issue record to a unique registered ID without history changes', () => {
+  const state={a:C.defaultState(),b:C.defaultState()},sessions={s:{createdAt:'t',ids:['a','b']}},registered=[];
+  const result=C.prepareGptImport({version:1,sessionId:'s',results:[{id:'a',result:'skipped'},{id:'b',result:'skipped'}]},sessions,['a','b'],state,null,undefined,registered);
+  assert.deepEqual(result.gptSessions,{});assert.deepEqual(result.registeredGptSessionIds,['s']);
+  assert.deepEqual(result.state,state);assert.deepEqual(sessions,{s:{createdAt:'t',ids:['a','b']}});assert.deepEqual(registered,[]);
+  const store=memoryStorage();C.saveCore(store,'ledger',{...result,activeSession:null});
+  const loaded=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.deepEqual(loaded.registeredGptSessionIds,['s']);assert.deepEqual(loaded.gptSessions,{});
+});
+
+test('registered ID replay validates current IDs/results and retains one marker after confirmation', () => {
+  const registered=['used'],sessions={},known=['a','b'];
+  assert.throws(()=>C.inspectGptResults({version:1,sessionId:'never',results:[]},sessions,registered,known),/発行済み/);
+  for(const results of [
+    [{id:'gone',result:'correct'}],
+    [{id:'a',result:'correct'},{id:'a',result:'wrong'}],
+    [{id:'a',result:'unknown'}],
+    [{id:1,result:'correct'}]
+  ]) assert.throws(()=>C.inspectGptResults({version:1,sessionId:'used',results},sessions,registered,known));
+  const state={a:C.defaultState()},before=JSON.stringify(state);
+  const replay={version:1,sessionId:'used',results:[{id:'a',result:'correct'}]};
+  assert.throws(()=>C.prepareGptImport(replay,sessions,known,state,null,undefined,registered),{code:'GPT_REPLAY_CONFIRMATION_REQUIRED'});
+  assert.equal(JSON.stringify(state),before);assert.deepEqual(registered,['used']);
+  const confirmed=C.prepareGptImport(replay,sessions,known,state,null,undefined,registered,true);
+  assert.equal(confirmed.state.a.correctCount,1);assert.deepEqual(confirmed.registeredGptSessionIds,['used']);
+  const again=C.prepareGptImport(replay,confirmed.gptSessions,known,confirmed.state,null,undefined,confirmed.registeredGptSessionIds,true);
+  assert.deepEqual(again.registeredGptSessionIds,['used']);assert.equal(again.state.a.correctCount,2);
+});
+
+test('failed first-import snapshot write leaves memory inputs and prior durable state unchanged', () => {
+  const state={a:C.defaultState()},sessions={s:{createdAt:'t',ids:['a']}},registered=[],active=null;
+  state.a.studyCount=1;
+  const appSession={sessionId:'app',studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
+  const result=C.prepareGptImport({version:1,sessionId:'s',results:[{id:'a',result:'wrong'}]},sessions,['a'],state,appSession,'now',registered);
+  const store=memoryStorage({ledger:JSON.stringify({state,gptSessions:sessions,registeredGptSessionIds:registered,activeSession:appSession})});
+  const broken={...store,setItem(){throw new Error('quota/write failure')}};
+  assert.throws(()=>C.saveCore(broken,'ledger',{state:result.state,gptSessions:result.gptSessions,registeredGptSessionIds:result.registeredGptSessionIds,activeSession:result.activeSession}));
+  assert.deepEqual(state.a.recentResults,[]);assert.deepEqual(sessions,{s:{createdAt:'t',ids:['a']}});assert.deepEqual(registered,[]);
+  const durable=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.deepEqual(durable.state.a.recentResults,[]);assert.deepEqual(durable.gptSessions,sessions);assert.deepEqual(durable.registeredGptSessionIds,[]);
+  assert.deepEqual(durable.activeSession.finalizedIds,[]);
 });

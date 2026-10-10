@@ -42,6 +42,10 @@
     .meaning-text{position:absolute;inset:0;display:flex;align-items:center;padding:8px 10px;word-break:break-word}
     .empty-state{padding:18px;text-align:center;color:var(--muted)}
     [hidden]{display:none!important}
+    dialog.modal{width:min(760px,calc(100vw - 24px));max-height:min(90dvh,900px);margin:auto;padding:0;border:0;border-radius:14px;background:transparent;color:var(--text);overflow:auto}
+    dialog.modal::backdrop{background:rgba(15,23,42,.52)}
+    dialog.modal>.panel{margin:0;border-radius:14px;overflow-wrap:anywhere}
+    dialog.modal input[type="text"]{max-width:100%;min-width:0;overflow-wrap:anywhere}
     .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
     .curtain-handle{position:absolute;z-index:21;height:34px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;user-select:none}.curtain-handle.hidden{display:none}
     .curtain-handle::before{content:"";width:58px;height:5px;border-radius:999px;background:#7d848d;box-shadow:0 0 0 6px rgba(223,227,232,.95)}
@@ -58,6 +62,7 @@
   <div class="panel">
     <div class="row">
       <button id="openSettings">設定</button>
+      <button id="openGpt">GPT学習</button>
       <button id="resetCurtain">最初に戻す</button>
       <button id="repeatStudy" disabled>もう一度学習</button>
       <span id="count" class="count">0語</span>
@@ -65,8 +70,9 @@
     <div class="hint">CSV形式: <code>id,word,meaning</code>。同じidなら再読込しても学習履歴を引き継ぎます。</div>
   </div>
 
-  <div id="settingsPanel" class="panel" hidden>
-    <div class="row"><strong>設定</strong><button id="closeSettings">閉じる</button></div>
+  <dialog id="settingsPanel" class="modal" aria-labelledby="settingsTitle">
+  <div class="panel">
+    <div class="row"><strong id="settingsTitle">設定</strong><button id="closeSettings">閉じる</button></div>
     <div class="row" style="margin-top:8px">
       <label>タブあたり
         <select id="pageSize" aria-label="タブあたりの表示語数">
@@ -84,6 +90,7 @@
     </div>
     <div class="hint">設定の初期化では学習履歴は消去されません。</div>
   </div>
+  </dialog>
 
   <div class="panel filters">
     <div class="row">
@@ -117,20 +124,20 @@
     <div id="curtainHandle" class="curtain-handle hidden" aria-label="意味カバーを上下に動かす"></div>
   </div>
 
-  <div class="panel" style="margin-top:10px">
-    <div class="row">
-      <button id="makeSession" class="primary">このタブをGPT用URLにする</button>
-      <button id="copySession" disabled>URLをコピー</button>
+  <dialog id="gptPanel" class="modal" aria-labelledby="gptTitle">
+    <div class="panel">
+      <div class="row"><strong id="gptTitle">GPT学習</strong><button id="closeGpt">閉じる</button></div>
+      <div class="row" style="margin-top:8px">
+        <button id="makeSession" class="primary">このタブをGPT用URLにする</button>
+        <button id="copySession" disabled>URLをコピー</button>
+      </div>
+      <input id="sessionUrl" type="text" readonly placeholder="ここにGPT用URLが出ます">
+      <div class="hint">現在表示中の最大<span id="gptPageSize">50</span>語をGPT学習対象にします。</div>
+      <div class="row" style="margin-top:12px"><strong>GPT学習結果を反映</strong><button id="applyResults">結果JSONを登録</button></div>
+      <textarea id="resultJson" aria-label="GPT学習結果JSON" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
+      <div id="resultStatus" class="status" role="status" aria-live="polite"></div>
     </div>
-    <input id="sessionUrl" type="text" readonly placeholder="ここにGPT用URLが出ます">
-    <div class="hint">現在表示中の最大<span id="gptPageSize">50</span>語をGPT学習対象にします。</div>
-  </div>
-
-  <div class="panel">
-    <div class="row"><strong>GPT学習結果を反映</strong><button id="applyResults">結果JSONを反映</button></div>
-    <textarea id="resultJson" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
-    <div id="resultStatus" class="status"></div>
-  </div>
+  </dialog>
 </div>
 
 <script src="study-core.js"></script>
@@ -150,6 +157,7 @@
   let words=loadJson(STORAGE_WORDS,[]);
   let state=savedCore.state;
   let gptSessions=savedCore.gptSessions;
+  let registeredGptSessionIds=savedCore.registeredGptSessionIds||[];
   let randomIds=loadJson(STORAGE_RANDOM_ORDER,[]);
   const savedView=loadJson(STORAGE_VIEW,{});
   const savedPreferences=loadJson(STORAGE_PREFERENCES,{});
@@ -165,7 +173,7 @@
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession;
 
   const els={
-    openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),repeatStudy:document.getElementById("repeatStudy"),
+    openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),resetCurtain:document.getElementById("resetCurtain"),clearData:document.getElementById("clearData"),
     pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),resetSettings:document.getElementById("resetSettings"),
     count:document.getElementById("count"),tabs:document.getElementById("tabs"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
@@ -182,11 +190,12 @@
     localStorage.setItem(STORAGE_WORDS,JSON.stringify(words));
     writeCoreSnapshot();
   }
-  function writeCoreSnapshot(){StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions})}
+  function writeCoreSnapshot(){StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds})}
   function persistView(){
     localStorage.setItem(STORAGE_VIEW,JSON.stringify({filter,sortMode,excludeStreak,excludeStreakN:masteryThreshold,pageIndex}));
   }
   function persistPreferences(){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize,masteryThreshold}))}
+  if(savedCore.gptSessionMigrationNeeded){try{writeCoreSnapshot()}catch{}}
 
   const defaultState=StudyCore.defaultState, normalizeState=StudyCore.normalizeState, appendResult=StudyCore.appendResult;
   function getState(id){if(!state[id])state[id]=defaultState();state[id]=normalizeState(state[id]);return state[id]}
@@ -420,8 +429,10 @@
   function makeGptSession(){
     const current=pageWords();if(!current.length){alert("表示中の単語がありません。");return}
     const sessionId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-    const payload={version:1,sessionId,mode:"en-to-ja",words:current.map(({id,word,meaning})=>({id,word,meaning}))};
-    gptSessions[sessionId]={createdAt:new Date().toISOString(),applied:false,ids:current.map(w=>String(w.id))};persistCore();
+    const payload=StudyCore.makeGptPayload(sessionId,current);
+    const nextSessions={...gptSessions,[sessionId]:{createdAt:new Date().toISOString(),ids:current.map(w=>String(w.id))}};
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions:nextSessions,registeredGptSessionIds});
+    gptSessions=nextSessions;
     const url=new URL(location.href);url.search="";url.hash="";
     url.searchParams.set("study",btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
     lastSessionUrl=url.toString();els.sessionUrl.value=lastSessionUrl;els.copySession.disabled=false;
@@ -434,13 +445,18 @@
     els.resultStatus.className="status";
     try{
       const obj=JSON.parse(els.resultJson.value);
-      const draft=StudyCore.prepareGptImport(obj,gptSessions,words.map(w=>w.id),state,activeSession);
+      const checked=StudyCore.inspectGptResults(obj,gptSessions,registeredGptSessionIds,words.map(w=>w.id));
+      if(checked.isReplay&&!confirm("学習結果を登録しますか？ この結果は過去に登録済みの可能性があります。重複して登録してもよろしいですか？")){
+        els.resultStatus.textContent="登録をキャンセルしました。";return;
+      }
+      const draft=StudyCore.prepareGptImport(obj,gptSessions,words.map(w=>w.id),state,activeSession,undefined,registeredGptSessionIds,checked.isReplay);
       if(draft.activeSession)draft.activeSession.updatedAt=Date.now();
-      StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions});
-      state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;
+      StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds});
+      state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;registeredGptSessionIds=draft.registeredGptSessionIds;
       refreshVisibleRows();
       els.resultStatus.textContent=`${draft.applied}件を反映しました。`;els.resultStatus.className="status good";
     }catch(err){els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad"}
+    finally{els.resultJson.value=""}
   }
 
   function restartViewSession(){finalizeSession();pageIndex=0;revealY=0;persistView();startSession(true);render()}
@@ -457,8 +473,10 @@
     render();
   }
 
-  els.openSettings.addEventListener("click",()=>{els.settingsPanel.hidden=false});
-  els.closeSettings.addEventListener("click",()=>{els.settingsPanel.hidden=true});
+  els.openSettings.addEventListener("click",()=>{if(!els.settingsPanel.open)els.settingsPanel.showModal()});
+  els.closeSettings.addEventListener("click",()=>els.settingsPanel.close());
+  els.openGpt.addEventListener("click",()=>{if(!els.gptPanel.open)els.gptPanel.showModal()});
+  els.closeGpt.addEventListener("click",()=>els.gptPanel.close());
   document.querySelectorAll("[data-filter]").forEach(btn=>btn.addEventListener("click",()=>{
     const next=btn.dataset.filter;if(next===filter)return;filter=next;restartViewSession();
   }));
@@ -487,7 +505,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
-    words=[];state={};gptSessions={};randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=50;masteryThreshold=3;pageIndex=0;revealY=0;
+    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=50;masteryThreshold=3;pageIndex=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES])localStorage.removeItem(key);
     startSession(true);render();
   });

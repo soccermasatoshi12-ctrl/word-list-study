@@ -4,16 +4,36 @@
   function deriveStreak(results) { let n=0; for(let i=results.length-1;i>=0&&results[i]===true;i--) n++; return n; }
   function defaultState() { return {studyCount:0,correctCount:0,recentResults:[],currentStreak:0,lastStudiedAt:null}; }
   function readJson(storage,key,fallback) { try { return JSON.parse(storage.getItem(key)) ?? fallback; } catch { return fallback; } }
+  function normalizeGptSessionRecords(raw, registeredRaw=[]) {
+    const pending={}, registered=new Set(Array.isArray(registeredRaw)?registeredRaw.filter(id=>typeof id==="string"):[]);
+    const source=raw&&typeof raw==="object"?raw:{};
+    for(const [id,record] of Object.entries(source)) {
+      if(record?.applied===true) registered.add(id);
+      else if(record&&typeof record==="object") pending[id]={createdAt:record.createdAt||null,ids:Array.isArray(record.ids)?record.ids.map(String):[]};
+    }
+    return {gptSessions:pending,registeredGptSessionIds:[...registered]};
+  }
   function loadCore(storage, snapshotKey, legacyKeys) {
     const snapshot=readJson(storage,snapshotKey,null);
     const legacy={state:readJson(storage,legacyKeys.stateKey,{}),gptSessions:readJson(storage,legacyKeys.gptSessionsKey,{}),activeSession:readJson(storage,legacyKeys.activeSessionKey,null)};
     const has=(key)=>Object.prototype.hasOwnProperty.call(snapshot||{},key);
     if(!snapshot||typeof snapshot!=="object"||!snapshot.state||typeof snapshot.state!=="object"||
       !snapshot.gptSessions||typeof snapshot.gptSessions!=="object"||!has("activeSession")||
-      (snapshot.activeSession!==null&&typeof snapshot.activeSession!=="object")) return legacy;
-    return {state:snapshot.state,gptSessions:snapshot.gptSessions,activeSession:snapshot.activeSession};
+      (snapshot.activeSession!==null&&typeof snapshot.activeSession!=="object")) {
+      const normalized=normalizeGptSessionRecords(legacy.gptSessions);
+      const result={...legacy,...normalized};Object.defineProperty(result,"gptSessionMigrationNeeded",{value:true});return result;
+    }
+    const normalized=normalizeGptSessionRecords(snapshot.gptSessions,snapshot.registeredGptSessionIds);
+    const migrationNeeded=!has("registeredGptSessionIds")||JSON.stringify(normalized.gptSessions)!==JSON.stringify(snapshot.gptSessions)||
+      JSON.stringify(normalized.registeredGptSessionIds)!==JSON.stringify(snapshot.registeredGptSessionIds);
+    const result={state:snapshot.state,...normalized,activeSession:snapshot.activeSession};
+    Object.defineProperty(result,"gptSessionMigrationNeeded",{value:migrationNeeded});return result;
   }
-  function saveCore(storage, snapshotKey, snapshot) { storage.setItem(snapshotKey,JSON.stringify(snapshot)); }
+  function saveCore(storage, snapshotKey, snapshot) {
+    const normalized=normalizeGptSessionRecords(snapshot.gptSessions,snapshot.registeredGptSessionIds);
+    storage.setItem(snapshotKey,JSON.stringify({state:snapshot.state,gptSessions:normalized.gptSessions,
+      registeredGptSessionIds:normalized.registeredGptSessionIds,activeSession:snapshot.activeSession}));
+  }
   function normalizePreferences(raw={},legacyView={}) {
     const pageSize=[10,20,50,100].includes(Number(raw.pageSize))?Number(raw.pageSize):50;
     const storedThreshold=Number(raw.masteryThreshold),oldThreshold=Number(legacyView.excludeStreakN||3);
@@ -148,20 +168,28 @@
     }
   }
   function sessionExpired(session, now, ttl) { return now-Number(session?.updatedAt||0)>ttl; }
-  function validateGptResults(obj, record, knownIds) {
-    if(obj.version!==1||!obj.sessionId||!Array.isArray(obj.results)) throw new Error("結果JSONの形式が不正です。");
-    if(!record||record.applied) throw new Error(record?"このセッション結果はすでに反映済みです。":"発行済みのGPTセッションではありません。");
-    const allowed=new Set((record.ids||[]).map(String)), known=new Set(knownIds.map(String)), seen=new Set();
-    return obj.results.map(r=>{
-      const id=String(r.id);
+  function inspectGptResults(obj, sessions, registeredIds, knownIds) {
+    if(obj.version!==1||typeof obj.sessionId!=="string"||!obj.sessionId||!Array.isArray(obj.results)) throw new Error("結果JSONの形式が不正です。");
+    const sessionId=String(obj.sessionId),record=sessions?.[sessionId],isReplay=(registeredIds||[]).includes(sessionId);
+    if(!record&&!isReplay) throw new Error("発行済みのGPTセッションが見つかりません。");
+    const allowed=new Set((record?.ids||[]).map(String)), known=new Set(knownIds.map(String)), seen=new Set();
+    const results=obj.results.map(r=>{
+      if(!r||typeof r!=="object"||typeof r.id!=="string") throw new Error("結果JSONの形式が不正です。");
+      const id=r.id;
       if(seen.has(id)) throw new Error(`単語IDが重複しています: ${id}`); seen.add(id);
-      if(!known.has(id)||!allowed.has(id)) throw new Error(`対象外の単語IDです: ${id}`);
+      if(!known.has(id)||(!isReplay&&!allowed.has(id))) throw new Error(`対象外の単語IDです: ${id}`);
       if(!["correct","wrong","uncertain","skipped"].includes(r.result)) throw new Error(`未知のresult: ${r.result}`);
       return {id,result:r.result};
     });
+    return {results,isReplay};
   }
-  function applyGptResults(obj,sessions,knownIds,state,now=new Date().toISOString(),activeSession=null,getState=id=>state[id]) {
-    const record=sessions[obj.sessionId], results=validateGptResults(obj,record,knownIds);
+  function validateGptResults(obj, record, knownIds) {
+    if(record?.applied) throw new Error("このGPTセッションは登録済みです。再登録の確認が必要です。");
+    return inspectGptResults(obj,record?{[String(obj.sessionId)]:record}:{},[],knownIds).results;
+  }
+  function applyGptResults(obj,sessions,knownIds,state,now=new Date().toISOString(),activeSession=null,getState=id=>state[id],registeredIds=[],allowReplay=false) {
+    const {results,isReplay}=inspectGptResults(obj,sessions,registeredIds,knownIds);
+    if(isReplay&&!allowReplay) {const err=new Error("このGPTセッションは登録済みです。再登録の確認が必要です。");err.code="GPT_REPLAY_CONFIRMATION_REQUIRED";throw err;}
     if(activeSession) finalizeStudySession(activeSession,getState);
     let applied=0;
     for(const {id,result} of results) {
@@ -170,17 +198,28 @@
       if(result==="correct") { st.correctCount+=1; appendResult(st,true); } else appendResult(st,false);
       applied++;
     }
-    sessions[obj.sessionId]={...record,applied:true,appliedAt:now};
+    if(!isReplay) {delete sessions[String(obj.sessionId)];if(!registeredIds.includes(String(obj.sessionId)))registeredIds.push(String(obj.sessionId));}
     return applied;
   }
-  function prepareGptImport(obj,sessions,knownIds,state,activeSession,now=new Date().toISOString()) {
-    const nextState=JSON.parse(JSON.stringify(state)), nextSessions=JSON.parse(JSON.stringify(sessions));
+  function prepareGptImport(obj,sessions,knownIds,state,activeSession,now=new Date().toISOString(),registeredIds=[],allowReplay=false) {
+    const nextState=JSON.parse(JSON.stringify(state)), nextSessions=JSON.parse(JSON.stringify(sessions)),nextRegistered=[...registeredIds];
     const nextSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
     const getState=id=>nextState[id]=normalizeState(nextState[id]||defaultState());
-    const applied=applyGptResults(obj,nextSessions,knownIds,nextState,now,nextSession,getState);
-    return {state:nextState,gptSessions:nextSessions,activeSession:nextSession,applied};
+    const {isReplay}=inspectGptResults(obj,nextSessions,nextRegistered,knownIds);
+    const applied=applyGptResults(obj,nextSessions,knownIds,nextState,now,nextSession,getState,nextRegistered,allowReplay);
+    return {state:nextState,gptSessions:nextSessions,registeredGptSessionIds:nextRegistered,activeSession:nextSession,applied,isReplay};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,normalizePreferences,buildPageModel,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,sessionExpired,validateGptResults,applyGptResults,prepareGptImport};
+  function makeGptPayload(sessionId,words) {
+    const outputInstructions=[
+      "学習結果はJSONのみで出力してください。説明文やMarkdownのコードフェンスは付けないでください。",
+      "形式: {\"version\":1,\"sessionId\":\"発行されたsessionId\",\"results\":[{\"id\":\"単語ID\",\"result\":\"correct|wrong|uncertain|skipped\"}]}",
+      "versionは数値1、sessionIdは変更せず、idは渡された単語IDを文字列のまま使ってください。",
+      "resultはcorrect、wrong、uncertain、skippedのみ。incorrectやunknownなどは禁止です。",
+      "resultsのIDはこのURLで渡された単語だけにし、重複させないでください。"
+    ].join(" ");
+    return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
+  }
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,normalizeGptSessionRecords,normalizePreferences,buildPageModel,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
