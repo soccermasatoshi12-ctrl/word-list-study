@@ -14,6 +14,105 @@
     return {state:snapshot.state,gptSessions:snapshot.gptSessions,activeSession:snapshot.activeSession};
   }
   function saveCore(storage, snapshotKey, snapshot) { storage.setItem(snapshotKey,JSON.stringify(snapshot)); }
+  function normalizePreferences(raw={},legacyView={}) {
+    const pageSize=[10,20,50,100].includes(Number(raw.pageSize))?Number(raw.pageSize):50;
+    const storedThreshold=Number(raw.masteryThreshold),oldThreshold=Number(legacyView.excludeStreakN||3);
+    const masteryThreshold=[2,3,4,5].includes(storedThreshold)?storedThreshold:Number.isFinite(oldThreshold)?Math.min(5,Math.max(2,oldThreshold)):3;
+    return {pageSize,masteryThreshold};
+  }
+  function buildPageModel(words,state,{pageSize=50,sortMode="normal",randomIds=[],filter="all",excludeStreak=false,masteryThreshold=3}={}) {
+    const passes=word=>{
+      const st=state[String(word.id)]||defaultState();
+      if(filter==="hasMiss"&&Math.max(0,(st.studyCount||0)-(st.correctCount||0))<=0)return false;
+      if(excludeStreak&&(st.currentStreak||0)>=masteryThreshold)return false;
+      return true;
+    };
+    const size=[10,20,50,100].includes(Number(pageSize))?Number(pageSize):50;
+    if(sortMode==="random") {
+      const rank=new Map(randomIds.map((id,i)=>[String(id),i]));
+      const ordered=words.filter(passes).slice().sort((a,b)=>(rank.get(String(a.id))??Number.MAX_SAFE_INTEGER)-(rank.get(String(b.id))??Number.MAX_SAFE_INTEGER));
+      const numbered=ordered.map((word,index)=>({...word,displayNumber:index+1})),pages=[];
+      for(let i=0;i<numbered.length;i+=size)pages.push({index:pages.length,start:i+1,end:Math.min(i+size,numbered.length),entries:numbered.slice(i,i+size)});
+      return {pages,total:numbered.length,sortMode};
+    }
+    const pages=[];let total=0;
+    for(let offset=0;offset<words.length;offset+=size) {
+      const end=Math.min(offset+size,words.length),entries=[];
+      for(let i=offset;i<end;i++)if(passes(words[i]))entries.push({...words[i],displayNumber:i+1});
+      total+=entries.length;pages.push({index:pages.length,start:offset+1,end,entries});
+    }
+    return {pages,total,sortMode};
+  }
+  function safePageIndex(pages,desired=0) {
+    if(!pages.length)return 0;
+    const index=Math.min(Math.max(0,Math.floor(Number(desired)||0)),pages.length-1);
+    if(pages[index].entries.length)return index;
+    const available=pages.find(page=>page.entries.length);
+    return available?available.index:0;
+  }
+  function tryRestoreSession(stored,{now,ttl,currentKey,legacyKey,filter="all",sortMode="normal",pageIndex=0,excludeStreak=false,masteryThreshold=3,legacyThreshold=3,words=[],state={},randomIds=[],currentPageIds=[]}={}) {
+    if(sessionExpired(stored,now,ttl))return null;
+    if(stored?.key===currentKey)return {...stored};
+    if(stored?.key!==legacyKey)return null;
+    if(typeof stored.sessionId!=="string"||!stored.sessionId||!Number.isFinite(Number(stored.updatedAt))||!Number.isFinite(Number(stored.revealY||0)))return null;
+    if(excludeStreak&&Number(masteryThreshold)!==Number(legacyThreshold))return null;
+
+    let legacyWords=words.filter(word=>{
+      const st=state[String(word.id)]||defaultState();
+      if(filter==="hasMiss"&&Math.max(0,(st.studyCount||0)-(st.correctCount||0))<=0)return false;
+      if(excludeStreak&&(st.currentStreak||0)>=masteryThreshold)return false;
+      return true;
+    });
+    if(sortMode==="random") {
+      const ids=words.map(word=>String(word.id));
+      if(!Array.isArray(randomIds)||randomIds.length!==ids.length||new Set(randomIds.map(String)).size!==ids.length||!randomIds.every(id=>ids.includes(String(id))))return null;
+      const rank=new Map(randomIds.map((id,index)=>[String(id),index]));
+      legacyWords=legacyWords.slice().sort((a,b)=>rank.get(String(a.id))-rank.get(String(b.id)));
+    }
+    const oldIndex=Number(pageIndex);
+    if(!Number.isInteger(oldIndex)||oldIndex<0)return null;
+    const legacyIds=legacyWords.slice(oldIndex*50,(oldIndex+1)*50).map(word=>String(word.id));
+    const visibleIds=currentPageIds.map(String);
+    if(legacyIds.length!==visibleIds.length||legacyIds.some((id,index)=>id!==visibleIds[index]))return null;
+
+    const studied=stored.studiedIds,checked=stored.checkedIds,finalized=stored.finalizedIds;
+    if(!Array.isArray(studied)||!Array.isArray(checked)||!Array.isArray(finalized))return null;
+    const target=new Set(legacyIds),known=id=>target.has(String(id));
+    if(studied.some(id=>!known(id))||checked.some(id=>!known(id))||finalized.some(id=>!known(id)))return null;
+    if(new Set(studied.map(String)).size!==studied.length||new Set(checked.map(String)).size!==checked.length||new Set(finalized.map(String)).size!==finalized.length)return null;
+    if(checked.some(id=>!studied.map(String).includes(String(id)))||finalized.some(id=>!studied.map(String).includes(String(id))))return null;
+
+    return {...stored,key:currentKey,studiedIds:[...studied],checkedIds:[...checked],finalizedIds:[...finalized]};
+  }
+  function displayChangePlan(before,after,desiredIndex) {
+    const oldIndex=safePageIndex(before.pages,desiredIndex),newIndex=safePageIndex(after.pages,desiredIndex);
+    const oldIds=before.pages[oldIndex]?.entries.map(w=>String(w.id))||[],newIds=after.pages[newIndex]?.entries.map(w=>String(w.id))||[];
+    return {pageIndex:newIndex,targetChanged:oldIds.length!==newIds.length||oldIds.some((id,i)=>id!==newIds[i])};
+  }
+  function parseCsv(text) {
+    const rows=[];let row=[],field="",quote=false;
+    for(let i=0;i<text.length;i++) {
+      const c=text[i],n=text[i+1];
+      if(quote){if(c==='"'&&n==='"'){field+='"';i++;}else if(c==='"')quote=false;else field+=c;}
+      else if(c==='"')quote=true;else if(c===","){row.push(field);field="";}else if(c==="\n"){row.push(field);rows.push(row);row=[];field="";}else if(c!=="\r")field+=c;
+    }
+    row.push(field);rows.push(row);
+    return rows.filter(r=>r.some(v=>v.trim()!==""));
+  }
+  function parseWordCsv(text) {
+    const rows=parseCsv(text);
+    if(rows.length<2)throw new Error("CSVにデータ行がありません。");
+    const header=rows[0].map(s=>s.trim().toLowerCase());
+    const idI=header.indexOf("id"),wordI=header.indexOf("word"),meaningI=header.indexOf("meaning");
+    if(idI<0||wordI<0||meaningI<0)throw new Error("ヘッダーは id,word,meaning が必要です。");
+    const seen=new Set();
+    return rows.slice(1).map((r,idx)=>{
+      const id=(r[idI]??"").trim(),word=(r[wordI]??"").trim(),meaning=(r[meaningI]??"").trim();
+      if(!id||!word)throw new Error(`${idx+2}行目: id と word は必須です。`);
+      if(seen.has(id))throw new Error(`id が重複しています: ${id}`);
+      seen.add(id);return{id,word,meaning};
+    });
+  }
   function normalizeState(raw) {
     const recent=Array.isArray(raw?.recentResults)?raw.recentResults.slice(-MAX_RECENT).map(Boolean):[];
     return {studyCount:Number(raw?.studyCount||0),correctCount:Number(raw?.correctCount||0),recentResults:recent,
@@ -72,7 +171,7 @@
     const applied=applyGptResults(obj,nextSessions,knownIds,nextState,now,nextSession,getState);
     return {state:nextState,gptSessions:nextSessions,activeSession:nextSession,applied};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,normalizeState,appendResult,recordStudy,setSessionAnswer,finalizeStudySession,sessionExpired,validateGptResults,applyGptResults,prepareGptImport};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,normalizePreferences,buildPageModel,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,setSessionAnswer,finalizeStudySession,sessionExpired,validateGptResults,applyGptResults,prepareGptImport};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

@@ -6,12 +6,89 @@ function memoryStorage(seed={}) {
   const data=new Map(Object.entries(seed));
   return {getItem:k=>data.has(k)?data.get(k):null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k),data};
 }
+function runRestore(storage,config,now) {
+  const snapshot=C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  const restored=C.tryRestoreSession(snapshot.activeSession,{...config,now,ttl:300000});
+  if(restored)snapshot.activeSession=restored;
+  else {
+    const stored=snapshot.activeSession;
+    const session={studiedIds:stored?.studiedIds||[],checkedIds:stored?.checkedIds||[],finalizedIds:stored?.finalizedIds||[]};
+    C.finalizeStudySession(session,id=>snapshot.state[id]||(snapshot.state[id]=C.defaultState()));
+    snapshot.activeSession={sessionId:'new-session',key:config.currentKey,updatedAt:now,revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[]};
+  }
+  C.saveCore(storage,'ledger',snapshot);
+  return C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+}
 
 test('recent history is capped at ten while streak remains exact', () => {
   const s=C.defaultState();
   for(let i=0;i<15;i++) C.appendResult(s,true);
   assert.equal(s.recentResults.length,10); assert.equal(s.currentStreak,15);
   assert.equal(C.normalizeState(s).currentStreak,15);
+});
+test('normal order keeps fixed ranges and original numbering with filtered gaps', () => {
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:''}));
+  const state={'3':{studyCount:1,correctCount:1,currentStreak:3},'5':{studyCount:1,correctCount:1,currentStreak:3},'8':{studyCount:1,correctCount:1,currentStreak:3}};
+  const model=C.buildPageModel(words,state,{pageSize:10,excludeStreak:true,masteryThreshold:3});
+  assert.equal(model.pages.length,1);
+  assert.deepEqual(model.pages[0].entries.map(w=>w.displayNumber),[1,2,4,6,7,9,10]);
+  assert.deepEqual(model.pages[0].entries.map(w=>w.id),['1','2','4','6','7','9','10']);
+});
+test('page sizes 10, 20, 50, and 100 create the expected boundaries', () => {
+  const words=Array.from({length:200},(_,i)=>({id:String(i+1)}));
+  assert.deepEqual([10,20,50,100].map(pageSize=>C.buildPageModel(words,{}, {pageSize}).pages.length),[20,10,4,2]);
+  assert.equal(C.buildPageModel(words.slice(0,50),{}, {pageSize:50}).pages.length,1);
+  assert.equal(C.buildPageModel(words.slice(0,51),{}, {pageSize:50}).pages.length,2);
+  assert.equal(C.buildPageModel([],{}, {pageSize:50}).pages.length,0);
+});
+test('normal empty tabs remain represented and safe selection finds a populated tab', () => {
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1)}));
+  const state=Object.fromEntries(words.slice(0,10).map(w=>[w.id,{currentStreak:2}]));
+  const model=C.buildPageModel(words,state,{pageSize:10,excludeStreak:true,masteryThreshold:2});
+  assert.deepEqual(model.pages.map(p=>p.entries.length),[0,10]);
+  assert.equal(C.safePageIndex(model.pages,0),1);
+  for(const word of words)state[word.id]={currentStreak:2};
+  const none=C.buildPageModel(words,state,{pageSize:10,excludeStreak:true,masteryThreshold:2});
+  assert.deepEqual(none.pages.map(p=>p.entries.length),[0,0]);
+  assert.equal(C.safePageIndex(none.pages,1),0);
+});
+test('random order applies filters first and numbers the remaining words continuously', () => {
+  const words=['a','b','c','d'].map(id=>({id})),randomIds=['c','a','b','d'];
+  const state={a:{studyCount:1,correctCount:0},b:{studyCount:1,correctCount:0}};
+  const model=C.buildPageModel(words,state,{pageSize:10,sortMode:'random',randomIds,filter:'hasMiss'});
+  assert.deepEqual(model.pages[0].entries.map(w=>[w.id,w.displayNumber]),[['a',1],['b',2]]);
+  const allMastered=Object.fromEntries(words.map(w=>[w.id,{currentStreak:2}]));
+  const empty=C.buildPageModel(words,allMastered,{pageSize:10,sortMode:'random',randomIds,excludeStreak:true,masteryThreshold:2});
+  assert.equal(empty.pages.length,0);
+});
+test('preferences persist, restore, migrate prior mastery threshold, and default safely', () => {
+  const store=memoryStorage();
+  const value={pageSize:20,masteryThreshold:4};store.setItem('preferences',JSON.stringify(value));
+  assert.deepEqual(C.normalizePreferences(JSON.parse(store.getItem('preferences'))),value);
+  assert.deepEqual(C.normalizePreferences({},{}),{pageSize:50,masteryThreshold:3});
+  assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8},{excludeStreakN:4}),{pageSize:50,masteryThreshold:4});
+});
+test('display setting changes only end the current target when its word set changes', () => {
+  const short=Array.from({length:8},(_,i)=>({id:String(i+1)}));
+  const sameBefore=C.buildPageModel(short,{}, {pageSize:10}),sameAfter=C.buildPageModel(short,{}, {pageSize:20});
+  assert.deepEqual(C.displayChangePlan(sameBefore,sameAfter,0),{pageIndex:0,targetChanged:false});
+  const long=Array.from({length:30},(_,i)=>({id:String(i+1)}));
+  const changedBefore=C.buildPageModel(long,{}, {pageSize:10}),changedAfter=C.buildPageModel(long,{}, {pageSize:20});
+  assert.deepEqual(C.displayChangePlan(changedBefore,changedAfter,0),{pageIndex:0,targetChanged:true});
+  const thresholdBefore=C.buildPageModel(long,{'1':{currentStreak:3}},{pageSize:10,excludeStreak:false,masteryThreshold:3});
+  const thresholdAfter=C.buildPageModel(long,{'1':{currentStreak:3}},{pageSize:10,excludeStreak:false,masteryThreshold:4});
+  assert.equal(C.displayChangePlan(thresholdBefore,thresholdAfter,0).targetChanged,false);
+  const activeBefore=C.buildPageModel(long,{'1':{currentStreak:3}},{pageSize:10,excludeStreak:true,masteryThreshold:3});
+  const activeAfter=C.buildPageModel(long,{'1':{currentStreak:3}},{pageSize:10,excludeStreak:true,masteryThreshold:4});
+  assert.equal(C.displayChangePlan(activeBefore,activeAfter,0).targetChanged,true);
+});
+test('CSV replacement keeps id-keyed history available and validates the existing format', () => {
+  const state={x:{studyCount:7,correctCount:5,currentStreak:2}};
+  const imported=C.parseWordCsv('id,word,meaning\nx,new word,new meaning\ny,another,other');
+  assert.deepEqual(imported,[{id:'x',word:'new word',meaning:'new meaning'},{id:'y',word:'another',meaning:'other'}]);
+  assert.equal(state.x.studyCount,7);assert.equal(state.x.correctCount,5);
+  assert.throws(()=>C.parseWordCsv('id,word\nx,missing meaning'));
+  assert.throws(()=>C.parseWordCsv('id,word,meaning\nx,one,a\nx,two,b'));
 });
 test('cover passage increments study count only and reversal cannot increment twice', () => {
   const state={a:C.defaultState(),b:C.defaultState()};
@@ -115,6 +192,77 @@ test('five minute reload restores pending state; expiry finalizes it exactly onc
   C.finalizeStudySession(s,id=>state[id]);
   assert.deepEqual([state.a.studyCount,state.a.correctCount,state.a.recentResults],[1,1,[true]]);
   assert.deepEqual([state.b.studyCount,state.b.correctCount,state.b.recentResults],[1,0,[false]]);
+});
+test('legacy normal all-words session restores the existing session and progress without recounting', () => {
+  const words=Array.from({length:50},(_,i)=>({id:String(i+1)}));
+  const state=Object.fromEntries(words.map(w=>[w.id,{...C.defaultState(),studyCount:1}]));
+  const saved={sessionId:'legacy-all',key:'all:off:normal:0',updatedAt:1000,revealY:74,studiedIds:['1','2'],checkedIds:['1'],finalizedIds:[]};
+  const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
+  const currentKey='all:off:normal:50:0',model=C.buildPageModel(words,state,{pageSize:50});
+  const restored=runRestore(store,{currentKey,legacyKey:saved.key,filter:'all',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
+  assert.equal(restored.activeSession.sessionId,'legacy-all');assert.equal(restored.activeSession.revealY,74);
+  assert.deepEqual(restored.activeSession.checkedIds,['1']);
+  assert.deepEqual([restored.state['1'].studyCount,restored.state['1'].correctCount,restored.state['1'].recentResults],[1,0,[]]);
+});
+test('legacy random filtered session restores when the complete ordered target matches', () => {
+  const words=['a','b','c'].map(id=>({id})),randomIds=['c','a','b'];
+  const state={a:{...C.defaultState(),studyCount:1},b:{...C.defaultState(),studyCount:1},c:{...C.defaultState()}};
+  const saved={sessionId:'legacy-random',key:'hasMiss:off:random:0',updatedAt:1000,revealY:33,studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
+  const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
+  const model=C.buildPageModel(words,state,{pageSize:50,sortMode:'random',randomIds,filter:'hasMiss'});
+  const restored=runRestore(store,{currentKey:'hasMiss:off:random:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'random',pageIndex:0,pageSize:50,words,state,randomIds,currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
+  assert.equal(restored.activeSession.sessionId,'legacy-random');assert.equal(restored.activeSession.revealY,33);
+  assert.deepEqual(restored.activeSession.checkedIds,['a']);assert.equal(restored.state.a.correctCount,0);
+});
+test('legacy normal filtered session restores when old and new ordered targets match', () => {
+  const words=Array.from({length:50},(_,i)=>({id:String(i+1)}));
+  const state=Object.fromEntries(words.map(w=>[w.id,{...C.defaultState(),studyCount:1,correctCount:0}]));
+  const saved={sessionId:'legacy-filtered-same',key:'hasMiss:off:normal:0',updatedAt:1000,revealY:24,studiedIds:['1'],checkedIds:[],finalizedIds:[]};
+  const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
+  const model=C.buildPageModel(words,state,{pageSize:50,filter:'hasMiss'});
+  const restored=runRestore(store,{currentKey:'hasMiss:off:normal:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
+  assert.equal(restored.activeSession.sessionId,'legacy-filtered-same');assert.equal(restored.activeSession.revealY,24);
+  assert.equal(restored.state['1'].studyCount,1);assert.deepEqual(restored.state['1'].recentResults,[]);
+});
+test('legacy normal filtered target mismatch finalizes exposed answers once and starts fresh', () => {
+  const words=Array.from({length:100},(_,i)=>({id:String(i+1)}));
+  const state=Object.fromEntries(words.map(w=>[w.id,C.defaultState()]));
+  for(const id of ['1','51'])state[id]={...C.defaultState(),studyCount:1,correctCount:0};
+  const saved={sessionId:'legacy-filtered-mismatch',key:'hasMiss:off:normal:0',updatedAt:1000,revealY:90,studiedIds:['1'],checkedIds:['1'],finalizedIds:[]};
+  const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
+  const model=C.buildPageModel(words,state,{pageSize:50,filter:'hasMiss'});
+  const result=runRestore(store,{currentKey:'hasMiss:off:normal:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
+  assert.equal(result.activeSession.sessionId,'new-session');assert.deepEqual(result.activeSession.studiedIds,[]);
+  assert.deepEqual([result.state['1'].studyCount,result.state['1'].correctCount,result.state['1'].recentResults],[1,1,[true]]);
+  assert.deepEqual([result.state['51'].studyCount,result.state['51'].correctCount,result.state['51'].recentResults],[1,0,[]]);
+  assert.equal(result.state['1'].currentStreak,1);
+  const again=runRestore(store,{currentKey:'hasMiss:off:normal:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1002);
+  assert.deepEqual([again.state['1'].studyCount,again.state['1'].correctCount,again.state['1'].recentResults],[1,1,[true]]);
+});
+test('legacy restore rejects order mismatch, expired, unreconstructable, and inconsistent sessions', () => {
+  const words=['a','b'].map(id=>({id})),state={a:{...C.defaultState(),studyCount:1},b:{...C.defaultState(),studyCount:1}};
+  const base={sessionId:'legacy',key:'all:off:random:0',updatedAt:1000,revealY:40,studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
+  const args={now:1001,ttl:300000,currentKey:'all:off:random:50:0',legacyKey:base.key,filter:'all',sortMode:'random',pageIndex:0,words,state,randomIds:['a','b'],currentPageIds:['a','b']};
+  assert.equal(C.tryRestoreSession(base,{...args,currentPageIds:['b','a']}),null);
+  assert.equal(C.tryRestoreSession({...base,updatedAt:0},{...args,now:300001}),null);
+  assert.equal(C.tryRestoreSession(base,{...args,randomIds:['a']}),null);
+  assert.equal(C.tryRestoreSession(base,{...args,masteryThreshold:4,legacyThreshold:3,excludeStreak:true}),null);
+  assert.equal(C.tryRestoreSession({...base,studiedIds:['unknown']},args),null);
+  assert.equal(C.tryRestoreSession({...base,revealY:'invalid'},args),null);
+  assert.equal(C.tryRestoreSession({...base,key:args.currentKey},{...args,now:1001}).sessionId,'legacy');
+  assert.equal(C.tryRestoreSession({...base,key:'all:off:random:50:1'},args),null);
+});
+test('expired legacy session is finalized once through snapshot reload and replaced', () => {
+  const words=[{id:'a'}],state={a:{...C.defaultState(),studyCount:1}};
+  const saved={sessionId:'expired-legacy',key:'all:off:normal:0',updatedAt:1000,revealY:20,studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
+  const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
+  const model=C.buildPageModel(words,state,{pageSize:50});
+  const config={currentKey:'all:off:normal:50:0',legacyKey:saved.key,filter:'all',sortMode:'normal',pageIndex:0,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)};
+  const result=runRestore(store,config,301001);
+  assert.equal(result.activeSession.sessionId,'new-session');
+  assert.deepEqual([result.state.a.studyCount,result.state.a.correctCount,result.state.a.recentResults],[1,1,[true]]);
+  const again=runRestore(store,config,301002);
+  assert.deepEqual([again.state.a.studyCount,again.state.a.correctCount,again.state.a.recentResults],[1,1,[true]]);
 });
 test('GPT application persists outcomes and replay is rejected after reload', () => {
   const store=memoryStorage(), state={a:C.defaultState(),b:C.defaultState(),c:C.defaultState(),d:C.defaultState()};
