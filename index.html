@@ -29,6 +29,8 @@
     .tabs{display:flex;gap:6px;overflow-x:auto;white-space:nowrap;padding:2px 0 8px;scrollbar-width:thin}
     .tabs button{flex:0 0 auto;min-height:34px;padding:6px 10px}
     .tabs button.active{border-color:var(--accent);color:var(--accent);-webkit-text-fill-color:var(--accent);font-weight:600}
+    .random-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+    .random-progress{flex:1 1 220px;min-width:0;overflow-wrap:anywhere;color:var(--muted);line-height:1.4}
     .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:8px}
     .word-row{display:grid;grid-template-columns:minmax(120px,1fr) 48px minmax(140px,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
     .word-cell{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:2px 4px}
@@ -107,7 +109,6 @@
     <div class="row">
       <button id="normalOrder" class="active">通常順</button>
       <button id="randomOrder">ランダム</button>
-      <button id="reshuffle">再シャッフル</button>
     </div>
     <div class="hint">ランダム順は再シャッフルするまで端末内に保持します。</div>
   </div>
@@ -115,6 +116,11 @@
   <div class="panel">
     <div id="tabs" class="tabs"></div>
     <div id="tabHint" class="hint">表示条件を適用してタブに分割します。</div>
+    <div id="randomNav" class="random-nav" hidden>
+      <div id="randomProgress" class="random-progress"></div>
+      <button id="randomNext" class="primary">次へ</button>
+      <button id="reshuffle">再シャッフル</button>
+    </div>
   </div>
 
   <div id="listWrap" class="list-wrap">
@@ -184,6 +190,7 @@
     pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),resetSettings:document.getElementById("resetSettings"),
     count:document.getElementById("count"),tabs:document.getElementById("tabs"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),masteryRule:document.getElementById("masteryRule"),tabHint:document.getElementById("tabHint"),gptPageSize:document.getElementById("gptPageSize"),
+    randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
     meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
@@ -323,6 +330,7 @@
   function startSession(forceNew=false){
     if(!forceNew&&tryRestoreSession())return;
     const target=buildTarget();pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
+    if(!words.length){activeSession=null;revealY=0;persistView(target.view);return}
     const nextSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
     persistView(target.view);
     StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession:nextSession,gptSessions,registeredGptSessionIds});
@@ -347,7 +355,7 @@
     if(finalize&&priorSession)draftState=StudyCore.finalizeSessionDraft(draftState,priorSession).state;
     let view={...nextView,masteryThreshold:nextThreshold,randomStart:StudyCore.normalizeRandomStart(nextView.randomStart,nextRandomIds.length)};
     const target=buildTarget(view,draftState,nextWords,nextRandomIds,nextPageSize);view=target.view;
-    const nextSession=finalize||!priorSession
+    const nextSession=!nextWords.length?null:finalize||!priorSession
       ?{sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(view,nextPageSize),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null}
       :{...priorSession,key:sessionKey(view,nextPageSize),targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),updatedAt:Date.now()};
     const writes=[];
@@ -357,7 +365,7 @@
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds},writes);
     state=draftState;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;applyView(view,nextPageSize,nextThreshold);
-    if(resetCurtain)revealY=0;else revealY=Number(nextSession.revealY||0);
+    if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
   }
   function requestViewTransition(view,options){
@@ -391,18 +399,15 @@
 
   function renderTabs(model){
     els.tabs.replaceChildren();
+    els.tabs.hidden=sortMode==="random";
+    if(sortMode==="random")return;
     if(!model.pages.length){const b=document.createElement("button");b.textContent="0語";b.disabled=true;els.tabs.appendChild(b);return}
     for(const page of model.pages){
-      const i=page.index,b=document.createElement("button");b.textContent=`${page.start}–${page.end}（残り${page.entries.length}語）`;b.disabled=sortMode==="random"?false:page.entries.length===0;b.classList.toggle("active",sortMode==="random"?page.startIndex===randomStart:i===pageIndex&&page.entries.length>0);
+      const i=page.index,b=document.createElement("button");b.textContent=`${page.start}–${page.end}（残り${page.entries.length}語）`;b.disabled=page.entries.length===0;b.classList.toggle("active",i===pageIndex&&page.entries.length>0);
       b.addEventListener("click",()=>{
         if(b.disabled)return;
-        if(sortMode==="random"){
-          if(page.startIndex===randomStart)return;
-          requestViewTransition({...currentView(),randomStart:page.startIndex});
-        }else{
-          if(i===pageIndex)return;
-          requestViewTransition({...currentView(),pageIndex:i});
-        }
+        if(i===pageIndex)return;
+        requestViewTransition({...currentView(),pageIndex:i});
       });
       els.tabs.appendChild(b);
     }
@@ -452,6 +457,17 @@
     }
     renderTabs(model);renderRowsOnly(current);
     els.repeatStudy.disabled=current.length===0;
+    const randomNav=sortMode==="random"&&words.length>0;
+    els.randomNav.hidden=!randomNav;
+    els.tabHint.hidden=sortMode==="random";
+    if(randomNav&&page){
+      const navigation=StudyCore.randomPageNavigation(page,words.length);
+      els.randomProgress.textContent=`ランダム学習中 · ${page.total?`${page.startIndex+1}–${page.endIndex}/${page.total}番`:`0語`} · 表示中 ${current.length}語`;
+      els.randomNext.hidden=!navigation.canNext;els.randomNext.disabled=!navigation.canNext;
+      els.reshuffle.hidden=!navigation.canReshuffle;els.reshuffle.disabled=!navigation.canReshuffle;
+    }else{
+      els.randomNext.hidden=true;els.reshuffle.hidden=true;els.randomNext.disabled=true;els.reshuffle.disabled=true;
+    }
     els.count.textContent=page&&!(sortMode==="random"&&page.total===0)?`${sortMode==="random"?page.startIndex+1:page.start}–${sortMode==="random"?page.endIndex:page.end}範囲 / ${current.length}語（全${model.total}語）`:`0語`;
     document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
     els.excludeStreak.checked=excludeStreak;els.masteryRule.textContent=`（連続正答 ${masteryThreshold}回以上）`;
@@ -484,6 +500,26 @@
     if(action==="empty")return;
     if(action==="confirm"&&!confirm("途中までの学習結果を確定して、もう一度学習しますか？"))return;
     requestViewTransition(currentView());
+  }
+
+  function pageTransitionNeedsConfirmation(message){
+    const visibleIds=[...els.words.querySelectorAll(".word-row")].map(row=>row.dataset.id);
+    return StudyCore.repeatStudyAction(activeSession,visibleIds)!=="confirm"||confirm(message);
+  }
+  function nextRandomPage(){
+    if(sortMode!=="random"||!words.length)return;
+    const page=currentPage(),navigation=StudyCore.randomPageNavigation(page,words.length);
+    if(!navigation.canNext)return;
+    if(!pageTransitionNeedsConfirmation("途中までの学習結果を確定して、次のページへ進みますか？"))return;
+    requestViewTransition({...currentView(),randomStart:navigation.nextStart});
+  }
+  function reshuffleRandomOrder(){
+    if(!words.length)return;
+    const page=currentPage(),navigation=StudyCore.randomPageNavigation(page,words.length);
+    if(sortMode==="random"&&!navigation.canReshuffle)return;
+    if(!pageTransitionNeedsConfirmation("途中までの学習結果を確定して、再シャッフルしますか？"))return;
+    const order=shuffledIds();
+    requestViewTransition({...currentView(),sortMode:"random",randomStart:0},{nextRandomIds:order,writeRandomOrder:true});
   }
 
   function attachCurtainDrag(){
@@ -576,11 +612,8 @@
     if(!sameIdSet(order,words.map(word=>String(word.id)))){order=shuffledIds();writeRandomOrder=words.length>0}
     requestViewTransition({...currentView(),sortMode:"random"},{nextRandomIds:order,writeRandomOrder});
   });
-  els.reshuffle.addEventListener("click",()=>{
-    const visibleIds=pageWords().map(word=>String(word.id));
-    if(StudyCore.repeatStudyAction(activeSession,visibleIds)==="confirm"&&!confirm("途中までの学習結果を確定して、再シャッフルしますか？"))return;
-    const order=shuffledIds();requestViewTransition({...currentView(),sortMode:"random",randomStart:0},{nextRandomIds:order,writeRandomOrder:true});
-  });
+  els.randomNext.addEventListener("click",nextRandomPage);
+  els.reshuffle.addEventListener("click",reshuffleRandomOrder);
 
   els.csvFile.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{importCsv(await file.text())}catch(err){alert(err.message||String(err))}e.target.value=""});
   els.resetCurtain.addEventListener("click",resetCurtain);

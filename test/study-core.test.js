@@ -130,6 +130,26 @@ test('fixed random page handles empty, single-word, and short final ranges safel
   const beyond=C.buildRandomFixedPage(words,{}, {pageSize:50,randomIds:words.map(word=>word.id),startIndex:100});
   assert.deepEqual([beyond.startIndex,beyond.endIndex,beyond.entries.map(word=>word.displayNumber)],[50,51,[51]]);
 });
+test('random page navigation advances by the fixed range end and distinguishes final or empty lists', () => {
+  assert.deepEqual(C.randomPageNavigation({startIndex:10,endIndex:20,total:35},35),{canNext:true,canReshuffle:false,nextStart:20});
+  assert.deepEqual(C.randomPageNavigation({startIndex:30,endIndex:35,total:35},35),{canNext:false,canReshuffle:true,nextStart:null});
+  assert.deepEqual(C.randomPageNavigation({startIndex:10,endIndex:20,total:35,entries:[]},35),{canNext:true,canReshuffle:false,nextStart:20});
+  assert.deepEqual(C.randomPageNavigation({startIndex:0,endIndex:0,total:0},0),{canNext:false,canReshuffle:false,nextStart:null});
+  assert.deepEqual(C.randomPageNavigation({startIndex:0,endIndex:1,total:1},1),{canNext:false,canReshuffle:true,nextStart:null});
+});
+test('random navigation UI is separate from normal tabs and routes actions through saved view transitions', () => {
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/id="randomNav" class="random-nav" hidden/);
+  assert.match(html,/id="randomNext" class="primary">次へ/);
+  assert.match(html,/id="reshuffle">再シャッフル/);
+  assert.match(html,/els\.tabs\.hidden=sortMode==="random"/);
+  assert.match(html,/els\.randomNav\.hidden=!randomNav/);
+  assert.match(html,/els\.randomNext\.addEventListener\("click",nextRandomPage\)/);
+  assert.match(html,/els\.reshuffle\.addEventListener\("click",reshuffleRandomOrder\)/);
+  assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),randomStart:navigation\.nextStart\}\)/);
+  assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),sortMode:"random",randomStart:0\},\{nextRandomIds:order,writeRandomOrder:true\}\)/);
+  assert.match(html,/途中までの学習結果を確定して、次のページへ進みますか？/);
+});
 test('randomStart defaults, clamps invalid values, and round-trips independently from the normal page index', () => {
   assert.deepEqual([C.normalizeRandomStart(undefined,80),C.normalizeRandomStart(-4,80),C.normalizeRandomStart(2.9,80),C.normalizeRandomStart('bad',80),C.normalizeRandomStart(100,80)],[0,0,2,0,79]);
   const store=memoryStorage(),view={filter:'hasMiss',sortMode:'random',excludeStreak:true,masteryThreshold:4,pageIndex:7,randomStart:50};

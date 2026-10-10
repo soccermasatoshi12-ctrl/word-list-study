@@ -97,6 +97,13 @@
     const requested=Number(value),offset=Number.isFinite(requested)?Math.max(0,Math.floor(requested)):0;
     return Math.min(offset,length?length-1:0);
   }
+  function randomPageNavigation(page,totalWords) {
+    const total=Math.max(0,Math.floor(Number(totalWords)||0));
+    const start=Number(page?.startIndex),end=Number(page?.endIndex),length=Number(page?.total);
+    if(!total||!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(length)||length<=0||end<=start)return{canNext:false,canReshuffle:false,nextStart:null};
+    const atEnd=end>=length;
+    return{canNext:!atEnd,canReshuffle:atEnd,nextStart:atEnd?null:end};
+  }
   function normalizeView(raw={},randomTotal=0) {
     const threshold=Number(raw.masteryThreshold??raw.excludeStreakN),page=Number(raw.pageIndex);
     return{filter:raw.filter==="hasMiss"?"hasMiss":"all",sortMode:raw.sortMode==="random"?"random":"normal",
@@ -280,7 +287,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,randomPageNavigation,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
