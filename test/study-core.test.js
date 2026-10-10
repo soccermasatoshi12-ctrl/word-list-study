@@ -122,6 +122,38 @@ test('ON OFF finalizes once as wrong and multiple words use their final states',
   assert.deepEqual(state.b.recentResults,[true]); assert.equal(state.b.correctCount,1);
   assert.deepEqual(state.c.recentResults,[false]); assert.equal(state.c.correctCount,0);
 });
+test('repeat-study decision uses exposed IDs, ignores current cover position and checked status', () => {
+  const session={studiedIds:['a','b'],checkedIds:['a'],finalizedIds:[],revealY:0};
+  const before=JSON.stringify(session);
+  assert.equal(C.repeatStudyAction(session,[]),'empty');
+  assert.equal(C.repeatStudyAction(session,['a','b','c']),'confirm');
+  assert.equal(C.repeatStudyAction(session,['a','b']),'restart');
+  assert.equal(JSON.stringify(session),before);
+  assert.equal(C.repeatStudyAction(null,['a']),'confirm');
+});
+test('repeat study finalizes only pending results, reapplies mastery filter, resets and restores a new session', () => {
+  const words=['a','b','c'].map(id=>({id}));
+  const state={
+    a:{...C.defaultState(),studyCount:1,correctCount:1,recentResults:[true],currentStreak:1},
+    b:{...C.defaultState(),studyCount:1,correctCount:1,recentResults:[true],currentStreak:1},
+    c:{...C.defaultState(),studyCount:2,correctCount:2,recentResults:[true,true],currentStreak:2}
+  };
+  const active={sessionId:'gpt-partial-app',key:'all:2:normal:50:0',updatedAt:1000,revealY:90,studiedIds:['a','b'],checkedIds:['b'],finalizedIds:['a'],pendingId:'b'};
+  assert.equal(C.repeatStudyAction(active,['a','b']),'restart');
+  C.finalizeStudySession(active,id=>state[id]);
+  assert.deepEqual([state.a.studyCount,state.a.correctCount,state.a.recentResults],[1,1,[true]]);
+  assert.deepEqual([state.b.studyCount,state.b.correctCount,state.b.recentResults,state.b.currentStreak],[1,2,[true,true],2]);
+  const filtered=C.buildPageModel(words,state,{pageSize:50,excludeStreak:true,masteryThreshold:2});
+  assert.deepEqual(filtered.pages[0].entries.map(w=>w.id),['a']);
+  const next={sessionId:'repeat-session',key:'all:2:normal:50:0',updatedAt:2000,revealY:0,studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+  const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:next});
+  const restoredSnapshot=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  const restored=C.tryRestoreSession(restoredSnapshot.activeSession,{now:2001,ttl:300000,currentKey:next.key});
+  assert.equal(restored.sessionId,'repeat-session');
+  assert.deepEqual([restored.revealY,restored.studiedIds,restored.checkedIds,restored.finalizedIds],[0,[],[],[]]);
+  assert.equal(C.recordStudy(restored,'a',restoredSnapshot.state.a,'later'),true);
+  assert.equal(restoredSnapshot.state.a.studyCount,2);
+});
 test('unlearned words cannot be checked or included in session finalization', () => {
   const s=C.defaultState(),session={studiedIds:[],checkedIds:[],finalizedIds:[]};
   assert.equal(C.setSessionAnswer(session,'a',true),false);

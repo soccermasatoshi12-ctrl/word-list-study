@@ -59,6 +59,7 @@
     <div class="row">
       <button id="openSettings">設定</button>
       <button id="resetCurtain">最初に戻す</button>
+      <button id="repeatStudy" disabled>もう一度学習</button>
       <span id="count" class="count">0語</span>
     </div>
     <div class="hint">CSV形式: <code>id,word,meaning</code>。同じidなら再読込しても学習履歴を引き継ぎます。</div>
@@ -164,7 +165,7 @@
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession;
 
   const els={
-    openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),
+    openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),resetCurtain:document.getElementById("resetCurtain"),clearData:document.getElementById("clearData"),
     pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),resetSettings:document.getElementById("resetSettings"),
     count:document.getElementById("count"),tabs:document.getElementById("tabs"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
@@ -361,6 +362,7 @@
     if(safeIndex!==pageIndex){pageIndex=safeIndex;persistView()}
     const page=model.pages[pageIndex],current=page?.entries||[];
     renderTabs(model);renderRowsOnly(current);
+    els.repeatStudy.disabled=current.length===0;
     els.count.textContent=page?`${page.start}–${page.end}範囲 / ${current.length}語（全${model.total}語）`:`0語`;
     document.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b.dataset.filter===filter));
     els.excludeStreak.checked=excludeStreak;els.masteryRule.textContent=`（連続正答 ${masteryThreshold}回以上）`;
@@ -387,6 +389,16 @@
     saveActiveSession();
   }
   function resetCurtain(){revealY=0;positionCurtain();saveActiveSession(true)}
+  function repeatStudy(){
+    const visibleIds=[...els.words.querySelectorAll(".word-row")].map(row=>row.dataset.id);
+    const action=StudyCore.repeatStudyAction(activeSession,visibleIds);
+    if(action==="empty")return;
+    if(action==="confirm"&&!confirm("途中までの学習結果を確定して、もう一度学習しますか？"))return;
+    finalizeSession();
+    const model=pageModel();pageIndex=StudyCore.safePageIndex(model.pages,pageIndex);persistView();revealY=0;
+    if(model.pages[pageIndex]?.entries.length)startSession(true);
+    render();
+  }
 
   function attachCurtainDrag(){
     let dragging=false,startClientY=0,startRevealY=0;
@@ -472,6 +484,7 @@
 
   els.csvFile.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{importCsv(await file.text())}catch(err){alert(err.message||String(err))}e.target.value=""});
   els.resetCurtain.addEventListener("click",resetCurtain);
+  els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
     words=[];state={};gptSessions={};randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=50;masteryThreshold=3;pageIndex=0;revealY=0;
