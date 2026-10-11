@@ -50,10 +50,10 @@
     .study-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
     .study-actions button{min-width:0}
     .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:8px}
-    .word-row{display:grid;grid-template-columns:minmax(120px,1fr) 48px minmax(140px,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
+    .word-row{display:grid;grid-template-columns:minmax(0,210px) 48px minmax(0,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
     .word-cell{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-content:center;column-gap:6px;row-gap:3px;padding:2px 4px}
-    .word-main{grid-column:2;grid-row:1;min-width:0;font-weight:650;overflow-wrap:anywhere;word-break:break-word}
-    .word-index{grid-column:1;grid-row:1;align-self:start;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
+    .word-main{grid-column:2;grid-row:1;align-self:baseline;min-width:0;font-weight:650;overflow-wrap:anywhere;word-break:break-word}
+    .word-index{grid-column:1;grid-row:1;align-self:baseline;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
     .word-meta{grid-column:1 / -1;grid-row:2;min-width:0;display:flex;gap:6px;align-items:center;font-size:.75rem;color:var(--muted)}
     .word-meta .recent{letter-spacing:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
     .word-medal{width:15px;height:17px;margin-left:1px;vertical-align:middle}
