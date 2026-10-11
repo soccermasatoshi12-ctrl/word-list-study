@@ -21,13 +21,14 @@ function runRestore(storage,config,now) {
   return C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
 }
 
-test('filter button handler forwards the selected filter into the view transition', () => {
+test('legacy hasMiss view is removed from the page UI and migrates safely to all words', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  const handler=html.match(/document\.querySelectorAll\("\[data-filter\]"\)\.forEach\(btn=>btn\.addEventListener\("click",\(\)=>\{([\s\S]*?)\n  \}\)\);/);
-  assert.ok(handler,'filter button click handler should remain present');
-  assert.match(handler[1],/const next=btn\.dataset\.filter/);
-  assert.match(handler[1],/const view=\{\.\.\.currentView\(\),filter:next\}/);
-  assert.match(handler[1],/restartViewSession\(view\)/);
+  assert.doesNotMatch(html,/data-filter="|querySelectorAll\("\[data-filter\]"\)/);
+  assert.match(html,/normalizedView\.filter="all"/);
+  assert.match(html,/stored\.viewState\?\.filter==="hasMiss"/);
+  assert.match(html,/Array\.isArray\(stored\.targetIds\)&&StudyCore\.sameOrderedIds\(stored\.targetIds,target\.ids\)/);
+  assert.doesNotMatch(html,/stored\.targetIds=\[\.\.\.target\.ids\]/);
+  assert.match(html,/露出済みの結果を確定して全単語表示で再開します/);
 });
 
 test('recent history is capped at ten while streak remains exact', () => {
@@ -140,8 +141,8 @@ test('random page navigation advances by the fixed range end and distinguishes f
 test('random navigation UI is separate from normal tabs and routes actions through saved view transitions', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/id="randomNav" class="random-nav" hidden/);
-  assert.match(html,/id="randomNext" class="primary">次へ/);
-  assert.match(html,/id="reshuffle">再シャッフル/);
+  assert.match(html,/id="randomNext" class="primary" hidden>次へ/);
+  assert.match(html,/id="reshuffle" hidden>再シャッフル/);
   assert.match(html,/els\.tabs\.hidden=sortMode==="random"/);
   assert.match(html,/els\.randomNav\.hidden=!randomNav/);
   assert.match(html,/els\.randomNext\.addEventListener\("click",nextRandomPage\)/);
@@ -149,6 +150,35 @@ test('random navigation UI is separate from normal tabs and routes actions throu
   assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),randomStart:navigation\.nextStart\}\)/);
   assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),sortMode:"random",randomStart:0\},\{nextRandomIds:order,writeRandomOrder:true\}\)/);
   assert.match(html,/途中までの学習結果を確定して、次のページへ進みますか？/);
+});
+test('study screen groups controls, exposes accessible header icons, and places actions after the list', () => {
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/<header class="app-header">[\s\S]*?<h1 class="app-title">Word List Study<\/h1>[\s\S]*?id="openSettings"[^>]*aria-label="設定"[^>]*>[\s\S]*?id="openGpt"[^>]*aria-label="GPT学習"/);
+  assert.match(html,/<dialog id="settingsPanel"[\s\S]*?CSV形式: <code>id,word,meaning<\/code>[\s\S]*?<\/dialog>/);
+  const header=html.match(/<header class="app-header">([\s\S]*?)<\/header>/)?.[1];
+  assert.ok(header);
+  assert.doesNotMatch(header,/CSV形式:/);
+  const study=html.match(/<main class="study-shell">([\s\S]*?)<\/main>/)?.[1];
+  assert.ok(study,'all study controls and list should share one study region');
+  assert.match(study,/<div class="study-controls"[\s\S]*id="excludeStreak" type="checkbox" role="switch"[\s\S]*id="normalOrder"[\s\S]*id="randomOrder"/);
+  assert.doesNotMatch(study,/非正答あり|data-filter=/);
+  assert.equal((study.match(/class="medal-icon"/g)||[]).length,1);
+  assert.equal((html.match(/class="medal-icon"/g)||[]).length,2);
+  assert.match(html,/aria-checked="false"/);
+  assert.ok(study.indexOf('id="listWrap"')<study.indexOf('class="study-actions"'));
+  const actions=study.match(/<div class="study-actions"[\s\S]*?<\/div>/)?.[0];
+  assert.match(actions,/id="repeatStudy"/);
+  assert.match(actions,/id="randomNext"/);
+  assert.match(actions,/id="reshuffle"/);
+  assert.doesNotMatch(html,/id="resetCurtain"|function resetCurtain\(|els\.resetCurtain/);
+  assert.doesNotMatch(html,/CSV登録順を.*固定範囲に分けてからフィルタします/);
+  assert.match(html,/通常順ではCSV登録順の固定範囲をタブに分け/);
+  assert.match(html,/page\.startIndex\+1\}–\$\{page\.endIndex\} \/ 全\$\{page\.total\}語\$\{filtered\}/);
+  assert.match(html,/page\.start\}–\$\{page\.end\} · 残\$\{page\.entries\.length\}/);
+  assert.match(html,/els\.curtainHandle\.addEventListener\("pointerdown"/);
+  assert.match(html,/els\.curtainHandle\.addEventListener\("pointermove"/);
+  assert.match(html,/els\.openSettings\.addEventListener\("click"/);
+  assert.match(html,/els\.openGpt\.addEventListener\("click"/);
 });
 test('randomStart defaults, clamps invalid values, and round-trips independently from the normal page index', () => {
   assert.deepEqual([C.normalizeRandomStart(undefined,80),C.normalizeRandomStart(-4,80),C.normalizeRandomStart(2.9,80),C.normalizeRandomStart('bad',80),C.normalizeRandomStart(100,80)],[0,0,2,0,79]);
@@ -383,7 +413,7 @@ test('legacy normal all-words session restores the existing session and progress
 test('legacy random filtered session restores when the complete ordered target matches', () => {
   const words=['a','b','c'].map(id=>({id})),randomIds=['c','a','b'];
   const state={a:{...C.defaultState(),studyCount:1},b:{...C.defaultState(),studyCount:1},c:{...C.defaultState()}};
-  const saved={sessionId:'legacy-random',key:'hasMiss:off:random:0',updatedAt:1000,revealY:33,studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
+  const saved={sessionId:'legacy-random',key:'hasMiss:off:random:0',updatedAt:1000,revealY:33,targetIds:['a','b'],studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
   const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
   const model=C.buildPageModel(words,state,{pageSize:50,sortMode:'random',randomIds,filter:'hasMiss'});
   const restored=runRestore(store,{currentKey:'hasMiss:off:random:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'random',pageIndex:0,pageSize:50,words,state,randomIds,currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
@@ -393,7 +423,7 @@ test('legacy random filtered session restores when the complete ordered target m
 test('legacy normal filtered session restores when old and new ordered targets match', () => {
   const words=Array.from({length:50},(_,i)=>({id:String(i+1)}));
   const state=Object.fromEntries(words.map(w=>[w.id,{...C.defaultState(),studyCount:1,correctCount:0}]));
-  const saved={sessionId:'legacy-filtered-same',key:'hasMiss:off:normal:0',updatedAt:1000,revealY:24,studiedIds:['1'],checkedIds:[],finalizedIds:[]};
+  const saved={sessionId:'legacy-filtered-same',key:'hasMiss:off:normal:0',updatedAt:1000,revealY:24,targetIds:words.map(w=>w.id),studiedIds:['1'],checkedIds:[],finalizedIds:[]};
   const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
   const model=C.buildPageModel(words,state,{pageSize:50,filter:'hasMiss'});
   const restored=runRestore(store,{currentKey:'hasMiss:off:normal:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
@@ -404,7 +434,7 @@ test('legacy normal filtered target mismatch finalizes exposed answers once and 
   const words=Array.from({length:100},(_,i)=>({id:String(i+1)}));
   const state=Object.fromEntries(words.map(w=>[w.id,C.defaultState()]));
   for(const id of ['1','51'])state[id]={...C.defaultState(),studyCount:1,correctCount:0};
-  const saved={sessionId:'legacy-filtered-mismatch',key:'hasMiss:off:normal:0',updatedAt:1000,revealY:90,studiedIds:['1'],checkedIds:['1'],finalizedIds:[]};
+  const saved={sessionId:'legacy-filtered-mismatch',key:'hasMiss:off:normal:0',updatedAt:1000,revealY:90,targetIds:['1','51'],studiedIds:['1'],checkedIds:['1'],finalizedIds:[]};
   const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
   const model=C.buildPageModel(words,state,{pageSize:50,filter:'hasMiss'});
   const result=runRestore(store,{currentKey:'hasMiss:off:normal:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
@@ -414,6 +444,18 @@ test('legacy normal filtered target mismatch finalizes exposed answers once and 
   assert.equal(result.state['1'].currentStreak,1);
   const again=runRestore(store,{currentKey:'hasMiss:off:normal:50:0',legacyKey:saved.key,filter:'hasMiss',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1002);
   assert.deepEqual([again.state['1'].studyCount,again.state['1'].correctCount,again.state['1'].recentResults],[1,1,[true]]);
+});
+test('legacy filtered session with no exposed words starts fresh without adding history', () => {
+  const words=Array.from({length:50},(_,i)=>({id:String(i+1)}));
+  const state=Object.fromEntries(words.map(w=>[w.id,C.defaultState()]));
+  state['1']={...C.defaultState(),studyCount:1,correctCount:0};
+  const saved={sessionId:'legacy-empty-progress',key:'hasMiss:off:normal:0',updatedAt:1000,revealY:0,targetIds:['1'],studiedIds:[],checkedIds:[],finalizedIds:[]};
+  const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
+  const model=C.buildPageModel(words,state,{pageSize:50,filter:'hasMiss'});
+  const result=runRestore(store,{currentKey:'all:off:normal:50:normal:0',legacyKey:'all:off:normal:0',filter:'all',sortMode:'normal',pageIndex:0,pageSize:50,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)},1001);
+  assert.equal(result.activeSession.sessionId,'new-session');
+  assert.deepEqual([result.state['1'].studyCount,result.state['1'].correctCount,result.state['1'].recentResults,result.state['1'].currentStreak],[1,0,[],0]);
+  assert.deepEqual(result.state['2'],C.defaultState());
 });
 test('legacy restore rejects order mismatch, expired, unreconstructable, and inconsistent sessions', () => {
   const words=['a','b'].map(id=>({id})),state={a:{...C.defaultState(),studyCount:1},b:{...C.defaultState(),studyCount:1}};
