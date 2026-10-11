@@ -15,7 +15,9 @@
     .app-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
     .app-title{margin:0;font-size:1.1rem;line-height:1.2}
     .header-actions{display:flex;gap:6px}
-    .icon-button{display:grid;place-items:center;width:42px;height:42px;padding:8px}
+    .icon-button{display:grid;place-items:center;width:42px;height:42px;min-height:42px;padding:8px;border:0;border-radius:50%;background:transparent}
+    .icon-button:hover{background:#eef1f5}.icon-button:active{background:#e2e7ee}
+    .icon-button:focus-visible,.modal-close:focus-visible{outline:3px solid #2563eb66;outline-offset:2px}
     .icon-button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     .panel,.study-shell{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -63,6 +65,14 @@
     dialog.modal{width:min(760px,calc(100vw - 24px));max-height:min(90dvh,900px);margin:auto;padding:0;border:0;border-radius:14px;background:transparent;color:var(--text);overflow:auto}
     dialog.modal::backdrop{background:rgba(15,23,42,.52)}
     dialog.modal>.panel{margin:0;border-radius:14px;overflow-wrap:anywhere}
+    .modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    .modal-close{display:grid;place-items:center;flex:0 0 42px;width:42px;height:42px;min-height:42px;padding:0;border-radius:50%;font-size:1.7rem;line-height:1}
+    .settings-section{display:grid;gap:10px;padding:12px 0;border-top:1px solid var(--border)}
+    .settings-section h2{margin:0;font-size:1rem}
+    .settings-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+    .settings-item>label:first-child{min-width:0}
+    .settings-item select{flex:0 0 auto}
+    .settings-actions{display:flex;flex-wrap:wrap;gap:8px}
     dialog.modal input[type="text"]{max-width:100%;min-width:0;overflow-wrap:anywhere}
     .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
     .curtain-handle{position:absolute;z-index:21;height:34px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;user-select:none}.curtain-handle.hidden{display:none}
@@ -89,7 +99,7 @@
     <h1 class="app-title">Word List Study</h1>
     <div class="header-actions">
       <button id="openSettings" class="icon-button" type="button" aria-label="設定" title="設定">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 13.5 1.1.9-1.5 2.6-1.4-.5a7.8 7.8 0 0 1-1.7 1l-.2 1.5h-3l-.3-1.5a7.8 7.8 0 0 1-1.7-1l-1.4.5-1.5-2.6 1.1-.9a7.7 7.7 0 0 1 0-2l-1.1-.9 1.5-2.6 1.4.5a7.8 7.8 0 0 1 1.7-1l.3-1.5h3l.2 1.5a7.8 7.8 0 0 1 1.7 1l1.4-.5 1.5 2.6-1.1.9a7.7 7.7 0 0 1 0 2Z"/></svg>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M10 3h4l.6 2.5c.7.2 1.3.6 1.8 1l2.5-.8 2 3.5-1.9 1.8a8 8 0 0 1 0 2l1.9 1.8-2 3.5-2.5-.8c-.5.4-1.1.8-1.8 1L14 21h-4l-.6-2.5c-.7-.2-1.3-.6-1.8-1l-2.5.8-2-3.5L5 13a8 8 0 0 1 0-2L3.1 9.2l2-3.5 2.5.8c.5-.4 1.1-.8 1.8-1z"/></svg>
       </button>
       <button id="openGpt" class="icon-button" type="button" aria-label="GPT学習" title="GPT学習">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5.5h16v11H11l-4.5 3v-3H4z"/><path d="m14.5 8 .6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z"/></svg>
@@ -99,40 +109,47 @@
 
   <dialog id="settingsPanel" class="modal" aria-labelledby="settingsTitle">
   <div class="panel">
-    <div class="row"><strong id="settingsTitle">設定</strong><button id="closeSettings">閉じる</button></div>
-    <div class="row" style="margin-top:8px">
-      <label>タブあたり
+    <div class="modal-header"><strong id="settingsTitle">設定</strong><button id="closeSettings" class="modal-close" type="button" aria-label="設定を閉じる" title="閉じる">×</button></div>
+    <section class="settings-section" aria-labelledby="learningSettingsTitle">
+      <h2 id="learningSettingsTitle">学習設定</h2>
+      <div class="settings-item"><label for="pageSize">1ページの表示語数</label>
         <select id="pageSize" aria-label="タブあたりの表示語数">
           <option value="10">10語</option><option value="20">20語</option><option value="50">50語</option><option value="100">100語</option>
         </select>
-      </label>
-      <label class="mastery-setting"><svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>習得済み判定（連続正答）
+      </div>
+      <div class="settings-item"><label class="mastery-setting" for="masteryThreshold"><svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>習得済み判定（連続正答）</label>
         <select id="masteryThreshold" aria-label="習得済み判定の連続正答回数">
           <option value="2">2回</option><option value="3">3回</option><option value="4">4回</option><option value="5">5回</option>
         </select>
-      </label>
+      </div>
+    </section>
+    <section class="settings-section" aria-labelledby="csvSettingsTitle">
+      <h2 id="csvSettingsTitle">CSV管理</h2>
       <label class="file-btn">CSV読込・差し替え<input id="csvFile" type="file" accept=".csv,text/csv"></label>
-      <button id="resetSettings">設定を初期値に戻す</button>
-      <button id="clearData">データ消去</button>
-    </div>
-    <div class="hint">CSV形式: <code>id,word,meaning</code>（単語ID、英単語、日本語訳）。CSV読込・差し替えからファイルを選択します。同じidなら再読込しても学習履歴を引き継ぎます。</div>
-    <div class="hint">通常順ではCSV登録順の固定範囲をタブに分け、ランダム順では保存済み順序の固定範囲に対して習得済み除外を適用します。</div>
-    <div class="hint">設定の初期化では学習履歴は消去されません。</div>
+      <div class="hint">CSV形式: <code>id,word,meaning</code>（単語ID、英単語、日本語訳）。CSV読込・差し替えからファイルを選択します。同じidなら再読込しても学習履歴を引き継ぎます。</div>
+      <div class="hint">通常順ではCSV登録順の固定範囲をタブに分け、ランダム順では保存済み順序の固定範囲に対して習得済み除外を適用します。</div>
+    </section>
+    <section class="settings-section" aria-labelledby="dataSettingsTitle">
+      <h2 id="dataSettingsTitle">データ管理</h2>
+      <div class="settings-actions"><button id="resetSettings" type="button">設定を初期値に戻す</button><button id="clearData" type="button">データ消去</button></div>
+      <div class="hint">設定の初期化では学習履歴は消去されません。</div>
+      <div class="hint">データ消去では、この端末の単語データと学習履歴を削除します。</div>
+    </section>
   </div>
   </dialog>
 
   <main class="study-shell">
     <div class="study-controls" aria-label="学習対象と表示順">
+      <div class="sort-controls" aria-label="表示順">
+      <button id="normalOrder" class="active">通常順</button>
+      <button id="randomOrder">ランダム</button>
+      </div>
       <div class="filter-controls" aria-label="習得済み単語の表示">
         <label class="mastery-switch">
           <svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>
           <span>除外</span>
           <input id="excludeStreak" type="checkbox" role="switch" aria-label="習得済み単語を除外" aria-checked="false">
         </label>
-      </div>
-      <div class="sort-controls" aria-label="表示順">
-      <button id="normalOrder" class="active">通常順</button>
-      <button id="randomOrder">ランダム</button>
       </div>
     </div>
 
@@ -159,13 +176,13 @@
 
   <dialog id="gptPanel" class="modal" aria-labelledby="gptTitle">
     <div class="panel">
-      <div class="row"><strong id="gptTitle">GPT学習</strong><button id="closeGpt">閉じる</button></div>
+    <div class="modal-header"><strong id="gptTitle">GPT学習</strong><button id="closeGpt" class="modal-close" type="button" aria-label="GPT学習を閉じる" title="閉じる">×</button></div>
       <div class="row" style="margin-top:8px">
         <button id="makeSession" class="primary">このタブをGPT用URLにする</button>
         <button id="copySession" disabled>URLをコピー</button>
       </div>
       <input id="sessionUrl" type="text" readonly placeholder="ここにGPT用URLが出ます">
-      <div class="hint">現在表示中の最大<span id="gptPageSize">50</span>語をGPT学習対象にします。</div>
+      <div class="hint">現在表示中の最大<span id="gptPageSize">10</span>語をGPT学習対象にします。</div>
       <div class="row" style="margin-top:12px"><strong>GPT学習結果を反映</strong><button id="applyResults">結果JSONを登録</button></div>
       <textarea id="resultJson" aria-label="GPT学習結果JSON" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
       <div id="resultStatus" class="status" role="status" aria-live="polite"></div>
@@ -664,8 +681,8 @@
     changeDisplaySettings(pageSize,next);
   });
   els.resetSettings.addEventListener("click",()=>{
-    if(pageSize===50&&masteryThreshold===3)return;
-    changeDisplaySettings(50,3);
+    if(pageSize===10&&masteryThreshold===3)return;
+    changeDisplaySettings(10,3);
   });
 
   els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
@@ -682,7 +699,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
-    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=50;masteryThreshold=3;pageIndex=0;randomStart=0;revealY=0;
+    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;pageIndex=0;randomStart=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES])localStorage.removeItem(key);
     startSession(true);render();
   });

@@ -201,12 +201,21 @@ test('study screen groups controls, exposes accessible header icons, and places 
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<header class="app-header">[\s\S]*?<h1 class="app-title">Word List Study<\/h1>[\s\S]*?id="openSettings"[^>]*aria-label="設定"[^>]*>[\s\S]*?id="openGpt"[^>]*aria-label="GPT学習"/);
   assert.match(html,/<dialog id="settingsPanel"[\s\S]*?CSV形式: <code>id,word,meaning<\/code>[\s\S]*?<\/dialog>/);
+  assert.match(html,/<section class="settings-section" aria-labelledby="learningSettingsTitle">[\s\S]*?1ページの表示語数[\s\S]*?id="masteryThreshold"[\s\S]*?<\/section>/);
+  assert.match(html,/<section class="settings-section" aria-labelledby="csvSettingsTitle">[\s\S]*?id="csvFile"[\s\S]*?<\/section>/);
+  assert.match(html,/<section class="settings-section" aria-labelledby="dataSettingsTitle">[\s\S]*?id="resetSettings"[\s\S]*?id="clearData"[\s\S]*?設定の初期化では学習履歴は消去されません[\s\S]*?<\/section>/);
+  assert.match(html,/id="closeSettings" class="modal-close"[^>]*aria-label="設定を閉じる"[^>]*>×/);
+  assert.match(html,/id="closeGpt" class="modal-close"[^>]*aria-label="GPT学習を閉じる"[^>]*>×/);
+  assert.match(html,/els\.closeSettings\.addEventListener\("click",\(\)=>els\.settingsPanel\.close\(\)\)/);
+  assert.match(html,/els\.closeGpt\.addEventListener\("click",\(\)=>els\.gptPanel\.close\(\)\)/);
+  assert.match(html,/changeDisplaySettings\(10,3\)/);
+  assert.match(html,/pageSize=10;masteryThreshold=3/);
   const header=html.match(/<header class="app-header">([\s\S]*?)<\/header>/)?.[1];
   assert.ok(header);
   assert.doesNotMatch(header,/CSV形式:/);
   const study=html.match(/<main class="study-shell">([\s\S]*?)<\/main>/)?.[1];
   assert.ok(study,'all study controls and list should share one study region');
-  assert.match(study,/<div class="study-controls"[\s\S]*id="excludeStreak" type="checkbox" role="switch"[\s\S]*id="normalOrder"[\s\S]*id="randomOrder"/);
+  assert.match(study,/<div class="study-controls"[\s\S]*id="normalOrder"[\s\S]*id="randomOrder"[\s\S]*id="excludeStreak" type="checkbox" role="switch"/);
   assert.doesNotMatch(study,/非正答あり|data-filter=/);
   assert.equal((study.match(/class="medal-icon"/g)||[]).length,1);
   assert.equal((html.match(/class="medal-icon"/g)||[]).length,2);
@@ -248,8 +257,9 @@ test('preferences persist, restore, migrate prior mastery threshold, and default
   const store=memoryStorage();
   const value={pageSize:20,masteryThreshold:4};store.setItem('preferences',JSON.stringify(value));
   assert.deepEqual(C.normalizePreferences(JSON.parse(store.getItem('preferences'))),value);
-  assert.deepEqual(C.normalizePreferences({},{}),{pageSize:50,masteryThreshold:3});
-  assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8},{excludeStreakN:4}),{pageSize:50,masteryThreshold:4});
+  assert.deepEqual(C.normalizePreferences({},{}),{pageSize:10,masteryThreshold:3});
+  assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8},{excludeStreakN:4}),{pageSize:10,masteryThreshold:4});
+  for(const size of [10,20,50,100])assert.equal(C.normalizePreferences({pageSize:size},{}).pageSize,size);
 });
 test('display setting changes only end the current target when its word set changes', () => {
   const short=Array.from({length:8},(_,i)=>({id:String(i+1)}));

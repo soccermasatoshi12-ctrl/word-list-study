@@ -50,7 +50,7 @@
     }
   }
   function normalizePreferences(raw={},legacyView={}) {
-    const pageSize=[10,20,50,100].includes(Number(raw.pageSize))?Number(raw.pageSize):50;
+    const pageSize=[10,20,50,100].includes(Number(raw.pageSize))?Number(raw.pageSize):10;
     const storedThreshold=Number(raw.masteryThreshold),oldThreshold=Number(legacyView.excludeStreakN||3);
     const masteryThreshold=[2,3,4,5].includes(storedThreshold)?storedThreshold:Number.isFinite(oldThreshold)?Math.min(5,Math.max(2,oldThreshold)):3;
     return {pageSize,masteryThreshold};
