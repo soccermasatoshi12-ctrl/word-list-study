@@ -37,6 +37,52 @@ test('recent history is capped at ten while streak remains exact', () => {
   assert.equal(s.recentResults.length,10); assert.equal(s.currentStreak,15);
   assert.equal(C.normalizeState(s).currentStreak,15);
 });
+test('five-slot history display left-pads short histories and keeps chronological order', () => {
+  const cases=[
+    [[], '- - - - -'],
+    [[true], '- - - - ○'],
+    [[true,false], '- - - ○ ×'],
+    [[true,false,true], '- - ○ × ○'],
+    [[true,false,true,true], '- ○ × ○ ○'],
+    [[false,true,false,true,true], '× ○ × ○ ○'],
+    [[true,false,true,false,true,true], '× ○ × ○ ○']
+  ];
+  for(const [input,expected] of cases) assert.equal(C.formatRecentResults(input,5),expected);
+});
+test('five-slot history formatting does not change saved history, streak, or mastery state', () => {
+  const state={...C.defaultState(),studyCount:8,correctCount:6,recentResults:[true,false,true,true],currentStreak:2};
+  const before=structuredClone(state);
+  assert.equal(C.formatRecentResults(state.recentResults,5),'- ○ × ○ ○');
+  assert.deepEqual(state,before);
+  assert.equal(C.deriveStreak(state.recentResults),2);
+  assert.equal(state.currentStreak>=3,false);
+});
+test('safe reveal boundary never exposes an unstudied cell and keeps the studied prefix visible', () => {
+  const cells=[{id:'a',top:0,bottom:48},{id:'b',top:56,bottom:130},{id:'c',top:138,bottom:186}];
+  assert.equal(C.safeRevealBoundary([],cells,186),0);
+  assert.equal(C.safeRevealBoundary(['a'],cells,186),56);
+  assert.equal(C.safeRevealBoundary(['a','c'],cells,186),56);
+  assert.equal(C.safeRevealBoundary(['a','b','c'],cells,186),186);
+  assert.equal(C.safeRevealBoundary(['a'],[{id:'b',top:200}],100),100);
+  assert.equal(C.safeRevealBoundary(['a'],[],100),0);
+});
+test('word rows use flowing full-meaning text, five-result history, and mastered medal without changing history rules', () => {
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/\.meaning-cell\{[^}]*min-height:48px[^}]*overflow:hidden/);
+  assert.match(html,/\.meaning-text\{position:relative;display:block;width:100%;padding:[^;]+;font-size:13px;line-height:1\.35;overflow-wrap:anywhere/);
+  const meaningRule=html.match(/\.meaning-text\{[^}]*\}/)?.[0]||'';
+  assert.doesNotMatch(meaningRule,/position:absolute|line-clamp|max-height/);
+  assert.match(html,/function recentFive\(st\)\{return StudyCore\.formatRecentResults\(st\.recentResults,5\)\}/);
+  assert.match(html,/\.word-meta\{grid-column:1 \/ -1;grid-row:2/);
+  assert.doesNotMatch(html,/recent\.setAttribute\("aria-label","直近"/);
+  assert.match(html,/meta\.append\(recent\);if\(isMastered\(st\)\)meta\.append\(makeMedalIcon\(\)\)/);
+  assert.match(html,/if\(mastered&&!medal\)row\.querySelector\('\.recent'\)\.after\(makeMedalIcon\(\)\)/);
+  assert.match(html,/function isMastered\(st\)\{return\(st\.currentStreak\|\|0\)>=masteryThreshold\}/);
+  assert.match(html,/StudyCore\.safeRevealBoundary\(activeSession\?\.studiedIds,g\.thresholds,g\.height\)/);
+  assert.match(html,/window\.addEventListener\("resize",correctAfterLayoutChange\)/);
+  assert.match(html,/new ResizeObserver\(entries=>/);
+  assert.doesNotMatch(html,/recentThree|className="streak"|\.streak\{/);
+});
 test('normal order keeps fixed ranges and original numbering with filtered gaps', () => {
   const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:''}));
   const state={'3':{studyCount:1,correctCount:1,currentStreak:3},'5':{studyCount:1,correctCount:1,currentStreak:3},'8':{studyCount:1,correctCount:1,currentStreak:3}};

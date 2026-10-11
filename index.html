@@ -49,15 +49,15 @@
     .study-actions button{min-width:0}
     .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:8px}
     .word-row{display:grid;grid-template-columns:minmax(120px,1fr) 48px minmax(140px,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
-    .word-cell{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:2px 4px}
-    .word-main{font-weight:650;word-break:break-word}
-    .word-index{font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
-    .word-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:.75rem;color:var(--muted)}
-    .recent{letter-spacing:.08em;white-space:nowrap}
-    .streak{white-space:nowrap}
+    .word-cell{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-content:center;column-gap:6px;row-gap:3px;padding:2px 4px}
+    .word-main{grid-column:2;grid-row:1;min-width:0;font-weight:650;overflow-wrap:anywhere;word-break:break-word}
+    .word-index{grid-column:1;grid-row:1;align-self:start;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
+    .word-meta{grid-column:1 / -1;grid-row:2;min-width:0;display:flex;gap:6px;align-items:center;font-size:.75rem;color:var(--muted)}
+    .word-meta .recent{letter-spacing:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .word-medal{width:15px;height:17px;margin-left:1px;vertical-align:middle}
     .check-cell{display:flex;align-items:center;justify-content:center}.check-cell input{width:23px;height:23px;accent-color:var(--accent)}
-    .meaning-cell{position:relative;min-height:48px;overflow:hidden;border-radius:8px;background:#fafafa;border:1px solid var(--border)}
-    .meaning-text{position:absolute;inset:0;display:flex;align-items:center;padding:8px 10px;word-break:break-word}
+    .meaning-cell{position:relative;display:flex;align-items:center;min-height:48px;overflow:hidden;border-radius:8px;background:#fafafa;border:1px solid var(--border)}
+    .meaning-text{position:relative;display:block;width:100%;padding:6px 10px;font-size:13px;line-height:1.35;overflow-wrap:anywhere;word-break:break-word}
     .empty-state{padding:18px;text-align:center;color:var(--muted)}
     [hidden]{display:none!important}
     dialog.modal{width:min(760px,calc(100vw - 24px));max-height:min(90dvh,900px);margin:auto;padding:0;border:0;border-radius:14px;background:transparent;color:var(--text);overflow:auto}
@@ -79,7 +79,7 @@
       .study-actions{justify-content:stretch;gap:6px;margin-top:8px;padding-top:8px}
       .study-actions button{flex:1 1 auto}
       .word-row{grid-template-columns:minmax(96px,1fr) 42px minmax(110px,1fr);gap:6px;padding:6px}
-      .word-main{font-size:.98rem}.word-meta{font-size:.7rem;gap:7px}.meaning-text{padding:7px 8px}
+      .word-main{font-size:.98rem}.word-meta{font-size:.7rem;gap:5px}.meaning-text{padding:5px 8px}
     }
   </style>
 </head>
@@ -176,7 +176,7 @@
 <script src="study-core.js"></script>
 <script>
 (() => {
-  const SESSION_TTL_MS=5*60*1000, MAX_RECENT=StudyCore.MAX_RECENT;
+  const SESSION_TTL_MS=5*60*1000;
   const STORAGE_WORDS="wordlist.words.v2";
   const STORAGE_STATE="wordlist.state.v2";
   const STORAGE_GPT_SESSIONS="wordlist.gptSessions.v2";
@@ -212,7 +212,7 @@
   let masteryThreshold=initialPreferences.masteryThreshold;
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
-  let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession;
+  let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null;
 
   const els={
     openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
@@ -244,11 +244,16 @@
 
   const defaultState=StudyCore.defaultState, normalizeState=StudyCore.normalizeState, appendResult=StudyCore.appendResult;
   function getState(id){if(!state[id])state[id]=defaultState();state[id]=normalizeState(state[id]);return state[id]}
-  function recentThree(st){
-    const arr=(st.recentResults||[]).slice(-3).map(v=>v?"○":"×");
-    while(arr.length<3)arr.unshift("·");
-    return arr.join(" ");
+  function recentFive(st){return StudyCore.formatRecentResults(st.recentResults,5)}
+  function makeMedalIcon(){
+    const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");
+    svg.setAttribute("class","medal-icon word-medal");svg.setAttribute("viewBox","0 0 20 24");svg.setAttribute("role","img");svg.setAttribute("aria-label","習得済み");
+    const circle=document.createElementNS(ns,"circle");circle.setAttribute("cx","10");circle.setAttribute("cy","8");circle.setAttribute("r","5.2");
+    const ribbon=document.createElementNS(ns,"path");ribbon.setAttribute("d","M6.6 12 5 22l5-2.8 5 2.8-1.6-10");
+    const star=document.createElementNS(ns,"path");star.setAttribute("d","m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z");
+    svg.append(circle,ribbon,star);return svg;
   }
+  function isMastered(st){return(st.currentStreak||0)>=masteryThreshold}
 
   function sameIdSet(orderIds,currentIds){
     if(!Array.isArray(orderIds)||orderIds.length!==currentIds.length)return false;
@@ -431,8 +436,10 @@
     const scrollX=window.scrollX,scrollY=window.scrollY;
     for(const row of els.words.querySelectorAll('.word-row')){
       const id=row.dataset.id,st=getState(id),cb=row.querySelector('.check-cell input');
-      row.querySelector('.recent').textContent=`直近 ${recentThree(st)}`;
-      row.querySelector('.streak').textContent=`連続 ${st.currentStreak||0}`;
+      row.querySelector('.recent').textContent=recentFive(st);
+      const mastered=isMastered(st),medal=row.querySelector('.word-medal');
+      if(mastered&&!medal)row.querySelector('.recent').after(makeMedalIcon());
+      else if(!mastered&&medal)medal.remove();
       if(cb){cb.checked=!!activeSession?.checkedIds?.includes(id);cb.disabled=!activeSession?.studiedIds?.includes(id)||!!activeSession?.finalizedIds?.includes(id)}
     }
     window.scrollTo(scrollX,scrollY);
@@ -464,9 +471,8 @@
       const number=document.createElement("div");number.className="word-index";number.textContent=String(w.displayNumber);
       const main=document.createElement("div");main.className="word-main";main.textContent=w.word;
       const meta=document.createElement("div");meta.className="word-meta";
-      const recent=document.createElement("span");recent.className="recent";recent.textContent=`直近 ${recentThree(st)}`;
-      const streak=document.createElement("span");streak.className="streak";streak.textContent=`連続 ${st.currentStreak||0}`;
-      meta.append(recent,streak);wc.append(number,main,meta);
+      const recent=document.createElement("span");recent.className="recent";recent.textContent=recentFive(st);recent.setAttribute("aria-label","直近5件の正誤履歴");
+      meta.append(recent);if(isMastered(st))meta.append(makeMedalIcon());wc.append(number,main,meta);
 
       const cc=document.createElement("div");cc.className="check-cell";
       const cb=document.createElement("input");cb.type="checkbox";
@@ -482,6 +488,7 @@
       const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.meaning;mc.appendChild(mt);
       row.append(wc,cc,mc);els.words.appendChild(row);
     }
+    if(curtainLayoutObserver){curtainLayoutObserver.disconnect();for(const row of els.words.querySelectorAll(".word-row"))curtainLayoutObserver.observe(row)}
     requestAnimationFrame(positionCurtain);
   }
 
@@ -521,7 +528,7 @@
     const cells=[...els.words.querySelectorAll(".meaning-cell")];if(!cells.length)return null;
     const wrapRect=els.listWrap.getBoundingClientRect(),firstRect=cells[0].getBoundingClientRect(),lastRect=cells[cells.length-1].getBoundingClientRect();
     const top=firstRect.top-wrapRect.top,left=firstRect.left-wrapRect.left,width=firstRect.width,bottom=lastRect.bottom-wrapRect.top;
-    const thresholds=cells.map(cell=>{const r=cell.getBoundingClientRect();return{id:cell.dataset.id,bottom:r.bottom-wrapRect.top-top}});
+    const thresholds=cells.map(cell=>{const r=cell.getBoundingClientRect();return{id:cell.dataset.id,top:r.top-firstRect.top,bottom:r.bottom-firstRect.top}});
     return{top,left,width,height:bottom-top,thresholds};
   }
   function processRevealProgress(){const g=geometry();if(!g||!activeSession)return;for(const t of g.thresholds)if(revealY>=t.bottom-1)markStudied(t.id)}
@@ -563,10 +570,25 @@
   }
 
   function attachCurtainDrag(){
-    let dragging=false,startClientY=0,startRevealY=0;
+    let dragging=false,startClientY=0,startRevealY=0,pointerId=null;
+    const cancelDrag=()=>{if(!dragging)return;dragging=false;try{if(pointerId!==null&&els.curtainHandle.hasPointerCapture(pointerId))els.curtainHandle.releasePointerCapture(pointerId)}catch{}pointerId=null};
+    const correctAfterLayoutChange=()=>{
+      cancelDrag();const g=geometry();if(!g){positionCurtain();return}
+      revealY=StudyCore.safeRevealBoundary(activeSession?.studiedIds,g.thresholds,g.height);
+      positionCurtain();
+    };
+    window.addEventListener("resize",correctAfterLayoutChange);
+    if(typeof ResizeObserver!=="undefined"){
+      const sizes=new WeakMap();
+      curtainLayoutObserver=new ResizeObserver(entries=>{
+        let changed=false;
+        for(const entry of entries){const rect=entry.contentRect,previous=sizes.get(entry.target);if(previous&&(Math.abs(previous.width-rect.width)>.5||Math.abs(previous.height-rect.height)>.5))changed=true;sizes.set(entry.target,{width:rect.width,height:rect.height})}
+        if(changed)correctAfterLayoutChange();
+      });
+    }
     els.curtainHandle.addEventListener("pointerdown",e=>{
       if(els.curtainHandle.classList.contains("hidden"))return;
-      dragging=true;startClientY=e.clientY;startRevealY=revealY;els.curtainHandle.setPointerCapture(e.pointerId);e.preventDefault();
+      dragging=true;pointerId=e.pointerId;startClientY=e.clientY;startRevealY=revealY;els.curtainHandle.setPointerCapture(e.pointerId);e.preventDefault();
     });
     els.curtainHandle.addEventListener("pointermove",e=>{
       if(!dragging)return;const g=geometry();if(!g)return;
@@ -574,7 +596,7 @@
     });
     const finish=e=>{
       if(!dragging)return;dragging=false;processRevealProgress();saveActiveSession(true);
-      try{els.curtainHandle.releasePointerCapture(e.pointerId)}catch{}
+      try{els.curtainHandle.releasePointerCapture(e.pointerId)}catch{}pointerId=null;
     };
     els.curtainHandle.addEventListener("pointerup",finish);els.curtainHandle.addEventListener("pointercancel",finish);
   }
@@ -669,8 +691,8 @@
   els.applyResults.addEventListener("click",applyGptResults);
 
   validateRandomOrder();persistView();attachCurtainDrag();
-  window.addEventListener("resize",positionCurtain);window.addEventListener("beforeunload",()=>{saveActiveSession();persistView()});
-  startSession(false);render();requestAnimationFrame(()=>{revealY=Number(activeSession?.revealY||0);positionCurtain()});
+  window.addEventListener("beforeunload",()=>{saveActiveSession();persistView()});
+  startSession(false);if(activeSession)revealY=0;render();requestAnimationFrame(()=>{const g=geometry();revealY=StudyCore.safeRevealBoundary(activeSession?.studiedIds,g?.thresholds,g?.height);positionCurtain()});
 })();
 </script>
 </body>

@@ -104,6 +104,13 @@
     const atEnd=end>=length;
     return{canNext:!atEnd,canReshuffle:atEnd,nextStart:atEnd?null:end};
   }
+  function safeRevealBoundary(studiedIds,cells,height) {
+    if(!Array.isArray(cells)||!cells.length||!Number.isFinite(height)||height<0)return 0;
+    const studied=new Set(Array.isArray(studiedIds)?studiedIds.map(String):[]);
+    const firstUnstudied=cells.find(cell=>!studied.has(String(cell.id)));
+    const boundary=firstUnstudied?Number(firstUnstudied.top):height;
+    return Number.isFinite(boundary)?Math.max(0,Math.min(boundary,height)):0;
+  }
   function normalizeView(raw={},randomTotal=0) {
     const threshold=Number(raw.masteryThreshold??raw.excludeStreakN),page=Number(raw.pageIndex);
     return{filter:raw.filter==="hasMiss"?"hasMiss":"all",sortMode:raw.sortMode==="random"?"random":"normal",
@@ -201,6 +208,11 @@
     return {studyCount:Number(raw?.studyCount||0),correctCount:Number(raw?.correctCount||0),recentResults:recent,
       currentStreak:Number.isFinite(Number(raw?.currentStreak))?Number(raw.currentStreak):deriveStreak(recent),lastStudiedAt:raw?.lastStudiedAt||null};
   }
+  function formatRecentResults(results,slots=5) {
+    const count=Math.max(0,Math.floor(Number(slots)||0));
+    const recent=Array.isArray(results)&&count?results.slice(-count).map(value=>value?"○":"×"):[];
+    return [...Array(Math.max(0,count-recent.length)).fill("-"),...recent].join(" ");
+  }
   function appendResult(st, value) { const correct=!!value; st.recentResults=[...(st.recentResults||[]),correct].slice(-MAX_RECENT); st.currentStreak=correct?(st.currentStreak||0)+1:0; }
   function recordStudy(session,id,st,at=new Date().toISOString()) {
     if(session.studiedIds.includes(id)) return false;
@@ -287,7 +299,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,randomPageNavigation,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
