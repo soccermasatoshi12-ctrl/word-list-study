@@ -855,6 +855,162 @@ test('GPT jump rejects filtered targets and recalculates candidate for current p
   assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',excludeStreak:true,masteryThreshold:3},10,[]),results,{'11':{currentStreak:3}}).reason,'target-filtered');
 });
 
+test('GPT integration finalizes the departed normal page, keeps destination results provisional, and uses issue order',()=>{
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const ids=words.slice(7,17).map(w=>w.id),context=C.createGptIssueContext(words,{startId:'8',pageSize:10,ids});
+  const record={createdAt:'t',ids,context},sessions={s:record},registered=[];
+  const state={};for(const id of ['2','9','10'])state[id]={...C.defaultState(),studyCount:1};
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,excludeStreakN:3,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'old',key:C.studySessionKey(view,10),updatedAt:123,revealY:40,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2','9','10'],checkedIds:['2'],finalizedIds:[],pendingId:null};
+  const obj={version:1,sessionId:'s',results:[{id:'17',result:'correct'},{id:'16',result:'skipped'},{id:'13',result:'uncertain'},{id:'10',result:'wrong'},{id:'9',result:'correct'},{id:'8',result:'correct'},{id:'12',result:'wrong'}]};
+  const result=C.prepareGptIntegration(obj,{sessions,registeredIds:registered,knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.jump.canJump,true);assert.equal(result.jump.lastResultId,'17');assert.equal(result.transition.kind,'jump');assert.equal(result.samePage,false);
+  assert.deepEqual(result.ignoredOverlapIds,['9','10']);assert.deepEqual(result.provisionalIds,['12','13','17']);assert.equal(result.formalApplied,1);assert.equal(result.applied,4);
+  assert.equal(result.activeSession.sessionId,'gpt-s');assert.deepEqual(result.activeSession.targetIds,words.slice(10,20).map(w=>w.id));
+  assert.deepEqual(result.activeSession.studiedIds,['12','13','17']);assert.deepEqual(result.activeSession.checkedIds,['17']);assert.deepEqual(result.activeSession.finalizedIds,[]);
+  assert.deepEqual(result.state['8'].recentResults,[true]);assert.equal(result.state['8'].studyCount,1);
+  assert.deepEqual(result.state['2'].recentResults,[true]);assert.deepEqual(result.state['9'].recentResults,[false]);assert.deepEqual(result.state['10'].recentResults,[false]);
+  assert.equal(result.state['17'].studyCount,1);assert.equal(result.state['17'].correctCount,0);assert.deepEqual(result.state['17'].recentResults,[]);
+  const finalized=C.finalizeSessionDraft(result.state,result.activeSession);
+  assert.equal(finalized.state['17'].studyCount,1);assert.equal(finalized.state['17'].correctCount,1);assert.deepEqual(finalized.state['17'].recentResults,[true]);
+  assert.deepEqual(sessions,{s:record});assert.deepEqual(registered,[]);assert.equal(state['8'],undefined);
+});
+
+test('GPT landing targetIds reflect mastery exclusions created while finalizing the departed session',()=>{
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const randomIds=['11','12','13','14','15','16','17','18','19','20','1','22',...words.map(w=>w.id).filter(id=>!['11','12','13','14','15','16','17','18','19','20','1','22'].includes(id))];
+  const ids=['1','22'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'1',pageSize:10,excludeStreak:true,masteryThreshold:2,ids});
+  const record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:true,masteryThreshold:2,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1000,revealY:33,targetIds:words.slice(0,10).map(w=>w.id),
+    viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:['1'],finalizedIds:[],pendingId:null};
+  const state={'1':{...C.defaultState(),studyCount:2,correctCount:1,recentResults:[true],currentStreak:1}};
+  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'22',result:'correct'},{id:'1',result:'wrong'}]},
+    {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.jump.canJump,true);assert.equal(result.samePage,false);assert.deepEqual(result.ignoredOverlapIds,['1']);
+  assert.deepEqual(result.provisionalIds,['22']);assert.equal(result.formalApplied,0);
+  assert.deepEqual(result.state['1'].recentResults,[true,true]);assert.equal(result.state['1'].studyCount,2);
+  assert.equal(result.state['1'].correctCount,2);assert.equal(result.state['1'].currentStreak,2);
+  const beforeFinalize=C.buildRandomFixedPage(words,state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:2,startIndex:10}).entries.map(w=>w.id);
+  assert.ok(beforeFinalize.includes('1'));
+  const visible=C.buildRandomFixedPage(words,result.state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:2,startIndex:10}).entries.map(w=>w.id);
+  assert.ok(!visible.includes('1'));assert.notDeepEqual(beforeFinalize,visible);assert.deepEqual(result.activeSession.targetIds,visible);
+  const restored=C.tryRestoreSession(result.activeSession,{now:Date.parse('2026-10-12T00:01:00.000Z'),ttl:300000,
+    currentKey:C.studySessionKey(result.activeSession.viewState,10),filter:'all',sortMode:'random',excludeStreak:true,masteryThreshold:2,
+    words,state:result.state,randomIds,currentPageIds:visible});
+  assert.ok(restored);assert.deepEqual(restored.studiedIds,['22']);
+  assert.equal(C.sessionExpired(result.activeSession,result.activeSession.updatedAt+300001,300000),true);
+  assert.equal(C.tryRestoreSession(result.activeSession,{now:result.activeSession.updatedAt+300001,ttl:300000,
+    currentKey:C.studySessionKey(result.activeSession.viewState,10),currentPageIds:visible}),null);
+  const finalized=C.finalizeSessionDraft(result.state,restored);
+  assert.deepEqual(finalized.state['1'].recentResults,[true,true]);assert.deepEqual(finalized.state['22'].recentResults,[true]);
+  assert.equal(finalized.state['22'].studyCount,1);assert.equal(finalized.state['22'].correctCount,1);
+  const idempotentState=JSON.parse(JSON.stringify(result.state));
+  const finalizedSession={...restored,studiedIds:[...restored.studiedIds],checkedIds:[...restored.checkedIds],finalizedIds:[...restored.finalizedIds]};
+  const getState=id=>idempotentState[id]=C.normalizeState(idempotentState[id]||C.defaultState());
+  C.finalizeStudySession(finalizedSession,getState);const first=JSON.stringify(idempotentState);
+  C.finalizeStudySession(finalizedSession,getState);
+  assert.equal(JSON.stringify(idempotentState),first);assert.deepEqual(idempotentState['22'].recentResults,[true]);assert.equal(idempotentState['22'].studyCount,1);
+});
+
+test('GPT integration merges destination results into the same active page without disturbing existing answers',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),ids=['1','2','3','4','5'];
+  const context=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids}),record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const state={'2':{...C.defaultState(),studyCount:1}},active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:123,revealY:77,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:[],pendingId:'2'};
+  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'5',result:'correct'},{id:'2',result:'wrong'},{id:'3',result:'uncertain'}]},
+    {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.jump.canJump,true);assert.equal(result.samePage,true);assert.equal(result.transition.kind,'stay');
+  assert.deepEqual(result.ignoredOverlapIds,['2']);assert.deepEqual(result.provisionalIds,['3','5']);assert.equal(result.formalApplied,0);
+  assert.equal(result.activeSession.sessionId,'app');assert.equal(result.activeSession.revealY,77);assert.equal(result.activeSession.pendingId,'2');
+  assert.deepEqual(result.activeSession.studiedIds,['2','3','5']);assert.deepEqual(result.activeSession.checkedIds,['2','5']);
+  assert.equal(result.state['2'].studyCount,1);assert.deepEqual(result.state['2'].recentResults,[]);
+  assert.equal(result.state['3'].studyCount,1);assert.equal(result.state['5'].correctCount,0);
+  const restored=C.tryRestoreSession(result.activeSession,{now:Date.parse('2026-10-12T00:01:00.000Z'),ttl:300000,currentKey:active.key,legacyKey:'legacy',
+    filter:'all',sortMode:'normal',pageIndex:0,pageSize:10,words,state:result.state,randomIds:[],currentPageIds:active.targetIds});
+  assert.ok(restored);const finalized=C.finalizeSessionDraft(result.state,restored);
+  assert.equal(finalized.state['2'].studyCount,1);assert.equal(finalized.state['3'].studyCount,1);assert.equal(finalized.state['5'].studyCount,1);
+  assert.equal(finalized.state['3'].currentStreak,0);assert.equal(finalized.state['5'].currentStreak,1);
+});
+
+test('GPT integration does not treat an already finalized active-session result as a pending collision',()=>{
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),ids=['2'];
+  const context=C.createGptIssueContext(words,{startId:'2',pageSize:10,ids}),record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:['2'],pendingId:null};
+  const state={'2':{...C.defaultState(),studyCount:1,correctCount:1,recentResults:[true],currentStreak:1}};
+  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'2',result:'wrong'}]},
+    {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+  assert.deepEqual(result.ignoredOverlapIds,[]);assert.deepEqual(result.provisionalIds,[]);assert.equal(result.formalApplied,1);
+  assert.equal(result.state['2'].studyCount,2);assert.deepEqual(result.state['2'].recentResults,[true,false]);assert.equal(result.state['2'].currentStreak,0);
+});
+
+test('random GPT integration crosses fixed page boundaries and preserves skipped or missing outcomes',()=>{
+  const words=Array.from({length:25},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const randomIds=['4','2','1',...words.map(w=>w.id).filter(id=>!['4','2','1'].includes(id))],ids=randomIds.slice(8,16);
+  const context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:ids[0],pageSize:10,ids}),record={createdAt:'t',ids,context};
+  const view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const result=C.prepareGptIntegration({version:1,sessionId:'r',results:[{id:ids[7],result:'wrong'},{id:ids[2],result:'skipped'},{id:ids[0],result:'correct'}]},
+    {sessions:{r:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.transition.kind,'jump');assert.equal(result.transition.view.sortMode,'random');assert.equal(result.transition.view.randomStart,10);
+  assert.deepEqual(result.provisionalIds,ids.slice(2,8).filter(id=>id===ids[7]));
+  assert.deepEqual(result.activeSession.studiedIds,[ids[7]]);assert.deepEqual(result.activeSession.checkedIds,[]);
+  assert.equal(result.state[ids[0]].correctCount,1);assert.equal(result.state[ids[0]].studyCount,1);
+  assert.equal(result.state[ids[2]],undefined);
+});
+
+test('GPT integration formally records results when a reshuffle makes the saved jump position unsafe',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),issuedOrder=words.map(w=>w.id),ids=['11','12'];
+  const context=C.createGptIssueContext(words,{sortMode:'random',randomIds:issuedOrder,startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context};
+  const currentOrder=[...issuedOrder].reverse(),view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:9,targetIds:currentOrder.slice(0,10),viewState:{...view,pageSize:10},studiedIds:['20'],checkedIds:['20'],finalizedIds:[],pendingId:null};
+  const state={'20':{...C.defaultState(),studyCount:1}};
+  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'11',result:'wrong'}]},
+    {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:currentOrder,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.jump.canJump,false);assert.equal(result.jump.reason,'order-changed');assert.equal(result.transition.kind,'stay');
+  assert.equal(result.formalApplied,1);assert.deepEqual(result.provisionalIds,[]);assert.deepEqual(result.state['11'].recentResults,[false]);
+  assert.deepEqual(result.activeSession,active);assert.deepEqual(result.state['20'].recentResults,[]);
+});
+
+test('GPT integration keeps active session on no-jump, legacy, zero, skipped-only, and all-overlap outcomes',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:12,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:['1'],finalizedIds:[],pendingId:null};
+  const state={'1':{...C.defaultState(),studyCount:1}};
+  const cases=[
+    {record:{ids:['1','2']},results:[{id:'1',result:'wrong'},{id:'2',result:'correct'}],expectedApplied:1,reason:'legacy-no-context'},
+    {record:{ids:['1','2'],context:null},results:[{id:'2',result:'correct'}],expectedApplied:1,reason:'invalid-context'},
+    {record:{ids:['1','2']},results:[],expectedApplied:0,reason:'legacy-no-context'},
+    {record:{ids:['1','2']},results:[{id:'2',result:'skipped'}],expectedApplied:0,reason:'legacy-no-context'},
+    {record:{ids:['1']},results:[{id:'1',result:'wrong'}],expectedApplied:0,reason:'legacy-no-context'}
+  ];
+  for(let i=0;i<cases.length;i++) {
+    const {record,results,expectedApplied,reason}=cases[i],sessionId=`s${i}`,sessions={[sessionId]:record};
+    const result=C.prepareGptIntegration({version:1,sessionId,results},{sessions,registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+    assert.equal(result.applied,expectedApplied);assert.equal(result.jump.reason,reason);assert.equal(result.transition.kind,'stay');
+    assert.deepEqual(result.activeSession,active);assert.deepEqual(result.registeredGptSessionIds,[sessionId]);
+  }
+});
+
+test('GPT replay uses the existing formal import path and never creates provisional integration state',()=>{
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:[],finalizedIds:[],pendingId:null};
+  const result=C.prepareGptIntegration({version:1,sessionId:'done',results:[{id:'2',result:'correct'}]},
+    {sessions:{},registeredIds:['done'],knownIds:words.map(w=>w.id),words,state:{'1':{...C.defaultState(),studyCount:1}},activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.isReplay,true);assert.equal(result.mode,'formal-replay');assert.equal(result.jump.canJump,false);assert.deepEqual(result.provisionalIds,[]);
+  assert.equal(result.state['2'].recentResults.at(-1),true);assert.deepEqual(result.activeSession.studiedIds,['1']);assert.deepEqual(result.activeSession.finalizedIds,['1']);
+});
+
+test('GPT integration draft is immutable and failed persistence leaves stored state intact',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),ids=['11'];
+  const context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context},sessions={s:record},state={},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:[],finalizedIds:[],pendingId:null};
+  const before=JSON.stringify({sessions,state,active});
+  const draft=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'11',result:'correct'}]},
+    {sessions,registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(JSON.stringify({sessions,state,active}),before);
+  const store=memoryStorage({ledger:JSON.stringify({state,gptSessions:sessions,registeredGptSessionIds:[],activeSession:active})}),broken={...store,setItem(){throw new Error('quota/write failure')}};
+  assert.throws(()=>C.saveCoreTransition(broken,'ledger',{state:draft.state,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,activeSession:draft.activeSession},[]),/quota\/write failure/);
+  const persisted=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.deepEqual(persisted.state,state);assert.deepEqual(persisted.gptSessions,sessions);assert.deepEqual(persisted.activeSession,active);
+});
+
 test('failed first-import snapshot write leaves memory inputs and prior durable state unchanged', () => {
   const state={a:C.defaultState()},sessions={s:{createdAt:'t',ids:['a']}},registered=[],active=null;
   state.a.studyCount=1;

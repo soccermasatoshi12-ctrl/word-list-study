@@ -400,6 +400,106 @@
     const applied=applyGptResults(obj,nextSessions,knownIds,nextState,now,nextSession,getState,nextRegistered,allowReplay);
     return {state:nextState,gptSessions:nextSessions,registeredGptSessionIds:nextRegistered,activeSession:nextSession,applied,isReplay};
   }
+  function pageForGptPosition(words,state,view,pageSize,randomIds,position) {
+    if(view.sortMode==="random") {
+      const page=buildRandomFixedPage(words,state,{pageSize,randomIds,filter:view.filter,excludeStreak:view.excludeStreak,masteryThreshold:view.masteryThreshold,startIndex:position});
+      return{view:{...view,randomStart:page.startIndex},page,ids:page.entries.map(w=>String(w.id))};
+    }
+    const model=buildPageModel(words,state,{pageSize,sortMode:"normal",filter:view.filter,excludeStreak:view.excludeStreak,masteryThreshold:view.masteryThreshold});
+    const index=safePageIndex(model.pages,position),page=model.pages[index];
+    return{view:{...view,pageIndex:index},page,model,ids:(page?.entries||[]).map(w=>String(w.id))};
+  }
+  function prepareGptIntegration(obj,{sessions={},registeredIds=[],knownIds=[],words=[],state={},activeSession=null,currentView=null,pageSize,randomIds=[],now=new Date().toISOString()}={}) {
+    const checked=inspectGptResults(obj,sessions,registeredIds,knownIds),sessionId=String(obj.sessionId);
+    if(checked.isReplay) {
+      const formal=prepareGptImport(obj,sessions,knownIds,state,activeSession,now,registeredIds,true);
+      return{...formal,mode:"formal-replay",jump:{canJump:false,reason:"replay",lastResultId:null,candidatePosition:null},samePage:false,
+        transition:{kind:"stay",view:currentView},formalApplied:formal.applied,provisionalIds:[],ignoredOverlapIds:[]};
+    }
+    const original=sessions?.[sessionId],nextState=JSON.parse(JSON.stringify(state||{})),nextSessions=JSON.parse(JSON.stringify(sessions||{}));
+    const nextRegistered=[...registeredIds],nextSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
+    if(nextSession&&(!Array.isArray(nextSession.studiedIds)||!Array.isArray(nextSession.checkedIds)||!Array.isArray(nextSession.finalizedIds)||!Array.isArray(nextSession.targetIds)))throw new Error("通常学習セッションが不正です。");
+    const finalized=new Set((activeSession?.finalizedIds||[]).map(String));
+    const pending=new Set((activeSession?.studiedIds||[]).map(String).filter(id=>!finalized.has(id)));
+    const overlapping=new Set(checked.results.filter(r=>r.result!=="skipped"&&pending.has(r.id)).map(r=>r.id));
+    const ignoredOverlapIds=(original?.ids||[]).map(String).filter(id=>overlapping.has(id));
+    const ignored=new Set(ignoredOverlapIds),eligible=checked.results.filter(r=>r.result!=="skipped"&&!ignored.has(r.id));
+    const jumpView=buildGptJumpView(currentView,pageSize,randomIds);
+    let jump=evaluateGptJump(original,words,jumpView,eligible,state);
+    let candidatePage=null,samePage=false;
+    if(jump.canJump) {
+      const pos=jump.candidatePosition.sortMode==="random"?jump.candidatePosition.randomStart:jump.candidatePosition.pageIndex;
+      candidatePage=pageForGptPosition(words,state,{...currentView,sortMode:jump.candidatePosition.sortMode},pageSize,randomIds,pos);
+      if(!candidatePage.ids.includes(jump.lastResultId)) {
+        jump={...jump,canJump:false,reason:"target-not-visible",candidatePosition:null};candidatePage=null;
+      } else {
+        const currentPos=currentView.sortMode==="random"?currentView.randomStart:currentView.pageIndex;
+        const currentPage=pageForGptPosition(words,state,currentView,pageSize,randomIds,currentPos||0);
+        samePage=currentView.sortMode===candidatePage.view.sortMode&&sameOrderedIds(currentPage.ids,candidatePage.ids)&&
+          (!nextSession||(nextSession.key===studySessionKey(currentView,pageSize)&&sameOrderedIds(nextSession.targetIds,candidatePage.ids)));
+      }
+    }
+    const provisionalSet=new Set();
+    if(jump.canJump&&candidatePage)for(const result of eligible) {
+      if(!candidatePage.ids.includes(result.id))continue;
+      if(samePage&&nextSession&&finalized.has(result.id))continue;
+      provisionalSet.add(result.id);
+    }
+    let formalResults=eligible.filter(result=>!provisionalSet.has(result.id));
+    const updatedAt=typeof now==="number"?now:Date.parse(now);
+    if(!Number.isFinite(updatedAt))throw new Error("GPT結果の登録時刻が不正です。");
+    const stamp=new Date(updatedAt).toISOString();
+    const applyFormalResult=({id,result})=>{
+      const st=nextState[id]=normalizeState(nextState[id]||defaultState());st.studyCount+=1;st.lastStudiedAt=stamp;
+      if(result==="correct"){st.correctCount+=1;appendResult(st,true)}else appendResult(st,false);
+    };
+    for(const result of formalResults)applyFormalResult(result);
+    const differentPage=jump.canJump&&!samePage;
+    if(differentPage&&nextSession) {
+      finalizeStudySession(nextSession,id=>nextState[id]=normalizeState(nextState[id]||defaultState()));
+    }
+    if(differentPage&&candidatePage) {
+      const position=jump.candidatePosition.sortMode==="random"?jump.candidatePosition.randomStart:jump.candidatePosition.pageIndex;
+      candidatePage=pageForGptPosition(words,nextState,{...currentView,sortMode:jump.candidatePosition.sortMode},pageSize,randomIds,position);
+      const visible=new Set(candidatePage.ids);
+      const newlyFormalized=eligible.filter(result=>provisionalSet.has(result.id)&&!visible.has(result.id));
+      for(const {id,result} of newlyFormalized) {
+        applyFormalResult({id,result});
+        provisionalSet.delete(id);formalResults.push({id,result});
+      }
+      if(!candidatePage.ids.includes(jump.lastResultId)) {
+        const remaining=eligible.filter(result=>provisionalSet.has(result.id));
+        for(const {id,result} of remaining) {
+          applyFormalResult({id,result});
+          provisionalSet.delete(id);formalResults.push({id,result});
+        }
+        jump={...jump,canJump:false,reason:"target-not-visible-after-finalize",candidatePosition:null};candidatePage=null;
+      }
+    }
+    let resultingSession=differentPage?null:nextSession;
+    if(jump.canJump&&candidatePage&&provisionalSet.size) {
+      const isNew=!resultingSession;
+      if(isNew)resultingSession={sessionId:`gpt-${sessionId}`,key:studySessionKey(candidatePage.view,pageSize),updatedAt,
+        revealY:0,targetIds:[...candidatePage.ids],viewState:{...candidatePage.view,pageSize},studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+      const byId=new Map(eligible.map(r=>[r.id,r.result]));
+      for(const id of candidatePage.ids)if(provisionalSet.has(id)) {
+        if(!resultingSession.studiedIds.includes(id))resultingSession.studiedIds.push(id);
+        if(byId.get(id)==="correct") {if(!resultingSession.checkedIds.includes(id))resultingSession.checkedIds.push(id)}
+        else resultingSession.checkedIds=resultingSession.checkedIds.filter(value=>String(value)!==id);
+        const st=nextState[id]=normalizeState(nextState[id]||defaultState());st.studyCount+=1;st.lastStudiedAt=stamp;
+      }
+      resultingSession.updatedAt=updatedAt;
+      if(isNew||differentPage)resultingSession.viewState={...candidatePage.view,pageSize};
+    }
+    delete nextSessions[sessionId];if(!nextRegistered.includes(sessionId))nextRegistered.push(sessionId);
+    const provisionalIds=candidatePage?candidatePage.ids.filter(id=>provisionalSet.has(id)):[];
+    const formalApplied=formalResults.length,applied=formalApplied+provisionalIds.length;
+    return{state:nextState,gptSessions:nextSessions,registeredGptSessionIds:nextRegistered,activeSession:resultingSession,applied,
+      formalApplied,provisionalIds,ignoredOverlapIds,isReplay:false,jump,samePage,
+      transition:jump.canJump?{kind:differentPage?"jump":"stay",view:differentPage?candidatePage.view:currentView,position:jump.candidatePosition,
+        requiresModeRestore:jump.requiresModeRestore}:
+        {kind:"stay",view:currentView,requiresModeRestore:false}};
+  }
   function makeGptPayload(sessionId,words) {
     const outputInstructions=[
       "学習結果はJSONのみで出力してください。説明文やMarkdownのコードフェンスは付けないでください。",
@@ -410,7 +510,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
