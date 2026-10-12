@@ -20,6 +20,10 @@ function runRestore(storage,config,now) {
   C.saveCore(storage,'ledger',snapshot);
   return C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
 }
+function jumpView(view={},pageSize=10,randomIds=[]) {
+  const currentView={filter:'all',sortMode:'normal',excludeStreak:false,excludeStreakN:3,masteryThreshold:3,pageIndex:0,randomStart:0,...view};
+  return C.buildGptJumpView(currentView,pageSize,randomIds);
+}
 
 test('legacy hasMiss view is removed from the page UI and migrates safely to all words', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
@@ -781,6 +785,74 @@ test('registered ID replay validates current IDs/results and retains one marker 
   assert.equal(confirmed.state.a.correctCount,1);assert.deepEqual(confirmed.registeredGptSessionIds,['used']);
   const again=C.prepareGptImport(replay,confirmed.gptSessions,known,confirmed.state,null,undefined,confirmed.registeredGptSessionIds,true);
   assert.deepEqual(again.registeredGptSessionIds,['used']);assert.equal(again.state.a.correctCount,2);
+});
+
+test('GPT issue context survives save/load while legacy records keep their old shape',()=>{
+  const words=Array.from({length:35},(_,i)=>({id:String(i+1),word:`word${i+1}`,meaning:`意味${i+1}`}));
+  const ids=['11','12','13'],context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids});
+  const store=memoryStorage();C.saveCore(store,'ledger',{state:{},activeSession:null,gptSessions:{fresh:{createdAt:'t',ids,context},legacy:{createdAt:'old',ids:['a']}}});
+  const loaded=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.deepEqual(loaded.gptSessions.fresh.context,context);
+  assert.deepEqual(loaded.gptSessions.legacy,{createdAt:'old',ids:['a']});
+  const malformed=C.normalizeGptSessionRecords({bad:{ids:['1'],context:{version:1}}});
+  assert.equal(malformed.gptSessions.bad.context,null);
+  assert.equal(C.evaluateGptJump(malformed.gptSessions.bad,words,jumpView({sortMode:'normal'},10,[]),[{id:'1',result:'correct'}]).reason,'invalid-context');
+  const forged={ids:['1'],context:{...context,targetPositions:[2]}};
+  assert.equal(C.evaluateGptJump(forged,words,jumpView({sortMode:'normal',filter:'all'},10,[]),[{id:'1',result:'correct'}]).reason,'invalid-context');
+});
+
+test('GPT jump uses last practical result in issue order and computes normal page across boundary',()=>{
+  const words=Array.from({length:35},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const ids=['9','10','11','12'],context=C.createGptIssueContext(words,{startId:'9',pageSize:10,ids});
+  const record={ids,context};
+  const result=C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',pageIndex:0,randomStart:0,excludeStreak:false,masteryThreshold:3},10,[]),[
+    {id:'12',result:'skipped'},{id:'9',result:'correct'},{id:'11',result:'uncertain'}
+  ]);
+  assert.equal(result.canJump,true);assert.equal(result.lastResultId,'11');assert.equal(result.orderPreserved,true);
+  assert.deepEqual(result.candidatePosition,{sortMode:'normal',pageIndex:1,randomStart:null,wordIndex:10});
+  assert.deepEqual(Object.keys(jumpView()).sort(),['excludeStreak','excludeStreakN','filter','masteryThreshold','pageIndex','pageSize','randomIds','randomStart','sortMode'].sort());
+});
+
+test('GPT jump preserves issuance order across a display mode switch and reports mode restore requirement',()=>{
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const randomIds=['4','2','1',...words.map(w=>w.id).filter(id=>!['4','2','1'].includes(id))];
+  const ids=['2','1','5'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'2',pageSize:10,ids});
+  const result=C.evaluateGptJump({ids,context},words,jumpView({filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0},10,randomIds),[
+    {id:'5',result:'wrong'},{id:'1',result:'correct'}
+  ]);
+  assert.equal(result.canJump,true);assert.equal(result.issuedMode,'random');assert.equal(result.currentMode,'normal');
+  assert.equal(result.orderPreserved,true);assert.equal(result.requiresModeRestore,true);assert.equal(result.lastResultId,'5');
+  assert.deepEqual(result.candidatePosition,{sortMode:'random',randomStart:0,pageIndex:null,wordIndex:4});
+  const returnedToRandom=C.evaluateGptJump({ids,context},words,jumpView({sortMode:'random'},10,randomIds),[{id:'5',result:'wrong'}]);
+  assert.equal(returnedToRandom.canJump,true);assert.equal(returnedToRandom.requiresModeRestore,false);
+  const normalIds=['11','12'],normalContext=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids:normalIds});
+  const normalResult=C.evaluateGptJump({ids:normalIds,context:normalContext},words,jumpView({filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0},10,randomIds),[{id:'12',result:'correct'}]);
+  assert.equal(normalResult.canJump,true);assert.equal(normalResult.orderPreserved,true);assert.equal(normalResult.requiresModeRestore,true);
+  assert.deepEqual(normalResult.candidatePosition,{sortMode:'normal',pageIndex:1,randomStart:null,wordIndex:11});
+});
+
+test('GPT jump suppresses changed CSV, content, random order, and missing legacy context',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const randomIds=words.map(w=>w.id),ids=['1','2'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'1',pageSize:10,ids});
+  const record={ids,context},view=jumpView({filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0},10,randomIds);
+  const results=[{id:'2',result:'correct'}];
+  assert.equal(C.evaluateGptJump(record,words.slice().reverse(),view,results).reason,'csv-order-changed');
+  const edited=words.map(w=>w.id==='3'?{...w,meaning:'changed'}:w);
+  assert.equal(C.evaluateGptJump(record,edited,view,results).reason,'content-changed');
+  const reshuffled=[...randomIds].reverse();
+  assert.equal(C.evaluateGptJump(record,words,{...view,randomIds:reshuffled},results).reason,'order-changed');
+  assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'random'},10,null),results).reason,'invalid-order');
+  assert.equal(C.evaluateGptJump(record,words.slice(0,-1),view,results).reason,'dataset-changed');
+  assert.equal(C.evaluateGptJump({ids},words,view,results).reason,'legacy-no-context');
+  assert.equal(C.evaluateGptJump(record,words,view,[]).reason,'no-practical-result');
+  assert.equal(C.evaluateGptJump(record,words,view,[{id:'2',result:'skipped'}]).reason,'no-practical-result');
+});
+
+test('GPT jump rejects filtered targets and recalculates candidate for current page size',()=>{
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const ids=['11'],context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={ids,context},results=[{id:'11',result:'correct'}];
+  assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all'},20,[]),results).candidatePosition.pageIndex,0);
+  assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',excludeStreak:true,masteryThreshold:3},10,[]),results,{'11':{currentStreak:3}}).reason,'target-filtered');
 });
 
 test('failed first-import snapshot write leaves memory inputs and prior durable state unchanged', () => {

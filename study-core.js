@@ -9,7 +9,10 @@
     const source=raw&&typeof raw==="object"?raw:{};
     for(const [id,record] of Object.entries(source)) {
       if(record?.applied===true) registered.add(id);
-      else if(record&&typeof record==="object") pending[id]={createdAt:record.createdAt||null,ids:Array.isArray(record.ids)?record.ids.map(String):[]};
+      else if(record&&typeof record==="object") {
+        pending[id]={createdAt:record.createdAt||null,ids:Array.isArray(record.ids)?record.ids.map(String):[]};
+        if(Object.prototype.hasOwnProperty.call(record,"context"))pending[id].context=normalizeGptIssueContext(record.context);
+      }
     }
     return {gptSessions:pending,registeredGptSessionIds:[...registered]};
   }
@@ -79,6 +82,80 @@
       selected.push(word);selectedIds.add(id);
     }
     return selected;
+  }
+  function fingerprint(value) {
+    const text=JSON.stringify(value);let a=0x811c9dc5,b=0x9e3779b9;
+    for(let i=0;i<text.length;i++){const code=text.charCodeAt(i);a=Math.imul(a^code,0x01000193);b=Math.imul(b^code,0x85ebca6b)}
+    return`${(a>>>0).toString(16).padStart(8,"0")}${(b>>>0).toString(16).padStart(8,"0")}`;
+  }
+  function normalizeGptIssueContext(raw) {
+    if(!raw||typeof raw!=="object"||raw.version!==1||!['normal','random'].includes(raw.sortMode)||
+      typeof raw.startId!=="string"||!Number.isInteger(raw.startIndex)||raw.startIndex<0||
+      ![10,20,50,100].includes(raw.pageSize)||typeof raw.excludeStreak!=="boolean"||
+      ![2,3,4,5].includes(raw.masteryThreshold)||!Number.isInteger(raw.wordCount)||raw.wordCount<1||raw.startIndex>=raw.wordCount||
+      !Array.isArray(raw.targetPositions)||!raw.targetPositions.length||raw.targetPositions.some(n=>!Number.isInteger(n)||n<0||n>=raw.wordCount)||
+      ![raw.csvOrderFingerprint,raw.orderFingerprint,raw.contentFingerprint].every(v=>typeof v==="string"&&/^[0-9a-f]{16}$/.test(v)))return null;
+    return{version:1,sortMode:raw.sortMode,startId:raw.startId,startIndex:raw.startIndex,pageSize:raw.pageSize,
+      excludeStreak:raw.excludeStreak,masteryThreshold:raw.masteryThreshold,wordCount:raw.wordCount,
+      csvOrderFingerprint:raw.csvOrderFingerprint,orderFingerprint:raw.orderFingerprint,
+      contentFingerprint:raw.contentFingerprint,targetPositions:[...raw.targetPositions]};
+  }
+  function orderedWords(words,sortMode,randomIds) {
+    if(!Array.isArray(words)||!Array.isArray(randomIds)||!['normal','random'].includes(sortMode))return null;
+    const ids=words.map(w=>String(w?.id));if(ids.some(id=>id==="undefined"||id==="null")||new Set(ids).size!==ids.length)return null;
+    if(sortMode==="normal")return words;
+    const order=randomIds.map(String);if(order.length!==ids.length||new Set(order).size!==order.length||order.some(id=>!ids.includes(id)))return null;
+    const byId=new Map(words.map(w=>[String(w.id),w]));return order.map(id=>byId.get(id));
+  }
+  function createGptIssueContext(words,{sortMode="normal",randomIds=[],startId,pageSize=10,excludeStreak=false,masteryThreshold=3,ids=[]}={}) {
+    const order=orderedWords(words,sortMode,randomIds);if(!order)throw new Error("GPT発行時の単語順序が不正です。");
+    const startIndex=order.findIndex(w=>String(w.id)===String(startId));if(startIndex<0)throw new Error("GPT発行時の開始単語が見つかりません。");
+    if(![10,20,50,100].includes(Number(pageSize)))throw new Error("GPT発行時のページ語数が不正です。");
+    const positionById=new Map(order.map((w,i)=>[String(w.id),i])),targetIds=ids.map(String);
+    if(!targetIds.length||new Set(targetIds).size!==targetIds.length||targetIds.some(id=>!positionById.has(id))||
+      targetIds.some((id,i)=>i&&positionById.get(id)<=positionById.get(targetIds[i-1])))throw new Error("GPT発行対象と出題順序が一致しません。");
+    const csvIds=words.map(w=>String(w.id));
+    const content=words.map(w=>[String(w.id),String(w.word??""),String(w.meaning??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+    return normalizeGptIssueContext({version:1,sortMode,startId:String(startId),startIndex,pageSize:Number(pageSize),excludeStreak:!!excludeStreak,
+      masteryThreshold:[2,3,4,5].includes(Number(masteryThreshold))?Number(masteryThreshold):3,wordCount:words.length,
+      csvOrderFingerprint:fingerprint(csvIds),orderFingerprint:fingerprint(order.map(w=>String(w.id))),contentFingerprint:fingerprint(content),
+      targetPositions:targetIds.map(id=>positionById.get(id))});
+  }
+  function buildGptJumpView(view,pageSize,randomIds) {
+    if(!view||typeof view!=="object")return null;
+    return{...view,pageSize,randomIds:Array.isArray(randomIds)?[...randomIds]:null};
+  }
+  function evaluateGptJump(record,currentWords,currentView,results,currentState={}) {
+    const context=record&&Object.prototype.hasOwnProperty.call(record,"context")?normalizeGptIssueContext(record.context):null;
+    const out={canJump:false,reason:!record||!Object.prototype.hasOwnProperty.call(record,"context")?"legacy-no-context":context?"no-practical-result":"invalid-context",
+      issuedMode:context?.sortMode||null,currentMode:currentView?.sortMode||null,orderPreserved:false,modeChanged:!!context&&context.sortMode!==currentView?.sortMode,
+      requiresModeRestore:!!context&&context.sortMode!==currentView?.sortMode,lastResultId:null,candidatePosition:null};
+    if(!context)return out;
+    if(!currentView||!['normal','random'].includes(currentView.sortMode)){out.reason="invalid-view";return out}
+    const ids=Array.isArray(record.ids)?record.ids.map(String):[];
+    if(!ids.length||ids.length!==context.targetPositions.length||new Set(ids).size!==ids.length||context.targetPositions.some((p,i)=>p>=context.wordCount||(i&&p<=context.targetPositions[i-1]))){out.reason="invalid-context";return out}
+    if(!Array.isArray(currentWords)||currentWords.length!==context.wordCount){out.reason="dataset-changed";return out}
+    const csvIds=currentWords.map(w=>String(w?.id));if(csvIds.some(id=>id==="undefined"||id==="null")||new Set(csvIds).size!==csvIds.length){out.reason="invalid-dataset";return out}
+    if(fingerprint(csvIds)!==context.csvOrderFingerprint){out.reason="csv-order-changed";return out}
+    const content=currentWords.map(w=>[String(w.id),String(w.word??""),String(w.meaning??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+    if(fingerprint(content)!==context.contentFingerprint){out.reason="content-changed";return out}
+    const order=orderedWords(currentWords,context.sortMode,currentView?.randomIds||[]);if(!order){out.reason="invalid-order";return out}
+    if(fingerprint(order.map(w=>String(w.id)))!==context.orderFingerprint){out.reason="order-changed";return out}
+    if(ids.some((id,i)=>String(order[context.targetPositions[i]]?.id)!==id)){out.reason="invalid-context";return out}
+    out.orderPreserved=true;
+    const resultById=new Map();if(!Array.isArray(results)){out.reason="invalid-results";return out}
+    for(const result of results){if(!result||typeof result.id!=="string"||!ids.includes(result.id)||!['correct','wrong','uncertain','skipped'].includes(result.result)||resultById.has(result.id)){out.reason="invalid-results";return out}resultById.set(result.id,result.result)}
+    let lastIndex=-1;for(let i=0;i<ids.length;i++)if(resultById.has(ids[i])&&resultById.get(ids[i])!=="skipped")lastIndex=i;
+    if(lastIndex<0){out.reason="no-practical-result";return out}
+    const id=ids[lastIndex],position=context.targetPositions[lastIndex],size=Number(currentView?.pageSize);
+    out.lastResultId=id;
+    if(![10,20,50,100].includes(size)){out.reason="invalid-page-size";return out}
+    const candidate=context.sortMode==="random"?{sortMode:"random",randomStart:Math.floor(position/size)*size,wordIndex:position,pageIndex:null}:
+      {sortMode:"normal",pageIndex:Math.floor(position/size),randomStart:null,wordIndex:position};
+    const st=currentState?.[id]||defaultState();
+    if(currentView?.filter&&currentView.filter!=="all") {out.reason="filtered-view";return out}
+    if(currentView?.excludeStreak&&(st.currentStreak||0)>=Number(currentView.masteryThreshold||3)){out.reason="target-filtered";return out}
+    out.canJump=true;out.reason="ok";out.candidatePosition=candidate;return out;
   }
   function buildPageModel(words,state,{pageSize=50,sortMode="normal",randomIds=[],filter="all",excludeStreak=false,masteryThreshold=3}={}) {
     const passes=word=>{
@@ -333,7 +410,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,selectGptWords,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

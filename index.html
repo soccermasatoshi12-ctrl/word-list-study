@@ -646,7 +646,11 @@
     if(!selected.length){alert("GPT出題対象の単語がありません。");return}
     const sessionId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
     const payload=StudyCore.makeGptPayload(sessionId,selected);
-    const nextSessions={...gptSessions,[sessionId]:{createdAt:new Date().toISOString(),ids:selected.map(w=>String(w.id))}};
+    const ids=selected.map(w=>String(w.id));
+    let context;
+    try{context=StudyCore.createGptIssueContext(words,{sortMode,randomIds,startId:current[0].id,pageSize,excludeStreak,masteryThreshold,ids})}
+    catch(err){alert(err.message||"GPT発行時の情報を準備できませんでした。");return}
+    const nextSessions={...gptSessions,[sessionId]:{createdAt:new Date().toISOString(),ids,context}};
     StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions:nextSessions,registeredGptSessionIds});
     gptSessions=nextSessions;
     const url=new URL(location.href);url.search="";url.hash="";
