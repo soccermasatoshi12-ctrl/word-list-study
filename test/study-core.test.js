@@ -57,6 +57,39 @@ test('five-slot history formatting does not change saved history, streak, or mas
   assert.equal(C.deriveStreak(state.recentResults),2);
   assert.equal(state.currentStreak>=3,false);
 });
+test('history preview composes four confirmed results and a provisional fifth slot without mutation', () => {
+  const symbols=slots=>slots.map(slot=>slot.result===null?'–':slot.result?'○':'×');
+  const history=[true,false,true,true,false,true,false,true,true,true],before=history.slice();
+  assert.deepEqual(symbols(C.buildHistoryPreview([])),['–','–','–','–','–']);
+  assert.deepEqual(symbols(C.buildHistoryPreview([true])),['–','–','–','–','○']);
+  assert.deepEqual(symbols(C.buildHistoryPreview([true,false,true,true])),['–','○','×','○','○']);
+  assert.deepEqual(symbols(C.buildHistoryPreview(history)),['○','×','○','○','○']);
+  assert.deepEqual(symbols(C.buildHistoryPreview([],false)),['–','–','–','–','×']);
+  assert.deepEqual(symbols(C.buildHistoryPreview([true],false)),['–','–','–','○','×']);
+  assert.deepEqual(symbols(C.buildHistoryPreview([true,false,true,true],false)),['○','×','○','○','×']);
+  assert.deepEqual(symbols(C.buildHistoryPreview(history,false)),['×','○','○','○','×']);
+  assert.deepEqual(symbols(C.buildHistoryPreview(history,true)),['×','○','○','○','○']);
+  assert.deepEqual(history,before);
+  assert.deepEqual(C.buildHistoryPreview([true],false).at(-1),{result:false,provisional:true});
+  assert.equal(C.buildHistoryPreview([true],null).some(slot=>slot.provisional),false);
+});
+test('provisional history changes only on finalization and finalizes once', () => {
+  const state=C.defaultState();state.studyCount=4;state.correctCount=2;state.recentResults=[true,false,true];state.currentStreak=3;
+  const session={studiedIds:[],checkedIds:[],finalizedIds:[]};
+  C.recordStudy(session,'a',state,'t','wrong');
+  const before=structuredClone(state),symbols=answer=>C.buildHistoryPreview(state.recentResults,answer).map(slot=>slot.result===null?'–':slot.result?'○':'×');
+  assert.deepEqual(symbols(session.checkedIds.includes('a')),['–','○','×','○','×']);
+  C.setSessionAnswer(session,'a',true);
+  assert.deepEqual(symbols(session.checkedIds.includes('a')),['–','○','×','○','○']);
+  assert.deepEqual(state.recentResults,before.recentResults);
+  assert.deepEqual([state.correctCount,state.currentStreak],[before.correctCount,before.currentStreak]);
+  assert.equal(state.currentStreak>=3,true);
+  C.setSessionAnswer(session,'a',false);C.setSessionAnswer(session,'a',true);
+  C.finalizeStudySession(session,()=>state);C.finalizeStudySession(session,()=>state);
+  assert.deepEqual(state.recentResults,[true,false,true,true]);
+  assert.deepEqual([state.studyCount,state.correctCount,state.currentStreak],[5,3,4]);
+  assert.equal(C.buildHistoryPreview(state.recentResults).at(-1).provisional,false);
+});
 test('safe reveal boundary never exposes an unstudied cell and keeps the studied prefix visible', () => {
   const cells=[{id:'a',top:0,bottom:48},{id:'b',top:56,bottom:130},{id:'c',top:138,bottom:186}];
   assert.equal(C.safeRevealBoundary([],cells,186),0);
@@ -72,7 +105,14 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/\.meaning-text\{position:relative;display:block;width:100%;padding:[^;]+;font-size:13px;line-height:1\.35;overflow-wrap:anywhere/);
   const meaningRule=html.match(/\.meaning-text\{[^}]*\}/)?.[0]||'';
   assert.doesNotMatch(meaningRule,/position:absolute|line-clamp|max-height/);
-  assert.match(html,/function recentFive\(st\)\{return StudyCore\.formatRecentResults\(st\.recentResults,5\)\}/);
+  assert.match(html,/function historySlots\(id,st\)/);
+  assert.match(html,/StudyCore\.buildHistoryPreview\(st\.recentResults,provisional\)/);
+  assert.match(html,/function renderRecent\(recent,id,st\)/);
+  assert.match(html,/\.history-slot\.provisional\{outline:[^}]*text-decoration:underline dotted/);
+  assert.match(html,/if\(row\)\{syncAnswerControl\(row,id\);renderRecent\(row\.querySelector\('\.recent'\),id,getState\(id\)\)\}\}/);
+  assert.match(html,/persistCore\(\);renderAnswerControlForExposure\(id\)/);
+  assert.match(html,/renderAnswerControlFor\(id\);saveActiveSession\(true\)/);
+  assert.match(html,/const recent=document\.createElement\("span"\);recent\.className="recent";renderRecent\(recent,w\.id,st\)/);
   assert.match(html,/\.word-meta\{grid-column:1 \/ -1;grid-row:2/);
   assert.doesNotMatch(html,/recent\.setAttribute\("aria-label","直近"/);
   assert.match(html,/meta\.append\(recent\);if\(isMastered\(st\)\)meta\.append\(makeMedalIcon\(\)\)/);
@@ -201,15 +241,20 @@ test('study screen groups controls, exposes accessible header icons, and places 
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<header class="app-header">[\s\S]*?<h1 class="app-title">Word List Study<\/h1>[\s\S]*?id="openSettings"[^>]*aria-label="設定"[^>]*>[\s\S]*?id="openGpt"[^>]*aria-label="GPT学習"/);
   assert.match(html,/<dialog id="settingsPanel"[\s\S]*?CSV形式: <code>id,word,meaning<\/code>[\s\S]*?<\/dialog>/);
-  assert.match(html,/<section class="settings-section" aria-labelledby="learningSettingsTitle">[\s\S]*?1ページの表示語数[\s\S]*?id="masteryThreshold"[\s\S]*?<\/section>/);
+  assert.match(html,/<section class="settings-section" aria-labelledby="learningSettingsTitle">[\s\S]*?1ページの表示語数[\s\S]*?id="defaultAnswer"[\s\S]*?id="masteryThreshold"[\s\S]*?<\/section>/);
   assert.match(html,/<section class="settings-section" aria-labelledby="csvSettingsTitle">[\s\S]*?id="csvFile"[\s\S]*?<\/section>/);
   assert.match(html,/<section class="settings-section" aria-labelledby="dataSettingsTitle">[\s\S]*?id="resetSettings"[\s\S]*?id="clearData"[\s\S]*?設定の初期化では学習履歴は消去されません[\s\S]*?<\/section>/);
   assert.match(html,/id="closeSettings" class="modal-close"[^>]*aria-label="設定を閉じる"[^>]*>×/);
   assert.match(html,/id="closeGpt" class="modal-close"[^>]*aria-label="GPT学習を閉じる"[^>]*>×/);
   assert.match(html,/els\.closeSettings\.addEventListener\("click",\(\)=>els\.settingsPanel\.close\(\)\)/);
   assert.match(html,/els\.closeGpt\.addEventListener\("click",\(\)=>els\.gptPanel\.close\(\)\)/);
-  assert.match(html,/changeDisplaySettings\(10,3\)/);
-  assert.match(html,/pageSize=10;masteryThreshold=3/);
+  assert.match(html,/changeDisplaySettings\(10,3,"wrong"\)/);
+  assert.match(html,/pageSize=10;masteryThreshold=3;defaultAnswer="wrong"/);
+  assert.match(html,/answer\.type="button";answer\.className="answer-toggle"/);
+  assert.match(html,/answer\.addEventListener\("click",\(\)=>toggleAnswer\(w\.id\)\)/);
+  assert.match(html,/if\(!changed\)\{renderAnswerControlFor\(id\);return\}\s*renderAnswerControlFor\(id\);saveActiveSession\(true\)/);
+  assert.match(html,/button\.setAttribute\("aria-pressed",String\(revealed&&correct\)\)/);
+  assert.match(html,/初回露出時のデフォルト評価/);
   const header=html.match(/<header class="app-header">([\s\S]*?)<\/header>/)?.[1];
   assert.ok(header);
   assert.doesNotMatch(header,/CSV形式:/);
@@ -253,12 +298,13 @@ test('existing page-model calls retain normal behavior and the legacy random pat
   const normal=C.buildPageModel(normalWords,{}, {pageSize:10});
   assert.deepEqual(normal.pages.map(page=>page.entries.map(word=>word.displayNumber)),[Array.from({length:10},(_,index)=>index+1),[11]]);
 });
-test('preferences persist, restore, migrate prior mastery threshold, and default safely', () => {
+test('preferences persist, restore default answer, migrate threshold, and default invalid answer safely', () => {
   const store=memoryStorage();
-  const value={pageSize:20,masteryThreshold:4};store.setItem('preferences',JSON.stringify(value));
+  const value={pageSize:20,masteryThreshold:4,defaultAnswer:'correct'};store.setItem('preferences',JSON.stringify(value));
   assert.deepEqual(C.normalizePreferences(JSON.parse(store.getItem('preferences'))),value);
-  assert.deepEqual(C.normalizePreferences({},{}),{pageSize:10,masteryThreshold:3});
-  assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8},{excludeStreakN:4}),{pageSize:10,masteryThreshold:4});
+  assert.deepEqual(C.normalizePreferences({pageSize:20,masteryThreshold:4},{}),{pageSize:20,masteryThreshold:4,defaultAnswer:'wrong'});
+  assert.deepEqual(C.normalizePreferences({},{}),{pageSize:10,masteryThreshold:3,defaultAnswer:'wrong'});
+  assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8,defaultAnswer:'unknown'},{excludeStreakN:4}),{pageSize:10,masteryThreshold:4,defaultAnswer:'wrong'});
   for(const size of [10,20,50,100])assert.equal(C.normalizePreferences({pageSize:size},{}).pageSize,size);
 });
 test('display setting changes only end the current target when its word set changes', () => {
@@ -291,6 +337,23 @@ test('cover passage increments study count only and reversal cannot increment tw
   assert.equal(C.recordStudy(session,'a',state.a,'t'),false);
   assert.deepEqual([state.a.studyCount,state.a.correctCount,state.a.recentResults,state.a.currentStreak],[1,0,[],0]);
   assert.deepEqual([state.b.studyCount,state.b.correctCount,state.b.recentResults,state.b.currentStreak],[1,0,[],0]);
+});
+test('first exposure applies default answer once without changing finalized history', () => {
+  const correctState=C.defaultState(),wrongState=C.defaultState();
+  const correct={studiedIds:[],checkedIds:[],finalizedIds:[]},wrong={studiedIds:[],checkedIds:[],finalizedIds:[]};
+  assert.equal(C.recordStudy(correct,'a',correctState,'t','correct'),true);
+  assert.equal(C.recordStudy(wrong,'b',wrongState,'t','wrong'),true);
+  assert.deepEqual(correct.checkedIds,['a']);assert.deepEqual(wrong.checkedIds,[]);
+  assert.deepEqual([correctState.studyCount,correctState.correctCount,correctState.recentResults,correctState.currentStreak],[1,0,[],0]);
+  assert.equal(C.recordStudy(correct,'a',correctState,'later','wrong'),false);
+  assert.deepEqual(correct.checkedIds,['a']);
+  C.setSessionAnswer(correct,'a',false);C.finalizeStudySession(correct,()=>correctState);
+  C.finalizeStudySession(wrong,()=>wrongState);
+  assert.deepEqual([correctState.correctCount,correctState.recentResults],[0,[false]]);
+  assert.deepEqual([wrongState.correctCount,wrongState.recentResults],[0,[false]]);
+  const retainedState=C.defaultState(),retained={studiedIds:[],checkedIds:[],finalizedIds:[]};
+  C.recordStudy(retained,'retained',retainedState,'t','correct');C.finalizeStudySession(retained,()=>retainedState);
+  assert.deepEqual([retainedState.studyCount,retainedState.correctCount,retainedState.recentResults,retainedState.currentStreak],[1,1,[true],1]);
 });
 test('answer toggles do not change history and ON OFF ON finalizes as one correct', () => {
   const s=C.defaultState(),session={studiedIds:[],checkedIds:[],finalizedIds:[]};

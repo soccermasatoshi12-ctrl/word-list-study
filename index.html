@@ -55,9 +55,10 @@
     .word-main{grid-column:2;grid-row:1;align-self:baseline;min-width:0;font-weight:650;overflow-wrap:anywhere;word-break:break-word}
     .word-index{grid-column:1;grid-row:1;align-self:baseline;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
     .word-meta{grid-column:1 / -1;grid-row:2;min-width:0;display:flex;gap:6px;align-items:center;font-size:.75rem;color:var(--muted)}
-    .word-meta .recent{letter-spacing:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .word-meta .recent{display:inline-flex;align-items:center;gap:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .history-slot.provisional{outline:1px solid var(--muted);outline-offset:1px;border-radius:2px;background:#f1f3f6;text-decoration:underline dotted;text-underline-offset:2px}
     .word-medal{width:15px;height:17px;margin-left:1px;vertical-align:middle}
-    .check-cell{display:flex;align-items:center;justify-content:center}.check-cell input{width:23px;height:23px;accent-color:var(--accent)}
+    .check-cell{display:flex;align-items:center;justify-content:center;min-width:0}.answer-toggle{display:grid;place-items:center;box-sizing:border-box;width:100%;height:48px;min-height:48px;padding:0;border-radius:9px;font-size:1.25rem;font-weight:700;line-height:1;touch-action:manipulation}
     .meaning-cell{position:relative;display:flex;align-items:center;min-height:48px;overflow:hidden;border-radius:8px;background:#fafafa;border:1px solid var(--border)}
     .meaning-text{position:relative;display:block;width:100%;padding:6px 10px;font-size:13px;line-height:1.35;overflow-wrap:anywhere;word-break:break-word}
     .empty-state{padding:18px;text-align:center;color:var(--muted)}
@@ -72,6 +73,7 @@
     .settings-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
     .settings-item>label:first-child{min-width:0}
     .settings-item select{flex:0 0 auto}
+    @media(max-width:560px){.answer-toggle{height:42px;min-height:42px;font-size:1.15rem}}
     .settings-actions{display:flex;flex-wrap:wrap;gap:8px}
     dialog.modal input[type="text"]{max-width:100%;min-width:0;overflow-wrap:anywhere}
     .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
@@ -115,6 +117,11 @@
       <div class="settings-item"><label for="pageSize">1ページの表示語数</label>
         <select id="pageSize" aria-label="タブあたりの表示語数">
           <option value="10">10語</option><option value="20">20語</option><option value="50">50語</option><option value="100">100語</option>
+        </select>
+      </div>
+      <div class="settings-item"><label for="defaultAnswer">デフォルト評価</label>
+        <select id="defaultAnswer" aria-label="初回露出時のデフォルト評価">
+          <option value="wrong">×</option><option value="correct">○</option>
         </select>
       </div>
       <div class="settings-item"><label class="mastery-setting" for="masteryThreshold"><svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>習得済み判定（連続正答）</label>
@@ -227,6 +234,7 @@
   let sortMode=normalizedView.sortMode;
   let excludeStreak=normalizedView.excludeStreak;
   let masteryThreshold=initialPreferences.masteryThreshold;
+  let defaultAnswer=initialPreferences.defaultAnswer;
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null;
@@ -234,7 +242,7 @@
   const els={
     openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),clearData:document.getElementById("clearData"),
-    pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),resetSettings:document.getElementById("resetSettings"),
+    pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),defaultAnswer:document.getElementById("defaultAnswer"),resetSettings:document.getElementById("resetSettings"),
     count:document.getElementById("count"),tabs:document.getElementById("tabs"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),gptPageSize:document.getElementById("gptPageSize"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
@@ -256,12 +264,22 @@
   function persistView(view=currentView()){
     localStorage.setItem(STORAGE_VIEW,JSON.stringify(StudyCore.serializeView(view)));
   }
-  function persistPreferences(size=pageSize,threshold=masteryThreshold){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize:size,masteryThreshold:threshold}))}
+  function persistPreferences(size=pageSize,threshold=masteryThreshold,answer=defaultAnswer){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize:size,masteryThreshold:threshold,defaultAnswer:answer}))}
   if(savedCore.gptSessionMigrationNeeded){try{writeCoreSnapshot()}catch{}}
 
   const defaultState=StudyCore.defaultState, normalizeState=StudyCore.normalizeState, appendResult=StudyCore.appendResult;
   function getState(id){if(!state[id])state[id]=defaultState();state[id]=normalizeState(state[id]);return state[id]}
-  function recentFive(st){return StudyCore.formatRecentResults(st.recentResults,5)}
+  function historySlots(id,st){
+    const pending=!!activeSession?.studiedIds?.includes(id)&&!activeSession?.finalizedIds?.includes(id);
+    const provisional=pending?activeSession.checkedIds.includes(id):null;
+    return StudyCore.buildHistoryPreview(st.recentResults,provisional);
+  }
+  function renderRecent(recent,id,st){
+    const slots=historySlots(id,st);
+    recent.replaceChildren(...slots.map(slot=>{const item=document.createElement("span");item.className=`history-slot${slot.provisional?" provisional":""}`;item.textContent=slot.result===null?"–":slot.result?"○":"×";return item}));
+    const descriptions=slots.map(slot=>slot.provisional?`今回の暫定評価は${slot.result?"○（正答）":"×（誤答）"}`:slot.result===null?"未記録":slot.result?"○（正答）":"×（誤答）");
+    recent.setAttribute("aria-label",slots.at(-1)?.provisional?`確定履歴の最新4件と今回の暫定評価: ${descriptions.join("、")}`:`確定済み学習履歴の最新5件: ${descriptions.join("、")}`);
+  }
   function makeMedalIcon(){
     const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");
     svg.setAttribute("class","medal-icon word-medal");svg.setAttribute("viewBox","0 0 20 24");svg.setAttribute("role","img");svg.setAttribute("aria-label","習得済み");
@@ -409,10 +427,10 @@
     StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds});
     state=draft.state;activeSession=null;localStorage.removeItem(STORAGE_ACTIVE_SESSION);
   }
-  function applyView(view,size,threshold){
-    filter=view.filter;sortMode=view.sortMode;excludeStreak=view.excludeStreak;masteryThreshold=threshold;pageIndex=view.pageIndex;randomStart=view.randomStart;pageSize=size;
+  function applyView(view,size,threshold,answer){
+    filter=view.filter;sortMode=view.sortMode;excludeStreak=view.excludeStreak;masteryThreshold=threshold;defaultAnswer=answer;pageIndex=view.pageIndex;randomStart=view.randomStart;pageSize=size;
   }
-  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,finalize=true,resetCurtain=finalize}={}){
+  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,finalize=true,resetCurtain=finalize}={}){
     let draftState=JSON.parse(JSON.stringify(nextState||state));
     const priorSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
     if(finalize&&priorSession)draftState=StudyCore.finalizeSessionDraft(draftState,priorSession).state;
@@ -424,10 +442,10 @@
     const writes=[];
     if(writeWords)writes.push({key:STORAGE_WORDS,value:JSON.stringify(nextWords)});
     if(writeRandomOrder)writes.push({key:STORAGE_RANDOM_ORDER,value:JSON.stringify(nextRandomIds)});
-    if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold})});
+    if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold,defaultAnswer:nextDefaultAnswer})});
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds},writes);
-    state=draftState;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;applyView(view,nextPageSize,nextThreshold);
+    state=draftState;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
     if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
   }
@@ -438,26 +456,29 @@
 
   function markStudied(id){
     if(!activeSession)startSession();
-    const st=getState(id);if(!StudyCore.recordStudy(activeSession,id,st))return;activeSession.pendingId=id;
-    activeSession.updatedAt=Date.now();persistCore();renderCheckboxFor(id);
+    const st=getState(id);if(!StudyCore.recordStudy(activeSession,id,st,undefined,defaultAnswer))return;activeSession.pendingId=id;
+    activeSession.updatedAt=Date.now();persistCore();renderAnswerControlForExposure(id);
   }
   function markAnswer(id,checked){
     if(!activeSession)return;
     const changed=StudyCore.setSessionAnswer(activeSession,id,checked);
-    if(!changed){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);const cb=row?.querySelector('.check-cell input');if(cb)cb.checked=activeSession.checkedIds.includes(id);return}
-    saveActiveSession(true);
+    if(!changed){renderAnswerControlFor(id);return}
+    renderAnswerControlFor(id);saveActiveSession(true);
   }
 
-  function renderCheckboxFor(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(!row)return;const cb=row.querySelector('.check-cell input');if(cb){cb.disabled=false}}
+  function syncAnswerControl(row,id){const button=row.querySelector('.answer-toggle');if(!button)return;const revealed=!!activeSession?.studiedIds?.includes(id),correct=!!activeSession?.checkedIds?.includes(id),word=row.querySelector('.word-main')?.textContent||"単語";button.textContent=revealed?(correct?"○":"×"):"—";button.disabled=!revealed||!!activeSession?.finalizedIds?.includes(id);button.setAttribute("aria-pressed",String(revealed&&correct));button.setAttribute("aria-label",revealed?`${word} の評価は${correct?"○（正答）":"×（誤答）"}。押すと${correct?"×（誤答）":"○（正答）"}に切り替え`:`${word} の評価（未露出）`)}
+  function renderAnswerControlFor(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncAnswerControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
+  function renderAnswerControlForExposure(id){renderAnswerControlFor(id)}
+  function toggleAnswer(id){if(!activeSession?.studiedIds?.includes(id)||activeSession.finalizedIds?.includes(id))return;markAnswer(id,!activeSession.checkedIds.includes(id))}
   function refreshVisibleRows(){
     const scrollX=window.scrollX,scrollY=window.scrollY;
     for(const row of els.words.querySelectorAll('.word-row')){
-      const id=row.dataset.id,st=getState(id),cb=row.querySelector('.check-cell input');
-      row.querySelector('.recent').textContent=recentFive(st);
+      const id=row.dataset.id,st=getState(id);
+      renderRecent(row.querySelector('.recent'),id,st);
       const mastered=isMastered(st),medal=row.querySelector('.word-medal');
       if(mastered&&!medal)row.querySelector('.recent').after(makeMedalIcon());
       else if(!mastered&&medal)medal.remove();
-      if(cb){cb.checked=!!activeSession?.checkedIds?.includes(id);cb.disabled=!activeSession?.studiedIds?.includes(id)||!!activeSession?.finalizedIds?.includes(id)}
+      syncAnswerControl(row,id);
     }
     window.scrollTo(scrollX,scrollY);
   }
@@ -488,22 +509,17 @@
       const number=document.createElement("div");number.className="word-index";number.textContent=String(w.displayNumber);
       const main=document.createElement("div");main.className="word-main";main.textContent=w.word;
       const meta=document.createElement("div");meta.className="word-meta";
-      const recent=document.createElement("span");recent.className="recent";recent.textContent=recentFive(st);recent.setAttribute("aria-label","直近5件の正誤履歴");
+      const recent=document.createElement("span");recent.className="recent";renderRecent(recent,w.id,st);
       meta.append(recent);if(isMastered(st))meta.append(makeMedalIcon());wc.append(number,main,meta);
 
       const cc=document.createElement("div");cc.className="check-cell";
-      const cb=document.createElement("input");cb.type="checkbox";
-      cb.checked=!!activeSession?.checkedIds?.includes(w.id);
-      const revealed=!!activeSession?.studiedIds?.includes(w.id);
-      const finalized=!!activeSession?.finalizedIds?.includes(w.id);
-      cb.disabled=!revealed||finalized;
-      cb.setAttribute("aria-label",`${w.word} を今回正答として記録`);
-      cb.addEventListener("change",()=>markAnswer(w.id,cb.checked));
-      cc.appendChild(cb);
+      const answer=document.createElement("button");answer.type="button";answer.className="answer-toggle";
+      answer.addEventListener("click",()=>toggleAnswer(w.id));
+      cc.appendChild(answer);
 
       const mc=document.createElement("div");mc.className="meaning-cell";mc.dataset.id=w.id;
       const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.meaning;mc.appendChild(mt);
-      row.append(wc,cc,mc);els.words.appendChild(row);
+      row.append(wc,cc,mc);syncAnswerControl(row,w.id);els.words.appendChild(row);
     }
     if(curtainLayoutObserver){curtainLayoutObserver.disconnect();for(const row of els.words.querySelectorAll(".word-row"))curtainLayoutObserver.observe(row)}
     requestAnimationFrame(positionCurtain);
@@ -537,7 +553,7 @@
     }
     els.count.textContent=page&&sortMode==="normal"?`${page.start}–${page.end}範囲 / ${current.length}語（全${model.total}語）`:page?.total===0?"0語":"";
     els.excludeStreak.checked=excludeStreak;els.excludeStreak.setAttribute("aria-checked",String(excludeStreak));
-    els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.gptPageSize.textContent=String(pageSize);
+    els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.defaultAnswer.value=defaultAnswer;els.gptPageSize.textContent=String(pageSize);
     els.normalOrder.classList.toggle("active",sortMode==="normal");els.randomOrder.classList.toggle("active",sortMode==="random");
   }
 
@@ -655,12 +671,12 @@
     if(nextView.sortMode==="normal")nextView={...nextView,pageIndex:0};
     return requestViewTransition(nextView);
   }
-  function changeDisplaySettings(nextPageSize,nextThreshold){
+  function changeDisplaySettings(nextPageSize,nextThreshold,nextDefaultAnswer=defaultAnswer){
     const view={...currentView(),masteryThreshold:nextThreshold};
     const before=buildTarget(currentView(),state,words,randomIds,pageSize).ids;
     const after=buildTarget(view,state,words,randomIds,nextPageSize).ids;
     const targetChanged=!StudyCore.sameOrderedIds(before,after);
-    requestViewTransition(view,{nextPageSize,nextThreshold,writePreferences:true,finalize:targetChanged,resetCurtain:targetChanged});
+    requestViewTransition(view,{nextPageSize,nextThreshold,nextDefaultAnswer,writePreferences:true,finalize:targetChanged,resetCurtain:targetChanged});
   }
 
   els.openSettings.addEventListener("click",()=>{if(!els.settingsPanel.open)els.settingsPanel.showModal()});
@@ -680,9 +696,13 @@
     const next=Number(els.masteryThreshold.value);if(!MASTERY_THRESHOLDS.includes(next)||next===masteryThreshold)return;
     changeDisplaySettings(pageSize,next);
   });
+  els.defaultAnswer.addEventListener("change",()=>{
+    const next=els.defaultAnswer.value;if(!["wrong","correct"].includes(next)||next===defaultAnswer)return;
+    changeDisplaySettings(pageSize,masteryThreshold,next);
+  });
   els.resetSettings.addEventListener("click",()=>{
-    if(pageSize===10&&masteryThreshold===3)return;
-    changeDisplaySettings(10,3);
+    if(pageSize===10&&masteryThreshold===3&&defaultAnswer==="wrong")return;
+    changeDisplaySettings(10,3,"wrong");
   });
 
   els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
@@ -699,7 +719,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
-    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;pageIndex=0;randomStart=0;revealY=0;
+    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";pageIndex=0;randomStart=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES])localStorage.removeItem(key);
     startSession(true);render();
   });

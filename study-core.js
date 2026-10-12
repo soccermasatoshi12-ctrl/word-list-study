@@ -53,7 +53,8 @@
     const pageSize=[10,20,50,100].includes(Number(raw.pageSize))?Number(raw.pageSize):10;
     const storedThreshold=Number(raw.masteryThreshold),oldThreshold=Number(legacyView.excludeStreakN||3);
     const masteryThreshold=[2,3,4,5].includes(storedThreshold)?storedThreshold:Number.isFinite(oldThreshold)?Math.min(5,Math.max(2,oldThreshold)):3;
-    return {pageSize,masteryThreshold};
+    const defaultAnswer=raw.defaultAnswer==="correct"?"correct":"wrong";
+    return {pageSize,masteryThreshold,defaultAnswer};
   }
   function buildPageModel(words,state,{pageSize=50,sortMode="normal",randomIds=[],filter="all",excludeStreak=false,masteryThreshold=3}={}) {
     const passes=word=>{
@@ -213,10 +214,19 @@
     const recent=Array.isArray(results)&&count?results.slice(-count).map(value=>value?"○":"×"):[];
     return [...Array(Math.max(0,count-recent.length)).fill("-"),...recent].join(" ");
   }
+  function buildHistoryPreview(results,provisionalAnswer=null) {
+    const hasPreview=provisionalAnswer!==null&&provisionalAnswer!==undefined,slots=hasPreview?4:5;
+    const recent=Array.isArray(results)?results.slice(-slots).map(Boolean):[];
+    const history=[...Array(Math.max(0,slots-recent.length)).fill(null),...recent].map(result=>({result,provisional:false}));
+    if(hasPreview)history.push({result:!!provisionalAnswer,provisional:true});
+    return history;
+  }
   function appendResult(st, value) { const correct=!!value; st.recentResults=[...(st.recentResults||[]),correct].slice(-MAX_RECENT); st.currentStreak=correct?(st.currentStreak||0)+1:0; }
-  function recordStudy(session,id,st,at=new Date().toISOString()) {
+  function recordStudy(session,id,st,at=new Date().toISOString(),defaultAnswer="wrong") {
     if(session.studiedIds.includes(id)) return false;
-    st.studyCount+=1; st.lastStudiedAt=at; session.studiedIds.push(id); return true;
+    st.studyCount+=1; st.lastStudiedAt=at; session.studiedIds.push(id);
+    if(defaultAnswer==="correct"&&!session.checkedIds.includes(id))session.checkedIds.push(id);
+    return true;
   }
   function isStudySessionComplete(session,targetIds) {
     if(!Array.isArray(targetIds)||targetIds.length===0)return false;
@@ -299,7 +309,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
