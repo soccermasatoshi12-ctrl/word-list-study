@@ -124,6 +124,11 @@
           <option value="wrong">×</option><option value="correct">○</option>
         </select>
       </div>
+      <div class="settings-item"><label for="gptWordCount">GPT出題語数</label>
+        <select id="gptWordCount" aria-label="GPT出題語数">
+          <option value="5">5語</option><option value="10">10語</option><option value="20">20語</option><option value="30">30語</option><option value="50">50語</option>
+        </select>
+      </div>
       <div class="settings-item"><label class="mastery-setting" for="masteryThreshold"><svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>習得済み判定（連続正答）</label>
         <select id="masteryThreshold" aria-label="習得済み判定の連続正答回数">
           <option value="2">2回</option><option value="3">3回</option><option value="4">4回</option><option value="5">5回</option>
@@ -189,7 +194,7 @@
         <button id="copySession" disabled>URLをコピー</button>
       </div>
       <input id="sessionUrl" type="text" readonly placeholder="ここにGPT用URLが出ます">
-      <div class="hint">現在表示中の最大<span id="gptPageSize">10</span>語をGPT学習対象にします。</div>
+      <div class="hint">現在の表示順で、表示中ページの先頭から最大<span id="gptWordCountSummary">20</span>語を出題します。習得済み除外やリスト末尾により、実際の語数は少なくなる場合があります。</div>
       <div class="row" style="margin-top:12px"><strong>GPT学習結果を反映</strong><button id="applyResults">結果JSONを登録</button></div>
       <textarea id="resultJson" aria-label="GPT学習結果JSON" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
       <div id="resultStatus" class="status" role="status" aria-live="polite"></div>
@@ -222,9 +227,10 @@
   const canRecoverSavedSessionView=savedSessionView&& !StudyCore.sessionExpired(savedCore.activeSession,Date.now(),SESSION_TTL_MS);
   const savedView=canRecoverSavedSessionView?{...rawSavedView,...savedSessionView}:rawSavedView;
   const savedPreferences=canRecoverSavedSessionView&&savedSessionView.pageSize?{...rawSavedPreferences,pageSize:savedSessionView.pageSize,masteryThreshold:savedSessionView.masteryThreshold}:rawSavedPreferences;
-  const PAGE_SIZES=[10,20,50,100], MASTERY_THRESHOLDS=[2,3,4,5];
+  const PAGE_SIZES=[10,20,50,100], MASTERY_THRESHOLDS=[2,3,4,5], GPT_WORD_COUNTS=[5,10,20,30,50];
   const initialPreferences=StudyCore.normalizePreferences(savedPreferences,savedView);
   let pageSize=initialPreferences.pageSize;
+  let gptWordCount=initialPreferences.gptWordCount;
 
   const normalizedView=StudyCore.normalizeView(savedView,randomIds.length);
   // The removed hasMiss option remains accepted by the core for older callers,
@@ -242,9 +248,9 @@
   const els={
     openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),clearData:document.getElementById("clearData"),
-    pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),defaultAnswer:document.getElementById("defaultAnswer"),resetSettings:document.getElementById("resetSettings"),
+    pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),defaultAnswer:document.getElementById("defaultAnswer"),gptWordCount:document.getElementById("gptWordCount"),resetSettings:document.getElementById("resetSettings"),
     count:document.getElementById("count"),tabs:document.getElementById("tabs"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
-    emptyState:document.getElementById("emptyState"),gptPageSize:document.getElementById("gptPageSize"),
+    emptyState:document.getElementById("emptyState"),gptWordCountSummary:document.getElementById("gptWordCountSummary"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
     meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),
     excludeStreak:document.getElementById("excludeStreak"),
@@ -264,7 +270,7 @@
   function persistView(view=currentView()){
     localStorage.setItem(STORAGE_VIEW,JSON.stringify(StudyCore.serializeView(view)));
   }
-  function persistPreferences(size=pageSize,threshold=masteryThreshold,answer=defaultAnswer){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize:size,masteryThreshold:threshold,defaultAnswer:answer}))}
+  function persistPreferences(size=pageSize,threshold=masteryThreshold,answer=defaultAnswer,gptCount=gptWordCount){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize:size,masteryThreshold:threshold,defaultAnswer:answer,gptWordCount:gptCount}))}
   if(savedCore.gptSessionMigrationNeeded){try{writeCoreSnapshot()}catch{}}
 
   const defaultState=StudyCore.defaultState, normalizeState=StudyCore.normalizeState, appendResult=StudyCore.appendResult;
@@ -430,7 +436,7 @@
   function applyView(view,size,threshold,answer){
     filter=view.filter;sortMode=view.sortMode;excludeStreak=view.excludeStreak;masteryThreshold=threshold;defaultAnswer=answer;pageIndex=view.pageIndex;randomStart=view.randomStart;pageSize=size;
   }
-  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,finalize=true,resetCurtain=finalize}={}){
+  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,finalize=true,resetCurtain=finalize}={}){
     let draftState=JSON.parse(JSON.stringify(nextState||state));
     const priorSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
     if(finalize&&priorSession)draftState=StudyCore.finalizeSessionDraft(draftState,priorSession).state;
@@ -442,10 +448,10 @@
     const writes=[];
     if(writeWords)writes.push({key:STORAGE_WORDS,value:JSON.stringify(nextWords)});
     if(writeRandomOrder)writes.push({key:STORAGE_RANDOM_ORDER,value:JSON.stringify(nextRandomIds)});
-    if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold,defaultAnswer:nextDefaultAnswer})});
+    if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold,defaultAnswer:nextDefaultAnswer,gptWordCount:nextGptWordCount})});
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds},writes);
-    state=draftState;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
+    state=draftState;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
     if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
   }
@@ -553,7 +559,7 @@
     }
     els.count.textContent=page&&sortMode==="normal"?`${page.start}–${page.end}範囲 / ${current.length}語（全${model.total}語）`:page?.total===0?"0語":"";
     els.excludeStreak.checked=excludeStreak;els.excludeStreak.setAttribute("aria-checked",String(excludeStreak));
-    els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.defaultAnswer.value=defaultAnswer;els.gptPageSize.textContent=String(pageSize);
+    els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.defaultAnswer.value=defaultAnswer;els.gptWordCount.value=String(gptWordCount);els.gptWordCountSummary.textContent=String(gptWordCount);
     els.normalOrder.classList.toggle("active",sortMode==="normal");els.randomOrder.classList.toggle("active",sortMode==="random");
   }
 
@@ -636,9 +642,11 @@
 
   function makeGptSession(){
     const current=pageWords();if(!current.length){alert("表示中の単語がありません。");return}
+    const selected=StudyCore.selectGptWords(words,state,{sortMode,randomIds,startId:current[0].id,excludeStreak,masteryThreshold,count:gptWordCount});
+    if(!selected.length){alert("GPT出題対象の単語がありません。");return}
     const sessionId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-    const payload=StudyCore.makeGptPayload(sessionId,current);
-    const nextSessions={...gptSessions,[sessionId]:{createdAt:new Date().toISOString(),ids:current.map(w=>String(w.id))}};
+    const payload=StudyCore.makeGptPayload(sessionId,selected);
+    const nextSessions={...gptSessions,[sessionId]:{createdAt:new Date().toISOString(),ids:selected.map(w=>String(w.id))}};
     StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions:nextSessions,registeredGptSessionIds});
     gptSessions=nextSessions;
     const url=new URL(location.href);url.search="";url.hash="";
@@ -671,12 +679,12 @@
     if(nextView.sortMode==="normal")nextView={...nextView,pageIndex:0};
     return requestViewTransition(nextView);
   }
-  function changeDisplaySettings(nextPageSize,nextThreshold,nextDefaultAnswer=defaultAnswer){
+  function changeDisplaySettings(nextPageSize,nextThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount){
     const view={...currentView(),masteryThreshold:nextThreshold};
     const before=buildTarget(currentView(),state,words,randomIds,pageSize).ids;
     const after=buildTarget(view,state,words,randomIds,nextPageSize).ids;
     const targetChanged=!StudyCore.sameOrderedIds(before,after);
-    requestViewTransition(view,{nextPageSize,nextThreshold,nextDefaultAnswer,writePreferences:true,finalize:targetChanged,resetCurtain:targetChanged});
+    requestViewTransition(view,{nextPageSize,nextThreshold,nextDefaultAnswer,nextGptWordCount,writePreferences:true,finalize:targetChanged,resetCurtain:targetChanged});
   }
 
   els.openSettings.addEventListener("click",()=>{if(!els.settingsPanel.open)els.settingsPanel.showModal()});
@@ -700,9 +708,16 @@
     const next=els.defaultAnswer.value;if(!["wrong","correct"].includes(next)||next===defaultAnswer)return;
     changeDisplaySettings(pageSize,masteryThreshold,next);
   });
+  els.gptWordCount.addEventListener("change",()=>{
+    const next=Number(els.gptWordCount.value);if(!GPT_WORD_COUNTS.includes(next)||next===gptWordCount)return;
+    const prior=gptWordCount;gptWordCount=next;
+    try{persistPreferences()}
+    catch(error){gptWordCount=prior;els.gptWordCount.value=String(prior);alert(`設定を保存できませんでした。${error.message||error}`);return}
+    render();
+  });
   els.resetSettings.addEventListener("click",()=>{
-    if(pageSize===10&&masteryThreshold===3&&defaultAnswer==="wrong")return;
-    changeDisplaySettings(10,3,"wrong");
+    if(pageSize===10&&masteryThreshold===3&&defaultAnswer==="wrong"&&gptWordCount===20)return;
+    changeDisplaySettings(10,3,"wrong",20);
   });
 
   els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
@@ -719,7 +734,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
-    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";pageIndex=0;randomStart=0;revealY=0;
+    words=[];state={};gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES])localStorage.removeItem(key);
     startSession(true);render();
   });

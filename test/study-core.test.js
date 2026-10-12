@@ -248,8 +248,8 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/id="closeGpt" class="modal-close"[^>]*aria-label="GPT学習を閉じる"[^>]*>×/);
   assert.match(html,/els\.closeSettings\.addEventListener\("click",\(\)=>els\.settingsPanel\.close\(\)\)/);
   assert.match(html,/els\.closeGpt\.addEventListener\("click",\(\)=>els\.gptPanel\.close\(\)\)/);
-  assert.match(html,/changeDisplaySettings\(10,3,"wrong"\)/);
-  assert.match(html,/pageSize=10;masteryThreshold=3;defaultAnswer="wrong"/);
+  assert.match(html,/changeDisplaySettings\(10,3,"wrong",20\)/);
+  assert.match(html,/pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20/);
   assert.match(html,/answer\.type="button";answer\.className="answer-toggle"/);
   assert.match(html,/answer\.addEventListener\("click",\(\)=>toggleAnswer\(w\.id\)\)/);
   assert.match(html,/if\(!changed\)\{renderAnswerControlFor\(id\);return\}\s*renderAnswerControlFor\(id\);saveActiveSession\(true\)/);
@@ -298,14 +298,45 @@ test('existing page-model calls retain normal behavior and the legacy random pat
   const normal=C.buildPageModel(normalWords,{}, {pageSize:10});
   assert.deepEqual(normal.pages.map(page=>page.entries.map(word=>word.displayNumber)),[Array.from({length:10},(_,index)=>index+1),[11]]);
 });
-test('preferences persist, restore default answer, migrate threshold, and default invalid answer safely', () => {
+test('preferences persist GPT word count with existing settings and normalize old or invalid values', () => {
   const store=memoryStorage();
-  const value={pageSize:20,masteryThreshold:4,defaultAnswer:'correct'};store.setItem('preferences',JSON.stringify(value));
+  const value={pageSize:20,masteryThreshold:4,defaultAnswer:'correct',gptWordCount:30};store.setItem('preferences',JSON.stringify(value));
   assert.deepEqual(C.normalizePreferences(JSON.parse(store.getItem('preferences'))),value);
-  assert.deepEqual(C.normalizePreferences({pageSize:20,masteryThreshold:4},{}),{pageSize:20,masteryThreshold:4,defaultAnswer:'wrong'});
-  assert.deepEqual(C.normalizePreferences({},{}),{pageSize:10,masteryThreshold:3,defaultAnswer:'wrong'});
-  assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8,defaultAnswer:'unknown'},{excludeStreakN:4}),{pageSize:10,masteryThreshold:4,defaultAnswer:'wrong'});
+  assert.deepEqual(C.normalizePreferences({pageSize:20,masteryThreshold:4},{}),{pageSize:20,masteryThreshold:4,defaultAnswer:'wrong',gptWordCount:20});
+  assert.deepEqual(C.normalizePreferences({},{}),{pageSize:10,masteryThreshold:3,defaultAnswer:'wrong',gptWordCount:20});
+  assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8,defaultAnswer:'unknown',gptWordCount:25},{excludeStreakN:4}),{pageSize:10,masteryThreshold:4,defaultAnswer:'wrong',gptWordCount:20});
+  for(const count of [5,10,20,30,50])assert.equal(C.normalizePreferences({gptWordCount:count},{}).gptWordCount,count);
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/id="gptWordCount"[\s\S]*?<option value="5">5語<\/option>[\s\S]*?<option value="10">10語<\/option>[\s\S]*?<option value="20">20語<\/option>[\s\S]*?<option value="30">30語<\/option>[\s\S]*?<option value="50">50語<\/option>/);
+  assert.match(html,/gptWordCount:gptCount/);
+  assert.match(html,/gptWordCount:nextGptWordCount/);
+  assert.match(html,/gptWordCount===20\)return/);
+  assert.match(html,/localStorage\.removeItem\(key\)/);
   for(const size of [10,20,50,100])assert.equal(C.normalizePreferences({pageSize:size},{}).pageSize,size);
+});
+test('GPT selector walks normal and saved random order from the displayed page start across page boundaries', () => {
+  const words=Array.from({length:12},(_,index)=>({id:String(index+1),word:`word${index+1}`}));
+  assert.deepEqual(C.selectGptWords(words,{}, {startId:'9',count:5}).map(w=>w.id),['9','10','11','12']);
+  const randomIds=['4','9','2','8','1','3','7','6','5','10','11','12'];
+  const selected=C.selectGptWords(words,{}, {sortMode:'random',randomIds,startId:'8',count:5});
+  assert.deepEqual(selected.map(w=>w.id),['8','1','3','7','6']);
+  const payload=C.makeGptPayload('session',selected);
+  assert.deepEqual(payload.words.map(w=>w.id),selected.map(w=>w.id));
+  const thirty=Array.from({length:30},(_,index)=>({id:String(index+1)}));
+  assert.equal(C.buildPageModel(thirty,{}, {pageSize:10}).pages[0].entries.length,10);
+  assert.equal(C.selectGptWords(thirty,{}, {startId:'1',count:20}).length,20);
+});
+test('GPT selector skips mastered words to fill, starts at the first visible word, and never wraps', () => {
+  const words=Array.from({length:14},(_,index)=>({id:String(index+1)}));
+  const state={'1':{currentStreak:3},'2':{currentStreak:3},'3':{currentStreak:3},'5':{currentStreak:3},'6':{currentStreak:3},'7':{currentStreak:3},'8':{currentStreak:3},'9':{currentStreak:3}};
+  assert.deepEqual(C.selectGptWords(words,state,{startId:'4',count:5,excludeStreak:false,masteryThreshold:3}).map(w=>w.id),['4','5','6','7','8']);
+  assert.deepEqual(C.selectGptWords(words,state,{startId:'4',count:5,excludeStreak:true,masteryThreshold:3}).map(w=>w.id),['4','10','11','12','13']);
+  assert.deepEqual(C.selectGptWords(words,state,{startId:'10',count:5,excludeStreak:true,masteryThreshold:3}).map(w=>w.id),['10','11','12','13','14']);
+  assert.deepEqual(C.selectGptWords(words,{}, {startId:'12',count:20}).map(w=>w.id),['12','13','14']);
+  assert.deepEqual(C.selectGptWords(words,{}, {startId:'missing',count:5}),[]);
+  assert.deepEqual(C.selectGptWords([],{}, {count:5}),[]);
+  assert.throws(()=>C.selectGptWords([{id:'a'},{id:'a'}],{}, {startId:'a'}),/一意/);
+  assert.throws(()=>C.selectGptWords(words,{}, {sortMode:'random',randomIds:['1','1'],startId:'1'}),/重複/);
 });
 test('display setting changes only end the current target when its word set changes', () => {
   const short=Array.from({length:8},(_,i)=>({id:String(i+1)}));

@@ -54,7 +54,31 @@
     const storedThreshold=Number(raw.masteryThreshold),oldThreshold=Number(legacyView.excludeStreakN||3);
     const masteryThreshold=[2,3,4,5].includes(storedThreshold)?storedThreshold:Number.isFinite(oldThreshold)?Math.min(5,Math.max(2,oldThreshold)):3;
     const defaultAnswer=raw.defaultAnswer==="correct"?"correct":"wrong";
-    return {pageSize,masteryThreshold,defaultAnswer};
+    const gptWordCount=[5,10,20,30,50].includes(Number(raw.gptWordCount))?Number(raw.gptWordCount):20;
+    return {pageSize,masteryThreshold,defaultAnswer,gptWordCount};
+  }
+  function selectGptWords(words,state,{sortMode="normal",randomIds=[],startId,excludeStreak=false,masteryThreshold=3,count=20}={}) {
+    if(!Array.isArray(words)||!Array.isArray(randomIds))throw new TypeError("GPT出題対象の単語順が不正です。");
+    const ids=words.map(word=>String(word.id));
+    if(ids.some(id=>id==="undefined"||id==="null")||new Set(ids).size!==ids.length)throw new Error("単語IDは一意である必要があります。");
+    const validCount=[5,10,20,30,50].includes(Number(count))?Number(count):20;
+    const byId=new Map(words.map(word=>[String(word.id),word]));
+    let ordered=words;
+    if(sortMode==="random"){
+      const order=randomIds.map(String);
+      if(new Set(order).size!==order.length)throw new Error("保存済みランダム順に重複IDがあります。");
+      ordered=order.map(id=>byId.get(id)).filter(Boolean);
+    }
+    const start=ordered.findIndex(word=>String(word.id)===String(startId));
+    if(start<0)return [];
+    const selected=[],selectedIds=new Set();
+    for(let index=start;index<ordered.length&&selected.length<validCount;index++){
+      const word=ordered[index],id=String(word.id),st=state?.[id]||defaultState();
+      if(selectedIds.has(id))continue;
+      if(excludeStreak&&(st.currentStreak||0)>=masteryThreshold)continue;
+      selected.push(word);selectedIds.add(id);
+    }
+    return selected;
   }
   function buildPageModel(words,state,{pageSize=50,sortMode="normal",randomIds=[],filter="all",excludeStreak=false,masteryThreshold=3}={}) {
     const passes=word=>{
@@ -309,7 +333,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,selectGptWords,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
