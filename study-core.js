@@ -16,6 +16,12 @@
     }
     return {gptSessions:pending,registeredGptSessionIds:[...registered]};
   }
+  function normalizeStudyProgress(raw={}) {
+    const valid=(cursor,mode)=>cursor&&typeof cursor==="object"&&cursor.sortMode===mode&&typeof cursor.id==="string"&&cursor.id.length>0&&Number.isInteger(cursor.wordCount)&&cursor.wordCount>0&&
+      [cursor.orderFingerprint,cursor.csvOrderFingerprint,cursor.contentFingerprint].every(value=>typeof value==="string"&&/^[0-9a-f]{16}$/.test(value));
+    const pick=cursor=>({id:cursor.id,sortMode:cursor.sortMode,wordCount:cursor.wordCount,orderFingerprint:cursor.orderFingerprint,csvOrderFingerprint:cursor.csvOrderFingerprint,contentFingerprint:cursor.contentFingerprint});
+    return {normal:valid(raw?.normal,"normal")?pick(raw.normal):null,random:valid(raw?.random,"random")?pick(raw.random):null};
+  }
   function loadCore(storage, snapshotKey, legacyKeys) {
     const snapshot=readJson(storage,snapshotKey,null);
     const legacy={state:readJson(storage,legacyKeys.stateKey,{}),gptSessions:readJson(storage,legacyKeys.gptSessionsKey,{}),activeSession:readJson(storage,legacyKeys.activeSessionKey,null)};
@@ -30,12 +36,15 @@
     const migrationNeeded=!has("registeredGptSessionIds")||JSON.stringify(normalized.gptSessions)!==JSON.stringify(snapshot.gptSessions)||
       JSON.stringify(normalized.registeredGptSessionIds)!==JSON.stringify(snapshot.registeredGptSessionIds);
     const result={state:snapshot.state,...normalized,activeSession:snapshot.activeSession};
+    if(has("studyProgress"))result.studyProgress=normalizeStudyProgress(snapshot.studyProgress);
     Object.defineProperty(result,"gptSessionMigrationNeeded",{value:migrationNeeded});return result;
   }
   function saveCore(storage, snapshotKey, snapshot) {
     const normalized=normalizeGptSessionRecords(snapshot.gptSessions,snapshot.registeredGptSessionIds);
-    storage.setItem(snapshotKey,JSON.stringify({state:snapshot.state,gptSessions:normalized.gptSessions,
-      registeredGptSessionIds:normalized.registeredGptSessionIds,activeSession:snapshot.activeSession}));
+    const value={state:snapshot.state,gptSessions:normalized.gptSessions,
+      registeredGptSessionIds:normalized.registeredGptSessionIds,activeSession:snapshot.activeSession};
+    if(Object.prototype.hasOwnProperty.call(snapshot,"studyProgress"))value.studyProgress=normalizeStudyProgress(snapshot.studyProgress);
+    storage.setItem(snapshotKey,JSON.stringify(value));
   }
   function saveCoreTransition(storage,snapshotKey,snapshot,writes=[]) {
     const backup=writes.map(write=>({key:write.key,value:storage.getItem(write.key)}));
@@ -87,6 +96,45 @@
     const text=JSON.stringify(value);let a=0x811c9dc5,b=0x9e3779b9;
     for(let i=0;i<text.length;i++){const code=text.charCodeAt(i);a=Math.imul(a^code,0x01000193);b=Math.imul(b^code,0x85ebca6b)}
     return`${(a>>>0).toString(16).padStart(8,"0")}${(b>>>0).toString(16).padStart(8,"0")}`;
+  }
+  function studyOrderIdentity(words,sortMode="normal",randomIds=[]) {
+    const order=orderedWords(words,sortMode,randomIds);if(!order)return null;
+    const csvIds=words.map(word=>String(word.id));
+    const content=words.map(word=>[String(word.id),String(word.word??""),String(word.meaning??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+    return{sortMode,orderFingerprint:fingerprint(order.map(word=>String(word.id))),csvOrderFingerprint:fingerprint(csvIds),contentFingerprint:fingerprint(content),wordCount:words.length};
+  }
+  function recordStudyDisclosure(progress,words,sortMode,randomIds,id) {
+    const next=normalizeStudyProgress(progress),identity=studyOrderIdentity(words,sortMode,randomIds);
+    if(!identity){if(sortMode==="random")next.random=null;return next}
+    if(!words.some(word=>String(word.id)===String(id)))return next;
+    next[sortMode]={...identity,id:String(id)};return next;
+  }
+  function preservedTargetPage(words,randomIds,view,pageSize,targetIds,savedIdentity) {
+    const identity=studyOrderIdentity(words,view?.sortMode,randomIds);
+    if(!identity||!savedIdentity||savedIdentity.sortMode!==identity.sortMode||savedIdentity.wordCount!==identity.wordCount||!["orderFingerprint","csvOrderFingerprint","contentFingerprint"].every(key=>identity[key]===savedIdentity[key]))return null;
+    const size=Number(pageSize);if(![10,20,50,100].includes(size)||!Array.isArray(targetIds)||!targetIds.length)return null;
+    const ordered=view.sortMode==="random"?orderedWords(words,"random",randomIds):words;if(!ordered)return null;
+    const start=view.sortMode==="random"?normalizeRandomStart(view.randomStart,ordered.length):Math.max(0,Number(view.pageIndex)||0)*size;
+    const raw=ordered.slice(start,start+size),wanted=new Set(targetIds.map(String));
+    if(wanted.size!==targetIds.length||[...wanted].some(id=>!raw.some(word=>String(word.id)===id)))return null;
+    const entries=raw.filter(word=>wanted.has(String(word.id))).map((word,index)=>({...word,displayNumber:start+raw.indexOf(word)+1}));
+    return{entries,ids:entries.map(word=>String(word.id)),start,end:Math.min(start+size,ordered.length),identity};
+  }
+  function compareStudyProgress(progress,words,sortMode,randomIds,issuedRecord,lastResultId) {
+    const normalized=normalizeStudyProgress(progress),cursor=normalized[sortMode];
+    const context=normalizeGptIssueContext(issuedRecord?.context);
+    if(!cursor||!context||!issuedRecord||!Array.isArray(issuedRecord.ids))return{relation:"unknown",reason:"missing-progress-or-context"};
+    const identity=studyOrderIdentity(words,sortMode,randomIds);
+    if(!identity||cursor.wordCount!==identity.wordCount||cursor.orderFingerprint!==identity.orderFingerprint||cursor.csvOrderFingerprint!==identity.csvOrderFingerprint||cursor.contentFingerprint!==identity.contentFingerprint)
+      return{relation:"unknown",reason:"progress-order-mismatch"};
+    if(context.sortMode!==sortMode||context.orderFingerprint!==identity.orderFingerprint||context.csvOrderFingerprint!==identity.csvOrderFingerprint||context.contentFingerprint!==identity.contentFingerprint)
+      return{relation:"unknown",reason:"issued-order-mismatch"};
+    const issueIndex=issuedRecord.ids.map(String).indexOf(String(lastResultId));
+    const cursorPosition=identity.sortMode==="normal"?words.findIndex(word=>String(word.id)===cursor.id):randomIds.map(String).indexOf(cursor.id);
+    if(issueIndex<0||cursorPosition<0)return{relation:"unknown",reason:"position-unavailable"};
+    const resultPosition=context.targetPositions[issueIndex];
+    if(!Number.isInteger(resultPosition))return{relation:"unknown",reason:"position-unavailable"};
+    return{relation:cursorPosition>resultPosition?"ahead":cursorPosition<resultPosition?"behind":"same",cursorId:cursor.id,cursorPosition,resultId:String(lastResultId),resultPosition};
   }
   function normalizeGptIssueContext(raw) {
     if(!raw||typeof raw!=="object"||raw.version!==1||!['normal','random'].includes(raw.sortMode)||
@@ -212,6 +260,15 @@
     const firstUnstudied=cells.find(cell=>!studied.has(String(cell.id)));
     const boundary=firstUnstudied?Number(firstUnstudied.top):height;
     return Number.isFinite(boundary)?Math.max(0,Math.min(boundary,height)):0;
+  }
+  function processRevealThresholds(thresholds,revealY,studiedIds,mark) {
+    const studied=new Set(Array.isArray(studiedIds)?studiedIds.map(String):[]);
+    for(const threshold of thresholds||[]) {
+      if(revealY<Number(threshold.bottom)-1||studied.has(String(threshold.id)))continue;
+      if(mark(threshold.id,threshold.bottom)===false)return false;
+      studied.add(String(threshold.id));
+    }
+    return true;
   }
   function normalizeView(raw={},randomTotal=0) {
     const threshold=Number(raw.masteryThreshold??raw.excludeStreakN),page=Number(raw.pageIndex);
@@ -409,12 +466,19 @@
     const index=safePageIndex(model.pages,position),page=model.pages[index];
     return{view:{...view,pageIndex:index},page,model,ids:(page?.entries||[]).map(w=>String(w.id))};
   }
-  function prepareGptIntegration(obj,{sessions={},registeredIds=[],knownIds=[],words=[],state={},activeSession=null,currentView=null,pageSize,randomIds=[],now=new Date().toISOString()}={}) {
+  function prepareGptIntegration(obj,{sessions={},registeredIds=[],knownIds=[],words=[],state={},activeSession=null,currentView=null,pageSize,randomIds=[],forceFormalOnly=false,now=new Date().toISOString()}={}) {
     const checked=inspectGptResults(obj,sessions,registeredIds,knownIds),sessionId=String(obj.sessionId);
     if(checked.isReplay) {
-      const formal=prepareGptImport(obj,sessions,knownIds,state,activeSession,now,registeredIds,true);
-      return{...formal,mode:"formal-replay",jump:{canJump:false,reason:"replay",lastResultId:null,candidatePosition:null},samePage:false,
-        transition:{kind:"stay",view:currentView},formalApplied:formal.applied,provisionalIds:[],ignoredOverlapIds:[]};
+      const pendingIds=new Set((activeSession?.studiedIds||[]).map(String).filter(id=>!(activeSession?.finalizedIds||[]).map(String).includes(id)));
+      const ignoredOverlapIds=checked.results.filter(result=>result.result!=="skipped"&&pendingIds.has(result.id)).map(result=>result.id);
+      const ignored=new Set(ignoredOverlapIds),nextState=JSON.parse(JSON.stringify(state||{})),results=checked.results.filter(result=>result.result!=="skipped"&&!ignored.has(result.id));
+      const updatedAt=typeof now==="number"?now:Date.parse(now);if(!Number.isFinite(updatedAt))throw new Error("GPT結果の登録時刻が不正です。");
+      const stamp=new Date(updatedAt).toISOString();
+      for(const {id,result} of results){const st=nextState[id]=normalizeState(nextState[id]||defaultState());st.studyCount+=1;st.lastStudiedAt=stamp;if(result==="correct"){st.correctCount+=1;appendResult(st,true)}else appendResult(st,false)}
+      const replaySession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;if(replaySession&&results.length)replaySession.preserveTargetIds=true;
+      return{state:nextState,gptSessions:JSON.parse(JSON.stringify(sessions||{})),registeredGptSessionIds:[...registeredIds],activeSession:replaySession,
+        applied:results.length,isReplay:true,mode:"formal-replay",jump:{canJump:false,reason:"replay",lastResultId:null,candidatePosition:null},samePage:false,
+        transition:{kind:"stay",view:currentView},formalApplied:results.length,provisionalIds:[],ignoredOverlapIds};
     }
     const original=sessions?.[sessionId],nextState=JSON.parse(JSON.stringify(state||{})),nextSessions=JSON.parse(JSON.stringify(sessions||{}));
     const nextRegistered=[...registeredIds],nextSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
@@ -426,6 +490,7 @@
     const ignored=new Set(ignoredOverlapIds),eligible=checked.results.filter(r=>r.result!=="skipped"&&!ignored.has(r.id));
     const jumpView=buildGptJumpView(currentView,pageSize,randomIds);
     let jump=evaluateGptJump(original,words,jumpView,eligible,state);
+    if(forceFormalOnly)jump={...jump,canJump:false,reason:forceFormalOnly===true?"study-progress-uncertain":String(forceFormalOnly),candidatePosition:null};
     let candidatePage=null,samePage=false;
     if(jump.canJump) {
       const pos=jump.candidatePosition.sortMode==="random"?jump.candidatePosition.randomStart:jump.candidatePosition.pageIndex;
@@ -494,6 +559,7 @@
     delete nextSessions[sessionId];if(!nextRegistered.includes(sessionId))nextRegistered.push(sessionId);
     const provisionalIds=candidatePage?candidatePage.ids.filter(id=>provisionalSet.has(id)):[];
     const formalApplied=formalResults.length,applied=formalApplied+provisionalIds.length;
+    if(!jump.canJump&&formalApplied>0&&resultingSession)resultingSession.preserveTargetIds=true;
     return{state:nextState,gptSessions:nextSessions,registeredGptSessionIds:nextRegistered,activeSession:resultingSession,applied,
       formalApplied,provisionalIds,ignoredOverlapIds,isReplay:false,jump,samePage,
       transition:jump.canJump?{kind:differentPage?"jump":"stay",view:differentPage?candidatePage.view:currentView,position:jump.candidatePosition,
@@ -510,7 +576,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
