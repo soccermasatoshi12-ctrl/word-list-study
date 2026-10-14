@@ -268,6 +268,19 @@ test('fixed random page handles empty, single-word, and short final ranges safel
   const beyond=C.buildRandomFixedPage(words,{}, {pageSize:50,randomIds:words.map(word=>word.id),startIndex:100});
   assert.deepEqual([beyond.startIndex,beyond.endIndex,beyond.entries.map(word=>word.displayNumber)],[50,51,[51]]);
 });
+test('normal next-page navigation wraps and skips excluded empty pages', () => {
+  const pages=[
+    {index:0,entries:[{id:'1'}]},
+    {index:1,entries:[]},
+    {index:2,entries:[{id:'21'}]},
+    {index:3,entries:[]}
+  ];
+  assert.equal(C.nextAvailablePageIndex(pages,0),2);
+  assert.equal(C.nextAvailablePageIndex(pages,2),0);
+  assert.equal(C.nextAvailablePageIndex([{index:0,entries:[{id:'only'}]}],0),0);
+  assert.equal(C.nextAvailablePageIndex([{index:0,entries:[]}],0),null);
+  assert.equal(C.nextAvailablePageIndex([],0),null);
+});
 test('random page navigation advances by the fixed range end and distinguishes final or empty lists', () => {
   assert.deepEqual(C.randomPageNavigation({startIndex:10,endIndex:20,total:35},35),{canNext:true,canReshuffle:false,nextStart:20});
   assert.deepEqual(C.randomPageNavigation({startIndex:30,endIndex:35,total:35},35),{canNext:false,canReshuffle:true,nextStart:null});
@@ -275,13 +288,36 @@ test('random page navigation advances by the fixed range end and distinguishes f
   assert.deepEqual(C.randomPageNavigation({startIndex:0,endIndex:0,total:0},0),{canNext:false,canReshuffle:false,nextStart:null});
   assert.deepEqual(C.randomPageNavigation({startIndex:0,endIndex:1,total:1},1),{canNext:false,canReshuffle:true,nextStart:null});
 });
-test('random navigation UI is separate from normal tabs and routes actions through saved view transitions', () => {
+test('normal next shares the existing bottom navigation while random navigation keeps its original UI', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/id="randomNav" class="random-nav" hidden/);
   assert.match(html,/id="randomNext" class="primary" hidden>次へ/);
   assert.match(html,/id="reshuffle" hidden>再シャッフル/);
   assert.match(html,/els\.tabs\.hidden=sortMode==="random"/);
-  assert.match(html,/els\.randomNav\.hidden=!randomNav/);
+  assert.match(html,/if\(sortMode==="random"\)return/);
+  assert.match(html,/id="pagePositionRow" class="page-position-row"/);
+  assert.doesNotMatch(html,/pagePositionRow\.hidden|count\.hidden/);
+  assert.match(html,/const positionPages=sortMode==="random"\?model\.pages:model\.pages\.filter\(item=>item\.entries\.length>0\)/);
+  assert.match(html,/const currentPosition=sortMode==="random"\?randomStart:pageIndex/);
+  assert.match(html,/const positionIndex=positionPages\.findIndex\(item=>item\.index===currentPosition\)/);
+  assert.match(html,/id="normalNext" class="primary" hidden>次へ/);
+  const actions=html.match(/<div class="study-actions"[\s\S]*?<\/div>/)?.[0];
+  assert.match(actions,/id="repeatStudy"[\s\S]*id="normalNext"[\s\S]*id="randomNext"[\s\S]*id="reshuffle"/);
+  assert.doesNotMatch(html,/normal-next-row|normalNextRow/);
+  assert.match(html,/StudyCore\.nextAvailablePageIndex\(model\.pages,pageIndex\)/);
+  const nextHandler=html.match(/function nextNormalPage\(\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(nextHandler,/pageTransitionNeedsConfirmation\("途中までの学習結果を確定して、次のページへ進みますか？"\)/);
+  assert.match(nextHandler,/requestViewTransition\(\{\.\.\.currentView\(\),pageIndex:next\}\)/);
+  assert.equal((nextHandler.match(/pageTransitionNeedsConfirmation\(/g)||[]).length,1);
+  const requestTransition=html.match(/function requestViewTransition\(view,options\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.doesNotMatch(requestTransition,/confirm\(/);
+  assert.match(html,/els\.randomProgress\.textContent=page\.total\?`\$\{page\.startIndex\+1\}–\$\{page\.endIndex\} · 残\$\{current\.length\}`:"0–0 · 残0"/);
+  assert.match(html,/\.random-nav\{display:flex;align-items:center;box-sizing:border-box;min-width:0;min-height:46px;padding:2px 0 8px\}/);
+  assert.doesNotMatch(html,/<div id="randomProgress" class="random-progress"[^>]*>\s*<button/);
+  assert.match(html,/function ensureActiveTabVisible\(\)[\s\S]*?els\.tabs\.scrollLeft/);
+  assert.match(html,/id="pagePosition" class="page-position">0 \/ 0 ページ/);
+  assert.match(html,/els\.count\.textContent=`全\$\{model\.total\}問`/);
+  assert.match(html,/els\.pagePosition\.textContent=`\$\{positionIndex<0\?0:positionIndex\+1\} \/ \$\{positionPages\.length\} ページ`/);
   assert.match(html,/els\.randomNext\.addEventListener\("click",nextRandomPage\)/);
   assert.match(html,/els\.reshuffle\.addEventListener\("click",reshuffleRandomOrder\)/);
   assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),randomStart:navigation\.nextStart\}\)/);
@@ -319,12 +355,12 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.ok(study.indexOf('id="listWrap"')<study.indexOf('class="study-actions"'));
   const actions=study.match(/<div class="study-actions"[\s\S]*?<\/div>/)?.[0];
   assert.match(actions,/id="repeatStudy"/);
+  assert.match(actions,/id="normalNext"/);
   assert.match(actions,/id="randomNext"/);
   assert.match(actions,/id="reshuffle"/);
   assert.doesNotMatch(html,/id="resetCurtain"|function resetCurtain\(|els\.resetCurtain/);
   assert.doesNotMatch(html,/CSV登録順を.*固定範囲に分けてからフィルタします/);
   assert.match(html,/通常順ではCSV登録順の固定範囲をタブに分け/);
-  assert.match(html,/page\.startIndex\+1\}–\$\{page\.endIndex\} \/ 全\$\{page\.total\}問\$\{filtered\}/);
   assert.match(html,/page\.start\}–\$\{page\.end\} · 残\$\{page\.entries\.length\}/);
   assert.match(html,/els\.curtainHandle\.addEventListener\("pointerdown"/);
   assert.match(html,/els\.curtainHandle\.addEventListener\("pointermove"/);

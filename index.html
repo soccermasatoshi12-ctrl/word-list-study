@@ -42,7 +42,7 @@
     .study-controls{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid var(--border)}
     .filter-controls,.sort-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
     .study-controls button{min-height:36px;padding:6px 9px;font-size:.9rem}
-    .count{margin-left:auto;color:var(--muted);font-size:.9rem}
+    .page-position-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.count,.page-position{color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
     .page-navigation{padding:8px 0 4px}
     .hint{font-size:.84rem;color:var(--muted);line-height:1.45;margin-top:6px}
     .status{font-size:.9rem;margin-top:6px}.status.good{color:#18794e}.status.bad{color:#b42318}
@@ -57,7 +57,7 @@
     .tabs{display:flex;gap:6px;overflow-x:auto;white-space:nowrap;padding:2px 0 8px;scrollbar-width:thin}
     .tabs button{flex:0 0 auto;min-height:36px;padding:5px 8px;font-size:.82rem}
     .tabs button.active{border-color:var(--accent);color:var(--accent);-webkit-text-fill-color:var(--accent);font-weight:600}
-    .random-nav{min-width:0}
+    .random-nav{display:flex;align-items:center;box-sizing:border-box;min-width:0;min-height:46px;padding:2px 0 8px}
     .random-progress{min-width:0;overflow-wrap:anywhere;color:var(--muted);line-height:1.4}
     .study-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
     .study-actions button{min-width:0}
@@ -195,7 +195,7 @@
     </div>
 
     <section class="page-navigation" aria-label="ページナビゲーション">
-      <div class="row"><span id="count" class="count">0問</span></div>
+      <div id="pagePositionRow" class="page-position-row"><span id="count" class="count">全0問</span><span id="pagePosition" class="page-position">0 / 0 ページ</span></div>
       <div id="tabs" class="tabs"></div>
       <div id="randomNav" class="random-nav" hidden>
         <div id="randomProgress" class="random-progress"></div>
@@ -210,6 +210,7 @@
     </div>
     <div class="study-actions" aria-label="学習操作">
       <button id="repeatStudy" disabled>もう一度学習</button>
+      <button id="normalNext" class="primary" hidden>次へ</button>
       <button id="randomNext" class="primary" hidden>次へ</button>
       <button id="reshuffle" hidden>再シャッフル</button>
     </div>
@@ -286,7 +287,7 @@
     openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),homeCsvFile:document.getElementById("homeCsvFile"),clearData:document.getElementById("clearData"),
     pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),defaultAnswer:document.getElementById("defaultAnswer"),gptWordCount:document.getElementById("gptWordCount"),resetSettings:document.getElementById("resetSettings"),
-    count:document.getElementById("count"),tabs:document.getElementById("tabs"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
+    count:document.getElementById("count"),pagePositionRow:document.getElementById("pagePositionRow"),pagePosition:document.getElementById("pagePosition"),tabs:document.getElementById("tabs"),normalNext:document.getElementById("normalNext"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),gptWordCountSummary:document.getElementById("gptWordCountSummary"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
     meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),
@@ -606,6 +607,13 @@
       });
       els.tabs.appendChild(b);
     }
+    requestAnimationFrame(ensureActiveTabVisible);
+  }
+  function ensureActiveTabVisible(){
+    const active=els.tabs.querySelector("button.active");if(!active||els.tabs.hidden)return;
+    const container=els.tabs.getBoundingClientRect(),tab=active.getBoundingClientRect();
+    if(tab.left<container.left)els.tabs.scrollLeft-=container.left-tab.left;
+    else if(tab.right>container.right)els.tabs.scrollLeft+=tab.right-container.right;
   }
 
   function renderRowsOnly(current=pageWords()){
@@ -639,20 +647,24 @@
     pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
     renderTabs(model);renderRowsOnly(current);
     els.repeatStudy.disabled=current.length===0;
-    els.count.hidden=sortMode==="random";
+    const positionPages=sortMode==="random"?model.pages:model.pages.filter(item=>item.entries.length>0);
+    const currentPosition=sortMode==="random"?randomStart:pageIndex;
+    const positionIndex=positionPages.findIndex(item=>item.index===currentPosition);
+    els.count.textContent=`全${model.total}問`;
+    els.pagePosition.textContent=`${positionIndex<0?0:positionIndex+1} / ${positionPages.length} ページ`;
+    const nextNormal=StudyCore.nextAvailablePageIndex(model.pages,pageIndex);
+    els.normalNext.hidden=sortMode!=="normal";
+    els.normalNext.disabled=nextNormal===null;
     const randomNav=sortMode==="random"&&words.length>0;
     els.randomNav.hidden=!randomNav;
     if(randomNav&&page){
       const navigation=StudyCore.randomPageNavigation(page,words.length);
-      const fixedCount=page.endIndex-page.startIndex;
-      const filtered=current.length<fixedCount?`（表示${current.length}問）`:"";
-      els.randomProgress.textContent=page.total?`${page.startIndex+1}–${page.endIndex} / 全${page.total}問${filtered}`:"0問";
+      els.randomProgress.textContent=page.total?`${page.startIndex+1}–${page.endIndex} · 残${current.length}`:"0–0 · 残0";
       els.randomNext.hidden=!navigation.canNext;els.randomNext.disabled=!navigation.canNext;
       els.reshuffle.hidden=!navigation.canReshuffle;els.reshuffle.disabled=!navigation.canReshuffle;
     }else{
       els.randomNext.hidden=true;els.reshuffle.hidden=true;els.randomNext.disabled=true;els.reshuffle.disabled=true;
     }
-    els.count.textContent=page&&sortMode==="normal"?`${page.start}–${page.end}範囲 / ${current.length}問（全${model.total}問）`:page?.total===0?"0問":"";
     els.excludeStreak.checked=excludeStreak;els.excludeStreak.setAttribute("aria-checked",String(excludeStreak));
     els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.defaultAnswer.value=defaultAnswer;els.gptWordCount.value=String(gptWordCount);els.gptWordCountSummary.textContent=String(gptWordCount);
     els.normalOrder.classList.toggle("active",sortMode==="normal");els.randomOrder.classList.toggle("active",sortMode==="random");
@@ -685,6 +697,13 @@
   function pageTransitionNeedsConfirmation(message){
     const visibleIds=[...els.words.querySelectorAll(".word-row")].map(row=>row.dataset.id);
     return StudyCore.repeatStudyAction(activeSession,visibleIds)!=="confirm"||confirm(message);
+  }
+  function nextNormalPage(){
+    if(sortMode!=="normal")return;
+    const model=pageModel(),next=StudyCore.nextAvailablePageIndex(model.pages,pageIndex);
+    if(next===null)return;
+    if(!pageTransitionNeedsConfirmation("途中までの学習結果を確定して、次のページへ進みますか？"))return;
+    requestViewTransition({...currentView(),pageIndex:next});
   }
   function nextRandomPage(){
     if(sortMode!=="random"||!words.length)return;
@@ -881,6 +900,7 @@
     requestViewTransition({...currentView(),sortMode:"random"},{nextRandomIds:order,writeRandomOrder});
   });
   els.randomNext.addEventListener("click",nextRandomPage);
+  els.normalNext.addEventListener("click",nextNormalPage);
   els.reshuffle.addEventListener("click",reshuffleRandomOrder);
 
   els.csvFile.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{importCsv(await file.text(),file.name)}catch(err){alert(err.message||String(err))}e.target.value=""});
