@@ -15,8 +15,15 @@
     .home-screen{display:grid;gap:12px;min-height:calc(100dvh - 24px);align-content:center}
     #homeScreen[hidden],#studyScreen[hidden]{display:none!important}
     #homeRegistrationCard[hidden],#homeStudyCard[hidden]{display:none!important}
+    #homeTitleEditor[hidden],#editListTitle[hidden]{display:none!important}
     .home-screen h1{margin:0;font-size:1.35rem}
     .home-panel{display:grid;gap:12px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px}
+    .home-panel.registration{grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:12px;row-gap:4px;padding:12px 14px}.home-registration-heading{display:flex;align-items:center;gap:9px;min-width:0}.home-registration-heading h2{margin:0;font-size:1rem}.home-registration-heading svg{width:20px;height:20px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.home-panel.registration .hint{grid-column:1;margin:0}.home-panel.registration .file-btn{grid-column:2;grid-row:1 / span 2;justify-self:end;margin:0;white-space:nowrap}
+    .home-panel.study{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 12px;padding:12px 14px}
+    .home-study-heading{display:flex;align-items:center;gap:6px;min-width:0}.home-study-heading h2{margin:0;min-width:0;overflow-wrap:anywhere;word-break:break-word;font-size:1.05rem}
+    .home-study-meta{grid-column:1;margin:0;color:var(--muted);font-size:.82rem}.home-start-study{grid-column:2;grid-row:1 / span 2;justify-self:end;min-height:34px;padding:6px 12px;white-space:nowrap}
+    .home-title-editor{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.home-title-editor input{width:100%;min-width:0;min-height:36px;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font:inherit}.home-title-editor button{min-height:34px;padding:5px 9px;white-space:nowrap}
+    .title-edit{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;min-height:32px;padding:6px;border:0;background:transparent}.title-edit svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     .app-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
     .app-title{margin:0;font-size:1.1rem;line-height:1.2}
     .header-actions{display:flex;gap:6px}
@@ -78,7 +85,7 @@
     .settings-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
     .settings-item>label:first-child{min-width:0}
     .settings-item select{flex:0 0 auto}
-    @media(max-width:560px){.answer-toggle{height:42px;min-height:42px;font-size:1.15rem}}
+    @media(max-width:560px){.answer-toggle{height:42px;min-height:42px;font-size:1.15rem}.home-panel.registration,.home-panel.study{grid-template-columns:minmax(0,1fr) auto}.home-study-heading{flex-wrap:wrap}.home-title-editor{flex-wrap:wrap}.home-title-editor input{flex-basis:100%}.home-start-study{grid-row:1 / span 2}}
     .settings-actions{display:flex;flex-wrap:wrap;gap:8px}
     dialog.modal input[type="text"]{max-width:100%;min-width:0;overflow-wrap:anywhere}
     .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
@@ -105,15 +112,15 @@
 <div class="app">
   <section id="homeScreen" class="home-screen" aria-labelledby="homeTitle" hidden>
     <h1 id="homeTitle" class="app-title">Word List Study</h1>
-    <div id="homeRegistrationCard" class="home-panel" hidden>
-      <h2>＋ 学習CSVを登録</h2>
-      <p class="hint">CSVファイルを選択して学習用単語を登録します。</p>
-      <label class="file-btn">CSVを登録<input id="homeCsvFile" type="file" accept=".csv,text/csv"></label>
+    <div id="homeRegistrationCard" class="home-panel registration" hidden>
+      <div class="home-registration-heading"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><h2>学習データを登録</h2></div>
+      <label class="file-btn">CSVを選択<input id="homeCsvFile" type="file" accept=".csv,text/csv"></label>
+      <p class="hint">id・question・answer列を含むCSVを選択してください。</p>
     </div>
-    <div id="homeStudyCard" class="home-panel" hidden>
-      <h2>単語学習</h2>
-      <p class="hint">登録済みの学習を続けられます。</p>
-      <button id="startStudy" class="primary" type="button">学習する</button>
+    <div id="homeStudyCard" class="home-panel study" hidden>
+      <div class="home-study-heading"><h2 id="homeListTitle"></h2><button id="editListTitle" class="title-edit" type="button" aria-label="学習タイトルを編集" title="学習タイトルを編集"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4.2-.9L19 8.3a2.1 2.1 0 0 0-3-3L5.2 16.1 4 20Z"/></svg></button><div id="homeTitleEditor" class="home-title-editor" hidden><input id="homeTitleInput" type="text" maxlength="80" aria-label="学習タイトル"><button id="saveListTitle" class="primary" type="button">保存</button><button id="cancelListTitle" type="button">キャンセル</button></div></div>
+      <p id="homeQuestionCount" class="home-study-meta"></p>
+      <button id="startStudy" class="primary home-start-study" type="button">学習する</button>
     </div>
     <p id="homeStatus" class="status" role="status" aria-live="polite"></p>
   </section>
@@ -136,9 +143,9 @@
     <div class="modal-header"><strong id="settingsTitle">設定</strong><button id="closeSettings" class="modal-close" type="button" aria-label="設定を閉じる" title="閉じる">×</button></div>
     <section class="settings-section" aria-labelledby="learningSettingsTitle">
       <h2 id="learningSettingsTitle">学習設定</h2>
-      <div class="settings-item"><label for="pageSize">1ページの表示語数</label>
-        <select id="pageSize" aria-label="タブあたりの表示語数">
-          <option value="10">10語</option><option value="20">20語</option><option value="50">50語</option><option value="100">100語</option>
+      <div class="settings-item"><label for="pageSize">1ページの表示問題数</label>
+        <select id="pageSize" aria-label="ページあたりの表示問題数">
+          <option value="10">10問</option><option value="20">20問</option><option value="50">50問</option><option value="100">100問</option>
         </select>
       </div>
       <div class="settings-item"><label for="defaultAnswer">デフォルト評価</label>
@@ -160,7 +167,7 @@
     <section class="settings-section" aria-labelledby="csvSettingsTitle">
       <h2 id="csvSettingsTitle">CSV管理</h2>
       <label class="file-btn">CSV読込・差し替え<input id="csvFile" type="file" accept=".csv,text/csv"></label>
-      <div class="hint">CSV形式: <code>id,word,meaning</code>（単語ID、英単語、日本語訳）。CSV読込・差し替えからファイルを選択します。同じidなら再読込しても学習履歴を引き継ぎます。</div>
+      <div class="hint">CSV形式: <code>id,question,answer,explanation</code>（explanation列は任意）。旧形式の <code>id,word,meaning</code> も読み込めます。同じidなら再読込しても学習履歴を引き継ぎます。</div>
       <div class="hint">通常順ではCSV登録順の固定範囲をタブに分け、ランダム順では保存済み順序の固定範囲に対して習得済み除外を適用します。</div>
     </section>
     <section class="settings-section" aria-labelledby="dataSettingsTitle">
@@ -188,7 +195,7 @@
     </div>
 
     <section class="page-navigation" aria-label="ページナビゲーション">
-      <div class="row"><span id="count" class="count">0語</span></div>
+      <div class="row"><span id="count" class="count">0問</span></div>
       <div id="tabs" class="tabs"></div>
       <div id="randomNav" class="random-nav" hidden>
         <div id="randomProgress" class="random-progress"></div>
@@ -235,11 +242,16 @@
   const STORAGE_RANDOM_ORDER="wordlist.randomOrder.v1";
   const STORAGE_VIEW="wordlist.view.v1";
   const STORAGE_SCREEN="wordlist.screen.v1";
+  const STORAGE_LIST_TITLE="wordlist.listTitle.v1";
   const STORAGE_PREFERENCES="wordlist.preferences.v1";
   const STORAGE_LEDGER="wordlist.studyLedger.v1";
   const savedCore=StudyCore.loadCore(localStorage,STORAGE_LEDGER,{stateKey:STORAGE_STATE,gptSessionsKey:STORAGE_GPT_SESSIONS,activeSessionKey:STORAGE_ACTIVE_SESSION});
 
-  let words=loadJson(STORAGE_WORDS,[]);
+  const storedWords=loadJson(STORAGE_WORDS,[]);
+  let words=StudyCore.normalizeWords(storedWords);
+  const wordsNeedMigration=Array.isArray(storedWords)&&storedWords.every(item=>item&&typeof item==="object"&&item.id!==undefined&&String(item.id).trim()&&(item.question??item.word)!==undefined&&String(item.question??item.word).trim())&&JSON.stringify(words)!==JSON.stringify(storedWords);
+  let listTitle=loadJson(STORAGE_LIST_TITLE,words.length?"学習データ":"");
+  if(typeof listTitle!=="string")listTitle=words.length?"学習データ":"";
   let state=savedCore.state;
   let studyProgress=StudyCore.normalizeStudyProgress(savedCore.studyProgress);
   let gptSessions=savedCore.gptSessions;
@@ -270,7 +282,7 @@
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null;
 
   const els={
-    homeScreen:document.getElementById("homeScreen"),homeRegistrationCard:document.getElementById("homeRegistrationCard"),homeStudyCard:document.getElementById("homeStudyCard"),studyScreen:document.getElementById("studyScreen"),startStudy:document.getElementById("startStudy"),goHome:document.getElementById("goHome"),homeStatus:document.getElementById("homeStatus"),
+    homeScreen:document.getElementById("homeScreen"),homeRegistrationCard:document.getElementById("homeRegistrationCard"),homeStudyCard:document.getElementById("homeStudyCard"),homeListTitle:document.getElementById("homeListTitle"),homeQuestionCount:document.getElementById("homeQuestionCount"),editListTitle:document.getElementById("editListTitle"),homeTitleEditor:document.getElementById("homeTitleEditor"),homeTitleInput:document.getElementById("homeTitleInput"),saveListTitle:document.getElementById("saveListTitle"),cancelListTitle:document.getElementById("cancelListTitle"),studyScreen:document.getElementById("studyScreen"),startStudy:document.getElementById("startStudy"),goHome:document.getElementById("goHome"),homeStatus:document.getElementById("homeStatus"),
     openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),homeCsvFile:document.getElementById("homeCsvFile"),clearData:document.getElementById("clearData"),
     pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),defaultAnswer:document.getElementById("defaultAnswer"),gptWordCount:document.getElementById("gptWordCount"),resetSettings:document.getElementById("resetSettings"),
@@ -296,6 +308,8 @@
     localStorage.setItem(STORAGE_VIEW,JSON.stringify(StudyCore.serializeView(view)));
   }
   function persistPreferences(size=pageSize,threshold=masteryThreshold,answer=defaultAnswer,gptCount=gptWordCount){localStorage.setItem(STORAGE_PREFERENCES,JSON.stringify({pageSize:size,masteryThreshold:threshold,defaultAnswer:answer,gptWordCount:gptCount}))}
+  let wordsMigrationError=null;
+  if(wordsNeedMigration)try{localStorage.setItem(STORAGE_WORDS,JSON.stringify(words))}catch(error){wordsMigrationError=error}
   if(savedCore.gptSessionMigrationNeeded){try{writeCoreSnapshot()}catch{}}
 
   const defaultState=StudyCore.defaultState, normalizeState=StudyCore.normalizeState, appendResult=StudyCore.appendResult;
@@ -345,13 +359,14 @@
     if(!randomIds.length&&words.length){randomIds=shuffledIds();localStorage.setItem(STORAGE_RANDOM_ORDER,JSON.stringify(randomIds))}
   }
 
-  function importCsv(text){
+  function importCsv(text,fileName=""){
     const nextWords=StudyCore.parseWordCsv(text),oldIds=words.map(w=>String(w.id)),newIds=nextWords.map(w=>String(w.id));
     const idsChanged=!sameIdSet(oldIds,newIds),nextRandomIds=idsChanged?[]:randomIds;
     const nextView={...currentView(),filter:"all",excludeStreak:false,pageIndex:0,sortMode:idsChanged?"normal":sortMode,randomStart:idsChanged?0:randomStart};
     const nextState=JSON.parse(JSON.stringify(state));
     for(const word of nextWords)nextState[word.id]=normalizeState(nextState[word.id]||defaultState());
-    return requestViewTransition(nextView,{nextWords,nextState,nextRandomIds,writeWords:true,finalize:true});
+    const nextListTitle=oldIds.length?listTitle:titleFromFileName(fileName);
+    return requestViewTransition(nextView,{nextWords,nextState,nextRandomIds,writeWords:true,writeListTitle:!oldIds.length,nextListTitle,finalize:true});
   }
 
   function buildTarget(view=currentView(),sourceState=state,sourceWords=words,sourceOrder=randomIds,size=pageSize){
@@ -406,6 +421,22 @@
     els.startStudy.disabled=!available;
     els.homeRegistrationCard.hidden=available;
     els.homeStudyCard.hidden=!available;
+    els.homeListTitle.textContent=listTitle||"学習データ";
+    els.homeQuestionCount.textContent=`${words.length}問`;
+  }
+  function titleFromFileName(fileName){const title=String(fileName||"").split(/[\\/]/).pop().replace(/\.csv$/i,"").trim();return title||"学習データ"}
+  function setTitleEditing(editing){
+    els.homeListTitle.hidden=editing;els.editListTitle.hidden=editing;els.homeTitleEditor.hidden=!editing;
+    if(editing){els.homeTitleInput.value=listTitle||"学習データ";els.homeTitleInput.focus();els.homeTitleInput.select()}
+  }
+  function editListTitle(){setTitleEditing(true)}
+  function cancelListTitleEdit(){els.homeTitleInput.value=listTitle||"学習データ";setTitleEditing(false)}
+  function saveListTitleEdit(){
+    const next=els.homeTitleInput.value.trim();
+    if(!next){els.homeStatus.textContent="タイトルは空欄にできません。";els.homeStatus.className="status bad";els.homeTitleInput.focus();return false}
+    if([...next].length>80){els.homeStatus.textContent="タイトルは80文字以内で入力してください。";els.homeStatus.className="status bad";els.homeTitleInput.focus();return false}
+    try{localStorage.setItem(STORAGE_LIST_TITLE,JSON.stringify(next));listTitle=next;updateHome();setTitleEditing(false);els.homeStatus.textContent="タイトルを保存しました。";els.homeStatus.className="status good";return true}
+    catch(error){cancelListTitleEdit();els.homeStatus.textContent=`タイトルを保存できませんでした。${error.message||error}`;els.homeStatus.className="status bad";return false}
   }
   function showHome(){
     try{saveActiveSession(false,[{key:STORAGE_SCREEN,value:"home"}])}
@@ -413,7 +444,7 @@
     updateHome();els.studyScreen.hidden=true;els.homeScreen.hidden=false;return true;
   }
   function showStudy(){
-    if(!words.length){updateHome();els.homeStatus.textContent="学習用CSVを登録してから学習できます。";return false}
+    if(!words.length){updateHome();els.homeStatus.textContent="学習データを登録してから学習できます。";return false}
     try{startSession(false,[{key:STORAGE_SCREEN,value:"study"}])}
     catch(error){els.homeStatus.textContent="学習状態を復元できませんでした。"+(error.message||error);els.homeStatus.className="status bad";return false}
     revealY=Number(activeSession?.revealY||0);
@@ -492,7 +523,7 @@
   function applyView(view,size,threshold,answer){
     filter=view.filter;sortMode=view.sortMode;excludeStreak=view.excludeStreak;masteryThreshold=threshold;defaultAnswer=answer;pageIndex=view.pageIndex;randomStart=view.randomStart;pageSize=size;
   }
-  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,finalize=true,resetCurtain=finalize}={}){
+  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,writeListTitle=false,nextListTitle=listTitle,finalize=true,resetCurtain=finalize}={}){
     let draftState=JSON.parse(JSON.stringify(nextState||state));
     let draftProgress=StudyCore.normalizeStudyProgress(studyProgress);
     if(writeRandomOrder)draftProgress.random=null;
@@ -508,9 +539,10 @@
     if(writeWords)writes.push({key:STORAGE_WORDS,value:JSON.stringify(nextWords)});
     if(writeRandomOrder)writes.push({key:STORAGE_RANDOM_ORDER,value:JSON.stringify(nextRandomIds)});
     if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold,defaultAnswer:nextDefaultAnswer,gptWordCount:nextGptWordCount})});
+    if(writeListTitle)writes.push({key:STORAGE_LIST_TITLE,value:JSON.stringify(nextListTitle)});
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress},writes);
-    state=draftState;studyProgress=draftProgress;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
+    state=draftState;studyProgress=draftProgress;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;if(writeListTitle)listTitle=nextListTitle;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
     if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
   }
@@ -564,7 +596,7 @@
     els.tabs.replaceChildren();
     els.tabs.hidden=sortMode==="random";
     if(sortMode==="random")return;
-    if(!model.pages.length){const b=document.createElement("button");b.textContent="0語";b.disabled=true;els.tabs.appendChild(b);return}
+    if(!model.pages.length){const b=document.createElement("button");b.textContent="0問";b.disabled=true;els.tabs.appendChild(b);return}
     for(const page of model.pages){
       const i=page.index,b=document.createElement("button");b.textContent=`${page.start}–${page.end} · 残${page.entries.length}`;b.disabled=page.entries.length===0;b.classList.toggle("active",i===pageIndex&&page.entries.length>0);
       b.addEventListener("click",()=>{
@@ -584,7 +616,7 @@
 
       const wc=document.createElement("div");wc.className="word-cell";
       const number=document.createElement("div");number.className="word-index";number.textContent=String(w.displayNumber);
-      const main=document.createElement("div");main.className="word-main";main.textContent=w.word;
+      const main=document.createElement("div");main.className="word-main";main.textContent=w.question;
       const meta=document.createElement("div");meta.className="word-meta";
       const recent=document.createElement("span");recent.className="recent";renderRecent(recent,w.id,st);
       meta.append(recent);if(isMastered(st))meta.append(makeMedalIcon());wc.append(number,main,meta);
@@ -595,7 +627,7 @@
       cc.appendChild(answer);
 
       const mc=document.createElement("div");mc.className="meaning-cell";mc.dataset.id=w.id;
-      const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.meaning;mc.appendChild(mt);
+      const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.answer;mc.appendChild(mt);
       row.append(wc,cc,mc);syncMeaningDisclosure(row,w.id);syncAnswerControl(row,w.id);els.words.appendChild(row);
     }
     if(curtainLayoutObserver){curtainLayoutObserver.disconnect();for(const row of els.words.querySelectorAll(".word-row"))curtainLayoutObserver.observe(row)}
@@ -613,14 +645,14 @@
     if(randomNav&&page){
       const navigation=StudyCore.randomPageNavigation(page,words.length);
       const fixedCount=page.endIndex-page.startIndex;
-      const filtered=current.length<fixedCount?`（表示${current.length}語）`:"";
-      els.randomProgress.textContent=page.total?`${page.startIndex+1}–${page.endIndex} / 全${page.total}語${filtered}`:"0語";
+      const filtered=current.length<fixedCount?`（表示${current.length}問）`:"";
+      els.randomProgress.textContent=page.total?`${page.startIndex+1}–${page.endIndex} / 全${page.total}問${filtered}`:"0問";
       els.randomNext.hidden=!navigation.canNext;els.randomNext.disabled=!navigation.canNext;
       els.reshuffle.hidden=!navigation.canReshuffle;els.reshuffle.disabled=!navigation.canReshuffle;
     }else{
       els.randomNext.hidden=true;els.reshuffle.hidden=true;els.randomNext.disabled=true;els.reshuffle.disabled=true;
     }
-    els.count.textContent=page&&sortMode==="normal"?`${page.start}–${page.end}範囲 / ${current.length}語（全${model.total}語）`:page?.total===0?"0語":"";
+    els.count.textContent=page&&sortMode==="normal"?`${page.start}–${page.end}範囲 / ${current.length}問（全${model.total}問）`:page?.total===0?"0問":"";
     els.excludeStreak.checked=excludeStreak;els.excludeStreak.setAttribute("aria-checked",String(excludeStreak));
     els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.defaultAnswer.value=defaultAnswer;els.gptWordCount.value=String(gptWordCount);els.gptWordCountSummary.textContent=String(gptWordCount);
     els.normalOrder.classList.toggle("active",sortMode==="normal");els.randomOrder.classList.toggle("active",sortMode==="random");
@@ -802,6 +834,13 @@
   els.openSettings.addEventListener("click",()=>{if(!els.settingsPanel.open)els.settingsPanel.showModal()});
   els.goHome.addEventListener("click",showHome);
   els.startStudy.addEventListener("click",showStudy);
+  els.editListTitle.addEventListener("click",editListTitle);
+  els.saveListTitle.addEventListener("click",saveListTitleEdit);
+  els.cancelListTitle.addEventListener("click",cancelListTitleEdit);
+  els.homeTitleInput.addEventListener("keydown",event=>{
+    if(event.key==="Enter"){event.preventDefault();saveListTitleEdit()}
+    else if(event.key==="Escape"){event.preventDefault();cancelListTitleEdit()}
+  });
   els.closeSettings.addEventListener("click",()=>els.settingsPanel.close());
   els.openGpt.addEventListener("click",()=>{if(!els.gptPanel.open)els.gptPanel.showModal()});
   els.closeGpt.addEventListener("click",()=>els.gptPanel.close());
@@ -844,12 +883,12 @@
   els.randomNext.addEventListener("click",nextRandomPage);
   els.reshuffle.addEventListener("click",reshuffleRandomOrder);
 
-  els.csvFile.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{importCsv(await file.text())}catch(err){alert(err.message||String(err))}e.target.value=""});
+  els.csvFile.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{importCsv(await file.text(),file.name)}catch(err){alert(err.message||String(err))}e.target.value=""});
   els.homeCsvFile.addEventListener("change",async e=>{
     const file=e.target.files?.[0];if(!file)return;
     if(words.length){els.homeStatus.textContent="登録済みCSVの差し替えは、学習画面の設定から行ってください。";els.homeStatus.className="status bad";e.target.value="";return}
     try{
-      const imported=importCsv(await file.text());
+      const imported=importCsv(await file.text(),file.name);
       if(imported){updateHome();els.homeStatus.textContent="CSVを登録しました。「学習する」から進めます。";els.homeStatus.className="status good"}
       else{els.homeStatus.textContent="CSVを保存できませんでした。既存の学習データは変更されていません。";els.homeStatus.className="status bad"}
     }catch(error){els.homeStatus.textContent=error.message||String(error);els.homeStatus.className="status bad"}
@@ -857,9 +896,10 @@
   });
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
-    if(!confirm("単語データと学習履歴をこの端末から削除しますか？"))return;
-    words=[];state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
-    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES])localStorage.removeItem(key);
+    if(!confirm("学習データと履歴をこの端末から削除しますか？"))return;
+    words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
+    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES,STORAGE_LIST_TITLE])localStorage.removeItem(key);
+    updateHome();
     startSession(true);render();
   });
   els.makeSession.addEventListener("click",makeGptSession);
@@ -871,6 +911,7 @@
   catch(error){screenState={screen:"home",savedScreen:null,readFailed:true,needsSave:false,error}}
   let initialScreen=screenState.screen;
   updateHome();
+  if(wordsMigrationError){els.homeStatus.textContent=`保存済み問題データを新形式へ移行できませんでした。現在の表示では旧データを読み替えています。${wordsMigrationError.message||wordsMigrationError}`;els.homeStatus.className="status bad"}
   els.homeScreen.hidden=initialScreen!=="home";els.studyScreen.hidden=initialScreen!=="study";
   if(screenState.readFailed){
     els.homeStatus.textContent="保存済みの画面状態を読み取れませんでした。保存データは変更していません。"+(screenState.error?.message?` ${screenState.error.message}`:"");els.homeStatus.className="status bad";

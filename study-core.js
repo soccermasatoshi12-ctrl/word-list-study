@@ -3,6 +3,10 @@
   const MAX_RECENT = 10;
   function deriveStreak(results) { let n=0; for(let i=results.length-1;i>=0&&results[i]===true;i--) n++; return n; }
   function defaultState() { return {studyCount:0,correctCount:0,recentResults:[],currentStreak:0,lastStudiedAt:null}; }
+  function normalizeWords(raw) {
+    if(!Array.isArray(raw))return [];
+    return raw.map(item=>({id:String(item?.id??""),question:String(item?.question??item?.word??""),answer:String(item?.answer??item?.meaning??""),explanation:String(item?.explanation??"")}));
+  }
   function readJson(storage,key,fallback) { try { return JSON.parse(storage.getItem(key)) ?? fallback; } catch { return fallback; } }
   function normalizeGptSessionRecords(raw, registeredRaw=[]) {
     const pending={}, registered=new Set(Array.isArray(registeredRaw)?registeredRaw.filter(id=>typeof id==="string"):[]);
@@ -100,7 +104,7 @@
   function studyOrderIdentity(words,sortMode="normal",randomIds=[]) {
     const order=orderedWords(words,sortMode,randomIds);if(!order)return null;
     const csvIds=words.map(word=>String(word.id));
-    const content=words.map(word=>[String(word.id),String(word.word??""),String(word.meaning??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+    const content=words.map(word=>[String(word.id),String(word.question??""),String(word.answer??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
     return{sortMode,orderFingerprint:fingerprint(order.map(word=>String(word.id))),csvOrderFingerprint:fingerprint(csvIds),contentFingerprint:fingerprint(content),wordCount:words.length};
   }
   function recordStudyDisclosure(progress,words,sortMode,randomIds,id) {
@@ -163,7 +167,7 @@
     if(!targetIds.length||new Set(targetIds).size!==targetIds.length||targetIds.some(id=>!positionById.has(id))||
       targetIds.some((id,i)=>i&&positionById.get(id)<=positionById.get(targetIds[i-1])))throw new Error("GPT発行対象と出題順序が一致しません。");
     const csvIds=words.map(w=>String(w.id));
-    const content=words.map(w=>[String(w.id),String(w.word??""),String(w.meaning??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+    const content=words.map(w=>[String(w.id),String(w.question??""),String(w.answer??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
     return normalizeGptIssueContext({version:1,sortMode,startId:String(startId),startIndex,pageSize:Number(pageSize),excludeStreak:!!excludeStreak,
       masteryThreshold:[2,3,4,5].includes(Number(masteryThreshold))?Number(masteryThreshold):3,wordCount:words.length,
       csvOrderFingerprint:fingerprint(csvIds),orderFingerprint:fingerprint(order.map(w=>String(w.id))),contentFingerprint:fingerprint(content),
@@ -185,7 +189,7 @@
     if(!Array.isArray(currentWords)||currentWords.length!==context.wordCount){out.reason="dataset-changed";return out}
     const csvIds=currentWords.map(w=>String(w?.id));if(csvIds.some(id=>id==="undefined"||id==="null")||new Set(csvIds).size!==csvIds.length){out.reason="invalid-dataset";return out}
     if(fingerprint(csvIds)!==context.csvOrderFingerprint){out.reason="csv-order-changed";return out}
-    const content=currentWords.map(w=>[String(w.id),String(w.word??""),String(w.meaning??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+    const content=currentWords.map(w=>[String(w.id),String(w.question??""),String(w.answer??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
     if(fingerprint(content)!==context.contentFingerprint){out.reason="content-changed";return out}
     const order=orderedWords(currentWords,context.sortMode,currentView?.randomIds||[]);if(!order){out.reason="invalid-order";return out}
     if(fingerprint(order.map(w=>String(w.id)))!==context.orderFingerprint){out.reason="order-changed";return out}
@@ -351,12 +355,21 @@
     return {pageIndex:newIndex,targetChanged:oldIds.length!==newIds.length||oldIds.some((id,i)=>id!==newIds[i])};
   }
   function parseCsv(text) {
-    const rows=[];let row=[],field="",quote=false;
+    if(typeof text!=="string")throw new Error("CSVの内容を読み取れません。");
+    text=text.replace(/^\uFEFF/,"");
+    const rows=[];let row=[],field="",quote=false,closedQuote=false;
     for(let i=0;i<text.length;i++) {
       const c=text[i],n=text[i+1];
-      if(quote){if(c==='"'&&n==='"'){field+='"';i++;}else if(c==='"')quote=false;else field+=c;}
-      else if(c==='"')quote=true;else if(c===","){row.push(field);field="";}else if(c==="\n"){row.push(field);rows.push(row);row=[];field="";}else if(c!=="\r")field+=c;
+      if(quote){if(c==='"'&&n==='"'){field+='"';i++;}else if(c==='"'){quote=false;closedQuote=true}else field+=c;}
+      else if(c==='"'){if(field!=="")throw new Error("CSVの引用符の位置が不正です。");quote=true;closedQuote=false;}
+      else if(c===","){row.push(field);field="";closedQuote=false;}
+      else if(c==="\n"){row.push(field);rows.push(row);row=[];field="";closedQuote=false;}
+      else if(c!=="\r"){
+        if(closedQuote&&c!==" "&&c!=="\t")throw new Error("CSVの閉じ引用符の後に不正な文字があります。");
+        field+=c;
+      }
     }
+    if(quote)throw new Error("CSVの引用符が閉じられていません。");
     row.push(field);rows.push(row);
     return rows.filter(r=>r.some(v=>v.trim()!==""));
   }
@@ -364,14 +377,21 @@
     const rows=parseCsv(text);
     if(rows.length<2)throw new Error("CSVにデータ行がありません。");
     const header=rows[0].map(s=>s.trim().toLowerCase());
-    const idI=header.indexOf("id"),wordI=header.indexOf("word"),meaningI=header.indexOf("meaning");
-    if(idI<0||wordI<0||meaningI<0)throw new Error("ヘッダーは id,word,meaning が必要です。");
+    if(new Set(header).size!==header.length)throw new Error("CSVヘッダーに重複した列名があります。");
+    const generic=header.includes("question")||header.includes("answer");
+    const required=generic?["id","question","answer"]:["id","word","meaning"];
+    if(required.some(name=>!header.includes(name))||(generic&&(header.includes("word")||header.includes("meaning"))))
+      throw new Error("ヘッダーは id,question,answer（explanationは任意）または id,word,meaning が必要です。");
+    const index=Object.fromEntries(required.map(name=>[name,header.indexOf(name)]));
+    const explanationI=header.indexOf("explanation");
     const seen=new Set();
     return rows.slice(1).map((r,idx)=>{
-      const id=(r[idI]??"").trim(),word=(r[wordI]??"").trim(),meaning=(r[meaningI]??"").trim();
-      if(!id||!word)throw new Error(`${idx+2}行目: id と word は必須です。`);
+      if(r.length>header.length)throw new Error(`${idx+2}行目: ヘッダーより列数が多くなっています。`);
+      const id=(r[index.id]??"").trim(),question=(r[index.question??index.word]??"").trim(),answer=(r[index.answer??index.meaning]??"").trim();
+      const explanation=explanationI<0?"":(r[explanationI]??"").trim();
+      if(!id||!question||(generic&&!answer))throw new Error(`${idx+2}行目: id、question、answer は必須です。`);
       if(seen.has(id))throw new Error(`id が重複しています: ${id}`);
-      seen.add(id);return{id,word,meaning};
+      seen.add(id);return{id,question,answer,explanation};
     });
   }
   function normalizeState(raw) {
@@ -585,9 +605,9 @@
       "resultはcorrect、wrong、uncertain、skippedのみ。incorrectやunknownなどは禁止です。",
       "resultsのIDはこのURLで渡された単語だけにし、重複させないでください。"
     ].join(" ");
-    return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
+    return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,question,answer})=>({id:String(id),word:question??"",meaning:answer??""})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

@@ -175,7 +175,7 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.doesNotMatch(html,/recentThree|className="streak"|\.streak\{/);
 });
 test('normal order keeps fixed ranges and original numbering with filtered gaps', () => {
-  const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:''}));
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:''}));
   const state={'3':{studyCount:1,correctCount:1,currentStreak:3},'5':{studyCount:1,correctCount:1,currentStreak:3},'8':{studyCount:1,correctCount:1,currentStreak:3}};
   const model=C.buildPageModel(words,state,{pageSize:10,excludeStreak:true,masteryThreshold:3});
   assert.equal(model.pages.length,1);
@@ -291,8 +291,8 @@ test('random navigation UI is separate from normal tabs and routes actions throu
 test('study screen groups controls, exposes accessible header icons, and places actions after the list', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<header class="app-header">[\s\S]*?<h1 class="app-title">Word List Study<\/h1>[\s\S]*?id="openSettings"[^>]*aria-label="設定"[^>]*>[\s\S]*?id="openGpt"[^>]*aria-label="GPT学習"/);
-  assert.match(html,/<dialog id="settingsPanel"[\s\S]*?CSV形式: <code>id,word,meaning<\/code>[\s\S]*?<\/dialog>/);
-  assert.match(html,/<section class="settings-section" aria-labelledby="learningSettingsTitle">[\s\S]*?1ページの表示語数[\s\S]*?id="defaultAnswer"[\s\S]*?id="masteryThreshold"[\s\S]*?<\/section>/);
+  assert.match(html,/<dialog id="settingsPanel"[\s\S]*?CSV形式: <code>id,question,answer,explanation<\/code>[\s\S]*?<\/dialog>/);
+  assert.match(html,/<section class="settings-section" aria-labelledby="learningSettingsTitle">[\s\S]*?1ページの表示問題数[\s\S]*?id="defaultAnswer"[\s\S]*?id="masteryThreshold"[\s\S]*?<\/section>/);
   assert.match(html,/<section class="settings-section" aria-labelledby="csvSettingsTitle">[\s\S]*?id="csvFile"[\s\S]*?<\/section>/);
   assert.match(html,/<section class="settings-section" aria-labelledby="dataSettingsTitle">[\s\S]*?id="resetSettings"[\s\S]*?id="clearData"[\s\S]*?設定の初期化では学習履歴は消去されません[\s\S]*?<\/section>/);
   assert.match(html,/id="closeSettings" class="modal-close"[^>]*aria-label="設定を閉じる"[^>]*>×/);
@@ -324,7 +324,7 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.doesNotMatch(html,/id="resetCurtain"|function resetCurtain\(|els\.resetCurtain/);
   assert.doesNotMatch(html,/CSV登録順を.*固定範囲に分けてからフィルタします/);
   assert.match(html,/通常順ではCSV登録順の固定範囲をタブに分け/);
-  assert.match(html,/page\.startIndex\+1\}–\$\{page\.endIndex\} \/ 全\$\{page\.total\}語\$\{filtered\}/);
+  assert.match(html,/page\.startIndex\+1\}–\$\{page\.endIndex\} \/ 全\$\{page\.total\}問\$\{filtered\}/);
   assert.match(html,/page\.start\}–\$\{page\.end\} · 残\$\{page\.entries\.length\}/);
   assert.match(html,/els\.curtainHandle\.addEventListener\("pointerdown"/);
   assert.match(html,/els\.curtainHandle\.addEventListener\("pointermove"/);
@@ -336,8 +336,10 @@ test('home and study screen switching preserves the active study session without
   assert.match(html,/<section id="homeScreen"[^>]*hidden>/);
   assert.match(html,/#homeScreen\[hidden\],#studyScreen\[hidden\]\{display:none!important\}/);
   assert.match(html,/#homeRegistrationCard\[hidden\],#homeStudyCard\[hidden\]\{display:none!important\}/);
-  assert.match(html,/<div id="homeRegistrationCard" class="home-panel" hidden>[\s\S]*?＋ 学習CSVを登録[\s\S]*?id="homeCsvFile"[\s\S]*?<\/div>/);
-  assert.match(html,/<div id="homeStudyCard" class="home-panel" hidden>[\s\S]*?<button id="startStudy"[^>]*>学習する<\/button>[\s\S]*?<\/div>/);
+  const registrationCard=html.match(/<div id="homeRegistrationCard"[\s\S]*?(?=\n    <div id="homeStudyCard")/)?.[0]||'';
+  assert.match(registrationCard,/class="home-panel registration" hidden/);
+  assert.match(registrationCard,/学習データを登録[\s\S]*?CSVを選択[\s\S]*?id="homeCsvFile"/);
+  assert.match(html,/<div id="homeStudyCard" class="home-panel study" hidden>[\s\S]*?id="homeListTitle"[\s\S]*?id="editListTitle"[\s\S]*?id="homeTitleEditor"[\s\S]*?id="homeQuestionCount"[\s\S]*?<button id="startStudy"[^>]*>学習する<\/button>[\s\S]*?<\/div>/);
   assert.match(html,/<div id="studyScreen">[\s\S]*?<header class="app-header">[\s\S]*?<main class="study-shell">[\s\S]*?<dialog id="gptPanel"/);
   assert.match(html,/<button id="goHome"[^>]*>ホーム<\/button>/);
   assert.match(html,/function showHome\(\)\{([\s\S]*?)\n  \}/);
@@ -374,16 +376,16 @@ test('home and study screen switching preserves the active study session without
 });
 test('home CSV registration reuses the existing validated import and reports failure without routing to study', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  const importCsv=html.match(/function importCsv\(text\)\{([\s\S]*?)\n  \}/)?.[1];
+  const importCsv=html.match(/function importCsv\(text,fileName=""\)\{([\s\S]*?)\n  \}/)?.[1];
   assert.ok(importCsv);
   assert.match(importCsv,/StudyCore\.parseWordCsv\(text\)/);
-  assert.match(importCsv,/return requestViewTransition\(nextView,\{nextWords,nextState,nextRandomIds,writeWords:true,finalize:true\}\)/);
-  assert.match(html,/els\.homeCsvFile\.addEventListener\("change",async e=>\{[\s\S]*?importCsv\(await file\.text\(\)\)[\s\S]*?CSVを保存できませんでした。既存の学習データは変更されていません。[\s\S]*?e\.target\.value=""/);
+  assert.match(importCsv,/return requestViewTransition\(nextView,\{nextWords,nextState,nextRandomIds,writeWords:true,writeListTitle:!oldIds\.length,nextListTitle,finalize:true\}\)/);
+  assert.match(html,/els\.homeCsvFile\.addEventListener\("change",async e=>\{[\s\S]*?importCsv\(await file\.text\(\),file\.name\)[\s\S]*?CSVを保存できませんでした。既存の学習データは変更されていません。[\s\S]*?e\.target\.value=""/);
   const homeHandler=html.match(/els\.homeCsvFile\.addEventListener\("change",async e=>\{([\s\S]*?)\n  \}\);/)?.[1];
   assert.ok(homeHandler);
-  assert.ok(homeHandler.indexOf('if(words.length)')<homeHandler.indexOf('importCsv(await file.text())'));
+  assert.ok(homeHandler.indexOf('if(words.length)')<homeHandler.indexOf('importCsv(await file.text(),file.name)'));
   assert.match(homeHandler,/登録済みCSVの差し替えは、学習画面の設定から行ってください。/);
-  assert.match(html,/els\.csvFile\.addEventListener\("change",async e=>\{[\s\S]*?importCsv\(await file\.text\(\)\)/);
+  assert.match(html,/els\.csvFile\.addEventListener\("change",async e=>\{[\s\S]*?importCsv\(await file\.text\(\),file\.name\)/);
   assert.doesNotMatch(homeHandler,/showStudy\(/);
   const requestViewTransition=html.match(/function requestViewTransition\(view,options\)\{([\s\S]*?)\n  \}/)?.[1];
   assert.ok(requestViewTransition);
@@ -391,7 +393,7 @@ test('home CSV registration reuses the existing validated import and reports fai
   assert.match(requestViewTransition,/catch\(error\)\{alert\([\s\S]*?\);return false\}/);
   assert.equal((requestViewTransition.match(/return true/g)||[]).length,1);
   assert.equal((requestViewTransition.match(/return false/g)||[]).length,1);
-  assert.match(html,/return requestViewTransition\(nextView,\{nextWords,nextState,nextRandomIds,writeWords:true,finalize:true\}\)/);
+  assert.match(html,/writeListTitle:!oldIds\.length/);
 });
 test('randomStart defaults, clamps invalid values, and round-trips independently from the normal page index', () => {
   assert.deepEqual([C.normalizeRandomStart(undefined,80),C.normalizeRandomStart(-4,80),C.normalizeRandomStart(2.9,80),C.normalizeRandomStart('bad',80),C.normalizeRandomStart(100,80)],[0,0,2,0,79]);
@@ -428,7 +430,7 @@ test('preferences persist GPT word count with existing settings and normalize ol
   for(const size of [10,20,50,100])assert.equal(C.normalizePreferences({pageSize:size},{}).pageSize,size);
 });
 test('GPT selector walks normal and saved random order from the displayed page start across page boundaries', () => {
-  const words=Array.from({length:12},(_,index)=>({id:String(index+1),word:`word${index+1}`}));
+  const words=Array.from({length:12},(_,index)=>({id:String(index+1),question:`word${index+1}`}));
   assert.deepEqual(C.selectGptWords(words,{}, {startId:'9',count:5}).map(w=>w.id),['9','10','11','12']);
   const randomIds=['4','9','2','8','1','3','7','6','5','10','11','12'];
   const selected=C.selectGptWords(words,{}, {sortMode:'random',randomIds,startId:'8',count:5});
@@ -465,13 +467,138 @@ test('display setting changes only end the current target when its word set chan
   const activeAfter=C.buildPageModel(long,{'1':{currentStreak:3}},{pageSize:10,excludeStreak:true,masteryThreshold:4});
   assert.equal(C.displayChangePlan(activeBefore,activeAfter,0).targetChanged,true);
 });
-test('CSV replacement keeps id-keyed history available and validates the existing format', () => {
+test('CSV replacement keeps id-keyed history available and accepts the legacy format', () => {
   const state={x:{studyCount:7,correctCount:5,currentStreak:2}};
   const imported=C.parseWordCsv('id,word,meaning\nx,new word,new meaning\ny,another,other');
-  assert.deepEqual(imported,[{id:'x',word:'new word',meaning:'new meaning'},{id:'y',word:'another',meaning:'other'}]);
+  assert.deepEqual(imported,[{id:'x',question:'new word',answer:'new meaning',explanation:''},{id:'y',question:'another',answer:'other',explanation:''}]);
   assert.equal(state.x.studyCount,7);assert.equal(state.x.correctCount,5);
   assert.throws(()=>C.parseWordCsv('id,word\nx,missing meaning'));
   assert.throws(()=>C.parseWordCsv('id,word,meaning\nx,one,a\nx,two,b'));
+});
+
+test('generic CSV supports optional explanation, quoting, Unicode, and multiline fields',()=>{
+  const rows=C.parseWordCsv('id,question,answer,explanation\n1,apple,りんご,果物\n2,"HTTPとは？","Hypertext, Transfer Protocol","Web通信で\n使うプロトコル"\n3,CPU,Central Processing Unit,');
+  assert.deepEqual(rows,[
+    {id:'1',question:'apple',answer:'りんご',explanation:'果物'},
+    {id:'2',question:'HTTPとは？',answer:'Hypertext, Transfer Protocol',explanation:'Web通信で\n使うプロトコル'},
+    {id:'3',question:'CPU',answer:'Central Processing Unit',explanation:''}
+  ]);
+  assert.deepEqual(C.parseWordCsv('id,question,answer\na,Q,A'),[{id:'a',question:'Q',answer:'A',explanation:''}]);
+  assert.deepEqual(C.parseWordCsv('\uFEFFid,answer,question\na,A,Q'),[{id:'a',question:'Q',answer:'A',explanation:''}]);
+});
+
+test('generic CSV rejects missing required values, duplicate IDs or headers, malformed headers, and unclosed quotes',()=>{
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,,A'),/question/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,Q,'),/answer/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,Q,A\n1,Q2,A2'),/重複/);
+  assert.throws(()=>C.parseWordCsv('id,id,question,answer\n1,1,Q,A'),/重複した列名/);
+  assert.throws(()=>C.parseWordCsv('id,question\n1,Q'),/ヘッダー/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,"Q,A'),/引用符/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,ab"cd,A'),/引用符の位置/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,"Q"x,A'),/閉じ引用符/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,Q,A,'),/列数が多く/);
+});
+
+test('CSV parser accepts whitespace after a closing quote and escaped quotes, but rejects malformed quote placement',()=>{
+  assert.deepEqual(C.parseWordCsv('id,question,answer,explanation\r\n1,"  Q, ""quoted""" \t,A,"line 1\r\nline 2"'),[
+    {id:'1',question:'Q, "quoted"',answer:'A',explanation:'line 1\r\nline 2'}
+  ]);
+  // Space and tab after a closing quote are accepted as insignificant field padding.
+  assert.deepEqual(C.parseWordCsv('id,question,answer\n1," Q " \t," A "'),[{id:'1',question:'Q',answer:'A',explanation:''}]);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,"Q"x,A'),/閉じ引用符/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,ab"cd,A'),/引用符の位置/);
+  assert.throws(()=>C.parseWordCsv('id,question,answer\n1,"Q,A'),/引用符が閉じられていません/);
+});
+
+test('legacy saved rows normalize to the canonical model without changing ID-keyed state',()=>{
+  const legacy=[{id:1,word:'apple',meaning:'りんご'}];
+  const canonical=C.normalizeWords(legacy);
+  assert.deepEqual(canonical,[{id:'1',question:'apple',answer:'りんご',explanation:''}]);
+  assert.deepEqual(C.normalizeWords(JSON.parse(JSON.stringify(canonical))),canonical);
+  const next=C.studyOrderIdentity(canonical,'normal',[]);
+  assert.equal(next.contentFingerprint,C.studyOrderIdentity([{id:'1',question:'apple',answer:'りんご',explanation:'別解説'}]).contentFingerprint);
+});
+
+test('explanation-only edits do not invalidate study content identity',()=>{
+  const before=[{id:'1',question:'Q',answer:'A',explanation:'old'}];
+  const after=[{...before[0],explanation:'new'}];
+  assert.equal(C.studyOrderIdentity(before).contentFingerprint,C.studyOrderIdentity(after).contentFingerprint);
+});
+
+test('home cards, title persistence, filename title, and import transaction are wired to the generic model',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const registrationCard=html.match(/<div id="homeRegistrationCard"[\s\S]*?(?=\n    <div id="homeStudyCard")/)?.[0]||'';
+  assert.match(registrationCard,/class="home-panel registration" hidden/);
+  assert.match(registrationCard,/home-registration-heading[\s\S]*?学習データを登録[\s\S]*?CSVを選択[\s\S]*?id="homeCsvFile"/);
+  assert.match(html,/<div id="homeStudyCard" class="home-panel study" hidden>[\s\S]*?id="homeListTitle"[\s\S]*?id="editListTitle"[\s\S]*?id="homeTitleEditor"[\s\S]*?id="homeQuestionCount"[\s\S]*?学習する/);
+  assert.match(html,/#homeTitleEditor\[hidden\],#editListTitle\[hidden\]\{display:none!important\}/);
+  assert.match(html,/\.home-panel\.study\{grid-template-columns:minmax\(0,1fr\) auto/);
+  assert.match(html,/\.home-start-study\{grid-column:2;grid-row:1 \/ span 2;justify-self:end/);
+  assert.match(html,/\.home-panel\.registration\{grid-template-columns:minmax\(0,1fr\) auto/);
+  assert.match(html,/function titleFromFileName\(fileName\)[\s\S]*?replace\(\/\\\.csv\$\/i/);
+  assert.match(html,/STORAGE_LIST_TITLE="wordlist\.listTitle\.v1"/);
+  assert.match(html,/let words=StudyCore\.normalizeWords\(storedWords\)/);
+  assert.match(html,/if\(wordsNeedMigration\)try\{localStorage\.setItem\(STORAGE_WORDS,JSON\.stringify\(words\)\)\}catch/);
+  assert.match(html,/writeListTitle:!oldIds\.length,nextListTitle,finalize:true/);
+  assert.match(html,/if\(writeListTitle\)writes\.push\(\{key:STORAGE_LIST_TITLE/);
+  assert.match(html,/els\.editListTitle\.addEventListener\("click",editListTitle\)/);
+  assert.match(html,/els\.saveListTitle\.addEventListener\("click",saveListTitleEdit\)/);
+  assert.match(html,/els\.cancelListTitle\.addEventListener\("click",cancelListTitleEdit\)/);
+  assert.match(html,/event\.key==="Enter"\)\{event\.preventDefault\(\);saveListTitleEdit\(\)\}/);
+  assert.match(html,/event\.key==="Escape"\)\{event\.preventDefault\(\);cancelListTitleEdit\(\)\}/);
+  assert.match(html,/els\.homeTitleInput\.focus\(\);els\.homeTitleInput\.select\(\)/);
+  assert.match(html,/const next=els\.homeTitleInput\.value\.trim\(\)/);
+  assert.match(html,/if\(!next\)\{els\.homeStatus\.textContent="タイトルは空欄にできません/);
+  assert.match(html,/catch\(error\)\{cancelListTitleEdit\(\);els\.homeStatus\.textContent=`タイトルを保存できませんでした/);
+  assert.match(html,/els\.homeListTitle\.textContent=listTitle\|\|"学習データ"/);
+  assert.match(html,/textContent=w\.question/);assert.match(html,/textContent=w\.answer/);
+  assert.match(html,/localStorage\.removeItem\(key\)/);
+  assert.match(html,/STORAGE_PREFERENCES,STORAGE_LIST_TITLE/);
+});
+test('title editor functions save, cancel, reject blanks, and restore the prior title on storage failure',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const functions=html.match(/function setTitleEditing\(editing\)\{[\s\S]*?(?=\n  function showHome\()/)?.[0];
+  assert.ok(functions);
+  function harness(throws=false){
+    const writes=[];
+    const localStorage={setItem:(key,value)=>{if(throws)throw new Error('quota');writes.push([key,value])}};
+    const els={
+      homeListTitle:{hidden:false,textContent:'Initial'},editListTitle:{hidden:false},homeTitleEditor:{hidden:true},
+      homeTitleInput:{hidden:false,value:'',focused:false,selected:false,focus(){this.focused=true},select(){this.selected=true}},
+      homeStatus:{textContent:'',className:''}
+    };
+    const execute=new Function('els','localStorage','writes',`const STORAGE_LIST_TITLE='wordlist.listTitle.v1';let listTitle='Initial';function updateHome(){els.homeListTitle.textContent=listTitle||'学習データ'};${functions};return{begin:editListTitle,save:saveListTitleEdit,cancel:cancelListTitleEdit,getTitle:()=>listTitle}`);
+    return{...execute(els,localStorage,writes),els,writes};
+  }
+  const saved=harness();saved.begin();
+  assert.deepEqual([saved.els.homeListTitle.hidden,saved.els.editListTitle.hidden,saved.els.homeTitleEditor.hidden,saved.els.homeTitleInput.focused,saved.els.homeTitleInput.selected],[true,true,false,true,true]);
+  saved.els.homeTitleInput.value='  Updated title  ';assert.equal(saved.save(),true);
+  assert.equal(saved.getTitle(),'Updated title');assert.deepEqual(saved.writes,[['wordlist.listTitle.v1','"Updated title"']]);
+  assert.equal(saved.els.homeListTitle.textContent,'Updated title');assert.equal(saved.els.homeTitleEditor.hidden,true);
+  const cancelled=harness();cancelled.begin();cancelled.els.homeTitleInput.value='not saved';cancelled.cancel();
+  assert.equal(cancelled.getTitle(),'Initial');assert.equal(cancelled.writes.length,0);assert.equal(cancelled.els.homeTitleInput.value,'Initial');
+  const blank=harness();blank.begin();blank.els.homeTitleInput.value='  ';assert.equal(blank.save(),false);
+  assert.equal(blank.getTitle(),'Initial');assert.equal(blank.writes.length,0);assert.equal(blank.els.homeTitleEditor.hidden,false);
+  const failed=harness(true);failed.begin();failed.els.homeTitleInput.value='Changed';assert.equal(failed.save(),false);
+  assert.equal(failed.getTitle(),'Initial');assert.equal(failed.els.homeListTitle.textContent,'Initial');assert.equal(failed.els.homeTitleEditor.hidden,true);
+  assert.match(failed.els.homeStatus.textContent,/保存できませんでした.*quota/);
+});
+test('CSV import function normalizes new and legacy rows, derives only first-import titles, and rejects invalid data atomically',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const source=html.match(/function importCsv\(text,fileName=""\)\{[\s\S]*?\n  \}/)?.[0];assert.ok(source);
+  function harness(initialWords=[],initialTitle=''){
+    const execute=new Function('StudyCore','initialWords','initialTitle',`let words=initialWords,listTitle=initialTitle,state={},randomIds=[],sortMode='normal',randomStart=0,transitionResult=true,captured=null;const defaultAnswer='wrong';function sameIdSet(a,b){return a.length===b.length&&a.every(id=>b.includes(id))}function currentView(){return{filter:'all',excludeStreak:false,pageIndex:2,sortMode,randomStart}}function normalizeState(raw){return StudyCore.normalizeState(raw)}function defaultState(){return StudyCore.defaultState()}function titleFromFileName(name){return String(name||'').split(/[\\\\/]/).pop().replace(/\\.csv$/i,'').trim()||'学習データ'}function requestViewTransition(view,options){captured={view,options};return transitionResult}${source};return{run:(text,name)=>importCsv(text,name),get:()=>({words,listTitle,captured,state}),setResult:value=>transitionResult=value}`);
+    return execute(C,initialWords,initialTitle);
+  }
+  const generic=harness();assert.equal(generic.run('id,question,answer,explanation\n1,Q,A,Note','review-list.csv'),true);
+  assert.deepEqual(generic.get().captured.options.nextWords,[{id:'1',question:'Q',answer:'A',explanation:'Note'}]);
+  assert.equal(generic.get().captured.options.nextListTitle,'review-list');assert.equal(generic.get().captured.options.writeListTitle,true);
+  const legacy=harness();assert.equal(legacy.run('id,word,meaning\na,cat,猫','legacy.csv'),true);
+  assert.deepEqual(legacy.get().captured.options.nextWords,[{id:'a',question:'cat',answer:'猫',explanation:''}]);
+  const replacement=harness([{id:'1',question:'old',answer:'old answer',explanation:''}],'Custom name');
+  replacement.run('id,question,answer\n1,new,new answer','replacement.csv');
+  assert.equal(replacement.get().captured.options.writeListTitle,false);assert.equal(replacement.get().captured.options.nextListTitle,'Custom name');
+  const invalid=harness();assert.throws(()=>invalid.run('id,question,answer\n1,,missing','bad.csv'),/question/);assert.equal(invalid.get().captured,null);assert.deepEqual(invalid.get().words,[]);
 });
 test('cover passage increments study count only and reversal cannot increment twice', () => {
   const state={a:C.defaultState(),b:C.defaultState()};
@@ -892,8 +1019,8 @@ test('invalid GPT JSON batches are atomic, including malformed JSON at caller bo
 });
 
 test('GPT payload carries a JSON-only result contract and string word IDs', () => {
-  const payload=C.makeGptPayload('issued-id',[{id:17,word:'word',meaning:'意味'}]);
-  assert.equal(payload.version,1);assert.equal(payload.sessionId,'issued-id');
+  const payload=C.makeGptPayload('issued-id',[{id:17,question:'word',answer:'意味'}]);
+  assert.equal(payload.version,1);assert.equal(payload.sessionId,'issued-id');assert.equal(payload.mode,'en-to-ja');
   assert.deepEqual(payload.words,[{id:'17',word:'word',meaning:'意味'}]);
   assert.match(payload.outputInstructions,/JSONのみ/);assert.match(payload.outputInstructions,/correct、wrong、uncertain、skipped/);
   assert.match(payload.outputInstructions,/重複させない/);
@@ -944,7 +1071,7 @@ test('registered ID replay validates current IDs/results and retains one marker 
 });
 
 test('GPT issue context survives save/load while legacy records keep their old shape',()=>{
-  const words=Array.from({length:35},(_,i)=>({id:String(i+1),word:`word${i+1}`,meaning:`意味${i+1}`}));
+  const words=Array.from({length:35},(_,i)=>({id:String(i+1),question:`word${i+1}`,answer:`意味${i+1}`}));
   const ids=['11','12','13'],context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids});
   const store=memoryStorage();C.saveCore(store,'ledger',{state:{},activeSession:null,gptSessions:{fresh:{createdAt:'t',ids,context},legacy:{createdAt:'old',ids:['a']}}});
   const loaded=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
@@ -958,7 +1085,7 @@ test('GPT issue context survives save/load while legacy records keep their old s
 });
 
 test('GPT jump uses last practical result in issue order and computes normal page across boundary',()=>{
-  const words=Array.from({length:35},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:35},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const ids=['9','10','11','12'],context=C.createGptIssueContext(words,{startId:'9',pageSize:10,ids});
   const record={ids,context};
   const result=C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',pageIndex:0,randomStart:0,excludeStreak:false,masteryThreshold:3},10,[]),[
@@ -970,7 +1097,7 @@ test('GPT jump uses last practical result in issue order and computes normal pag
 });
 
 test('GPT jump preserves issuance order across a display mode switch and reports mode restore requirement',()=>{
-  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const randomIds=['4','2','1',...words.map(w=>w.id).filter(id=>!['4','2','1'].includes(id))];
   const ids=['2','1','5'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'2',pageSize:10,ids});
   const result=C.evaluateGptJump({ids,context},words,jumpView({filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0},10,randomIds),[
@@ -988,12 +1115,12 @@ test('GPT jump preserves issuance order across a display mode switch and reports
 });
 
 test('GPT jump suppresses changed CSV, content, random order, and missing legacy context',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const randomIds=words.map(w=>w.id),ids=['1','2'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'1',pageSize:10,ids});
   const record={ids,context},view=jumpView({filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0},10,randomIds);
   const results=[{id:'2',result:'correct'}];
   assert.equal(C.evaluateGptJump(record,words.slice().reverse(),view,results).reason,'csv-order-changed');
-  const edited=words.map(w=>w.id==='3'?{...w,meaning:'changed'}:w);
+  const edited=words.map(w=>w.id==='3'?{...w,answer:'changed'}:w);
   assert.equal(C.evaluateGptJump(record,edited,view,results).reason,'content-changed');
   const reshuffled=[...randomIds].reverse();
   assert.equal(C.evaluateGptJump(record,words,{...view,randomIds:reshuffled},results).reason,'order-changed');
@@ -1005,14 +1132,14 @@ test('GPT jump suppresses changed CSV, content, random order, and missing legacy
 });
 
 test('GPT jump rejects filtered targets and recalculates candidate for current page size',()=>{
-  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const ids=['11'],context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={ids,context},results=[{id:'11',result:'correct'}];
   assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all'},20,[]),results).candidatePosition.pageIndex,0);
   assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',excludeStreak:true,masteryThreshold:3},10,[]),results,{'11':{currentStreak:3}}).reason,'target-filtered');
 });
 
 test('GPT integration finalizes the departed normal page, keeps destination results provisional, and uses issue order',()=>{
-  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const ids=words.slice(7,17).map(w=>w.id),context=C.createGptIssueContext(words,{startId:'8',pageSize:10,ids});
   const record={createdAt:'t',ids,context},sessions={s:record},registered=[];
   const state={};for(const id of ['2','9','10'])state[id]={...C.defaultState(),studyCount:1};
@@ -1033,7 +1160,7 @@ test('GPT integration finalizes the departed normal page, keeps destination resu
 });
 
 test('GPT landing targetIds reflect mastery exclusions created while finalizing the departed session',()=>{
-  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const randomIds=['11','12','13','14','15','16','17','18','19','20','1','22',...words.map(w=>w.id).filter(id=>!['11','12','13','14','15','16','17','18','19','20','1','22'].includes(id))];
   const ids=['1','22'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'1',pageSize:10,excludeStreak:true,masteryThreshold:2,ids});
   const record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:true,masteryThreshold:2,pageIndex:0,randomStart:0};
@@ -1069,7 +1196,7 @@ test('GPT landing targetIds reflect mastery exclusions created while finalizing 
 });
 
 test('GPT integration merges destination results into the same active page without disturbing existing answers',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),ids=['1','2','3','4','5'];
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['1','2','3','4','5'];
   const context=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids}),record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const state={'2':{...C.defaultState(),studyCount:1}},active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:123,revealY:77,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:[],pendingId:'2'};
   const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'5',result:'correct'},{id:'2',result:'wrong'},{id:'3',result:'uncertain'}]},
@@ -1088,7 +1215,7 @@ test('GPT integration merges destination results into the same active page witho
 });
 
 test('GPT integration does not treat an already finalized active-session result as a pending collision',()=>{
-  const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),ids=['2'];
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['2'];
   const context=C.createGptIssueContext(words,{startId:'2',pageSize:10,ids}),record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:['2'],pendingId:null};
   const state={'2':{...C.defaultState(),studyCount:1,correctCount:1,recentResults:[true],currentStreak:1}};
@@ -1099,7 +1226,7 @@ test('GPT integration does not treat an already finalized active-session result 
 });
 
 test('random GPT integration crosses fixed page boundaries and preserves skipped or missing outcomes',()=>{
-  const words=Array.from({length:25},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:25},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const randomIds=['4','2','1',...words.map(w=>w.id).filter(id=>!['4','2','1'].includes(id))],ids=randomIds.slice(8,16);
   const context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:ids[0],pageSize:10,ids}),record={createdAt:'t',ids,context};
   const view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
@@ -1113,7 +1240,7 @@ test('random GPT integration crosses fixed page boundaries and preserves skipped
 });
 
 test('GPT integration formally records results when a reshuffle makes the saved jump position unsafe',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),issuedOrder=words.map(w=>w.id),ids=['11','12'];
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),issuedOrder=words.map(w=>w.id),ids=['11','12'];
   const context=C.createGptIssueContext(words,{sortMode:'random',randomIds:issuedOrder,startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context};
   const currentOrder=[...issuedOrder].reverse(),view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:9,targetIds:currentOrder.slice(0,10),viewState:{...view,pageSize:10},studiedIds:['20'],checkedIds:['20'],finalizedIds:[],pendingId:null};
@@ -1126,7 +1253,7 @@ test('GPT integration formally records results when a reshuffle makes the saved 
 });
 
 test('GPT integration keeps active session on no-jump, legacy, zero, skipped-only, and all-overlap outcomes',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:12,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:['1'],finalizedIds:[],pendingId:null};
   const state={'1':{...C.defaultState(),studyCount:1}};
   const cases=[
@@ -1145,7 +1272,7 @@ test('GPT integration keeps active session on no-jump, legacy, zero, skipped-onl
 });
 
 test('GPT replay is formal-only and preserves the current unconfirmed study session',()=>{
-  const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:[],finalizedIds:[],pendingId:null};
   const result=C.prepareGptIntegration({version:1,sessionId:'done',results:[{id:'2',result:'correct'}]},
     {sessions:{},registeredIds:['done'],knownIds:words.map(w=>w.id),words,state:{'1':{...C.defaultState(),studyCount:1}},activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
@@ -1155,7 +1282,7 @@ test('GPT replay is formal-only and preserves the current unconfirmed study sess
 });
 
 test('GPT integration draft is immutable and failed persistence leaves stored state intact',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),ids=['11'];
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['11'];
   const context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context},sessions={s:record},state={},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:[],finalizedIds:[],pendingId:null};
   const before=JSON.stringify({sessions,state,active});
@@ -1183,7 +1310,7 @@ test('failed first-import snapshot write leaves memory inputs and prior durable 
 });
 
 test('last disclosure tracks the latest newly opened position independently for normal and random order',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),randomIds=[...words].reverse().map(word=>word.id);
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),randomIds=[...words].reverse().map(word=>word.id);
   let progress=C.normalizeStudyProgress();
   progress=C.recordStudyDisclosure(progress,words,'normal',randomIds,'18');
   progress=C.recordStudyDisclosure(progress,words,'random',randomIds,'4');
@@ -1196,7 +1323,7 @@ test('last disclosure tracks the latest newly opened position independently for 
 });
 
 test('last disclosure progress survives core persistence while legacy snapshots remain readable',()=>{
-  const words=Array.from({length:10},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`}));
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const progress=C.recordStudyDisclosure({},words,'normal',[],'7'),store=memoryStorage();
   C.saveCore(store,'ledger',{state:{},gptSessions:{},registeredGptSessionIds:[],activeSession:null,studyProgress:progress});
   assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}).studyProgress,progress);
@@ -1205,7 +1332,7 @@ test('last disclosure progress survives core persistence while legacy snapshots 
 });
 
 test('GPT progress comparison uses the matching issued order and rejects stale identity',()=>{
-  const words=Array.from({length:30},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),randomIds=[...words].reverse().map(word=>word.id);
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),randomIds=[...words].reverse().map(word=>word.id);
   const ids=words.slice(10,13).map(word=>word.id),context=C.createGptIssueContext(words,{sortMode:'normal',startId:ids[0],pageSize:10,ids}),record={ids,context};
   const progress=C.recordStudyDisclosure({},words,'normal',randomIds,'20');
   assert.equal(C.compareStudyProgress(progress,words,'normal',randomIds,record,'12').relation,'ahead');
@@ -1216,15 +1343,15 @@ test('GPT progress comparison uses the matching issued order and rejects stale i
 });
 
 test('preserved current target page survives mastery changes only while dataset and fixed range match',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),view={sortMode:'normal',pageIndex:0,randomStart:0},identity=C.studyOrderIdentity(words,'normal',[]);
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),view={sortMode:'normal',pageIndex:0,randomStart:0},identity=C.studyOrderIdentity(words,'normal',[]);
   const pinned=C.preservedTargetPage(words,[],view,10,['1','2','3'],identity);
   assert.deepEqual(pinned.ids,['1','2','3']);assert.deepEqual(pinned.entries.map(word=>word.displayNumber),[1,2,3]);
-  assert.equal(C.preservedTargetPage(words.map(word=>({...word,meaning:`changed ${word.meaning}`})),[],view,10,['1','2','3'],identity),null);
+  assert.equal(C.preservedTargetPage(words.map(word=>({...word,answer:`changed ${word.answer}`})),[],view,10,['1','2','3'],identity),null);
   assert.equal(C.preservedTargetPage(words,[],{...view,pageIndex:1},10,['1','2','3'],identity),null);
 });
 
 test('formal-only GPT import preserves pending answers and pins the current page when mastery changes',()=>{
-  const words=Array.from({length:20},(_,i)=>({id:String(i+1),word:`w${i+1}`,meaning:`m${i+1}`})),ids=['12','13'];
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['12','13'];
   const context=C.createGptIssueContext(words,{startId:'12',pageSize:10,excludeStreak:true,masteryThreshold:2,ids}),record={ids,context};
   const view={filter:'all',sortMode:'normal',excludeStreak:true,masteryThreshold:2,pageIndex:1,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:10,revealY:32,targetIds:words.slice(10,20).map(word=>word.id),viewState:{...view,pageSize:10},studiedIds:['12'],checkedIds:[],finalizedIds:[],pendingId:'12'};
