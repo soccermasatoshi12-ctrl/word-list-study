@@ -379,7 +379,10 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/\.home-study-heading\{position:relative;display:flex;[^}]*min-height:44px/);
   assert.match(html,/\.home-title-editor\{position:absolute;inset:0/);
   assert.match(html,/\.home-title-editor button\{display:grid;place-items:center;flex:0 0 34px/);
-  assert.match(html,/function orderChangeNeedsConfirmation\(\)\{[\s\S]*hideExplanationPopup\(\);[\s\S]*!StudyCore\.hasPendingStudyResults\(activeSession\)\|\|confirm\("現在の学習結果を確定して、学習順序を切り替えますか？"\)/);
+  assert.match(html,/function pendingStudyTransitionNeedsConfirmation\(message\)\{[\s\S]*hideExplanationPopup\(\);[\s\S]*StudyCore\.approvePendingStudyTransition\(activeSession,\(\)=>confirm\(message\)\)/);
+  assert.match(html,/function orderChangeNeedsConfirmation\(\)\{return pendingStudyTransitionNeedsConfirmation\("現在の学習結果を確定して、学習順序を切り替えますか？"\)\}/);
+  assert.match(html,/excludeStreak\.addEventListener\("change",\(\)=>\{[\s\S]*pendingStudyTransitionNeedsConfirmation\("現在の学習結果を確定して、習得済み除外の設定を切り替えますか？"\)[\s\S]*els\.excludeStreak\.checked=excludeStreak/);
+  assert.match(html,/if\(!restartViewSession\(\{\.\.\.currentView\(\),excludeStreak:els\.excludeStreak\.checked\}\)\)\{[\s\S]*els\.excludeStreak\.checked=excludeStreak/);
   assert.match(html,/normalOrder\.addEventListener\("click",\(\)=>\{if\(sortMode==="normal"\)return;if\(!orderChangeNeedsConfirmation\(\)\)return;/);
   assert.match(html,/randomOrder\.addEventListener\("click",\(\)=>\{[\s\S]*?if\(!orderChangeNeedsConfirmation\(\)\)return;/);
   assert.match(html,/els\.closeSettings\.addEventListener\("click",\(\)=>els\.settingsPanel\.close\(\)\)/);
@@ -508,7 +511,13 @@ test('preferences persist GPT word count with existing settings and normalize ol
   assert.deepEqual(C.normalizePreferences({pageSize:17,masteryThreshold:8,defaultAnswer:'unknown',gptWordCount:25},{excludeStreakN:4}),{pageSize:10,masteryThreshold:4,defaultAnswer:'wrong',gptWordCount:20});
   for(const count of [5,10,20,30,50])assert.equal(C.normalizePreferences({gptWordCount:count},{}).gptWordCount,count);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  assert.match(html,/id="gptWordCount"[\s\S]*?<option value="5">5語<\/option>[\s\S]*?<option value="10">10語<\/option>[\s\S]*?<option value="20">20語<\/option>[\s\S]*?<option value="30">30語<\/option>[\s\S]*?<option value="50">50語<\/option>/);
+  assert.match(html,/id="gptWordCount"[\s\S]*?<option value="5">5問<\/option>[\s\S]*?<option value="10">10問<\/option>[\s\S]*?<option value="20">20問<\/option>[\s\S]*?<option value="30">30問<\/option>[\s\S]*?<option value="50">50問<\/option>/);
+  assert.match(html,/id="gptStartPosition"[\s\S]*?<option value="page">ページの先頭から<\/option><option value="continue">現在の続きから<\/option>/);
+  assert.match(html,/id="gptStartPosition"[^>]*>[\s\S]*?<option value="page">/);
+  assert.match(html,/if\(!current\.length&&!continueFromProgress\)/);
+  assert.match(html,/resolveGptContinuationStart\(words,studyProgress,\{sortMode,randomIds,fallbackStartId:current\[0\]\?\.id\}\)/);
+  assert.match(html,/createGptIssueContext\(words,\{sortMode,randomIds,startId:start\.startId/);
+  assert.match(html,/GPT出題対象の問題がありません/);
   assert.match(html,/gptWordCount:gptCount/);
   assert.match(html,/gptWordCount:nextGptWordCount/);
   assert.match(html,/gptWordCount===20\)return/);
@@ -538,6 +547,35 @@ test('GPT selector skips mastered words to fill, starts at the first visible wor
   assert.deepEqual(C.selectGptWords([],{}, {count:5}),[]);
   assert.throws(()=>C.selectGptWords([{id:'a'},{id:'a'}],{}, {startId:'a'}),/一意/);
   assert.throws(()=>C.selectGptWords(words,{}, {sortMode:'random',randomIds:['1','1'],startId:'1'}),/重複/);
+});
+test('GPT continuation resolves the next ID only for a matching mode and order, with explicit end and fallback',()=>{
+  const words=Array.from({length:12},(_,index)=>({id:String(index+1),question:`q${index+1}`,answer:`a${index+1}`}));
+  const fallbackStartId='4';
+  const normalProgress=C.recordStudyDisclosure({},words,'normal',[], '5');
+  assert.deepEqual(C.resolveGptContinuationStart(words,normalProgress,{sortMode:'normal',fallbackStartId}),{startId:'6',source:'continuation',reason:'ok'});
+  const atEnd=C.recordStudyDisclosure({},words,'normal',[],'12');
+  assert.deepEqual(C.resolveGptContinuationStart(words,atEnd,{sortMode:'normal',fallbackStartId}),{startId:null,source:'continuation',reason:'end'});
+  assert.deepEqual(C.resolveGptContinuationStart(words,{}, {sortMode:'normal',fallbackStartId}),{startId:fallbackStartId,source:'page-start',reason:'invalid-cursor'});
+  assert.deepEqual(C.resolveGptContinuationStart(words,normalProgress,{sortMode:'random',randomIds:words.map(word=>word.id),fallbackStartId}),{startId:fallbackStartId,source:'page-start',reason:'invalid-cursor'});
+  const badCursor={...normalProgress,normal:{...normalProgress.normal,contentFingerprint:'0000000000000000'}};
+  assert.deepEqual(C.resolveGptContinuationStart(words,badCursor,{sortMode:'normal',fallbackStartId}),{startId:fallbackStartId,source:'page-start',reason:'invalid-cursor'});
+  const randomIds=['4','9','2','8','1','3','7','6','5','10','11','12'];
+  const randomProgress=C.recordStudyDisclosure({},words,'random',randomIds,'1');
+  assert.deepEqual(C.resolveGptContinuationStart(words,randomProgress,{sortMode:'random',randomIds,fallbackStartId}),{startId:'3',source:'continuation',reason:'ok'});
+  assert.deepEqual(C.resolveGptContinuationStart(words,randomProgress,{sortMode:'random',randomIds:[...randomIds].reverse(),fallbackStartId}),{startId:fallbackStartId,source:'page-start',reason:'invalid-cursor'});
+});
+test('GPT continuation preserves mastered filtering and count fill in normal and random order',()=>{
+  const words=Array.from({length:10},(_,index)=>({id:String(index+1)}));
+  const state={'6':{currentStreak:3},'7':{currentStreak:3}};
+  const normalStart=C.resolveGptContinuationStart(words,C.recordStudyDisclosure({},words,'normal',[],'5'),{sortMode:'normal',fallbackStartId:'1'});
+  assert.deepEqual(C.selectGptWords(words,state,{startId:normalStart.startId,count:5,excludeStreak:true,masteryThreshold:3}).map(word=>word.id),['8','9','10']);
+  assert.deepEqual(C.selectGptWords(words,state,{startId:normalStart.startId,count:5,excludeStreak:false,masteryThreshold:3}).map(word=>word.id),['6','7','8','9','10']);
+  const randomIds=['4','9','2','8','1','3','7','6','5','10'];
+  const randomStart=C.resolveGptContinuationStart(words,C.recordStudyDisclosure({},words,'random',randomIds,'1'),{sortMode:'random',randomIds,fallbackStartId:'4'});
+  assert.equal(randomStart.startId,'3');
+  assert.deepEqual(C.selectGptWords(words,state,{sortMode:'random',randomIds,startId:randomStart.startId,count:5,excludeStreak:true,masteryThreshold:3}).map(word=>word.id),['3','5','10']);
+  const finalStart=C.resolveGptContinuationStart(words,C.recordStudyDisclosure({},words,'random',randomIds,'10'),{sortMode:'random',randomIds,fallbackStartId:'4'});
+  assert.deepEqual(C.selectGptWords(words,state,{sortMode:'random',randomIds,startId:finalStart.startId,count:5}).map(word=>word.id),[]);
 });
 test('display setting changes only end the current target when its word set changes', () => {
   const short=Array.from({length:8},(_,i)=>({id:String(i+1)}));
@@ -751,6 +789,17 @@ test('pending study result detection follows studied and finalized IDs without m
   const session={studiedIds:['a','b'],finalizedIds:['a']},before=structuredClone(session);
   assert.equal(C.hasPendingStudyResults(session),true);
   assert.deepEqual(session,before);
+});
+test('pending study transition asks once when needed and cancellation leaves session unchanged',()=>{
+  let calls=0;
+  const pending={studiedIds:['a','b'],checkedIds:['b'],finalizedIds:['a']},before=structuredClone(pending);
+  assert.equal(C.approvePendingStudyTransition(pending,()=>{calls++;return false}),false);
+  assert.equal(calls,1);assert.deepEqual(pending,before);
+  assert.equal(C.approvePendingStudyTransition(pending,()=>{calls++;return true}),true);
+  assert.equal(calls,2);
+  assert.equal(C.approvePendingStudyTransition({studiedIds:['a'],finalizedIds:['a']},()=>{calls++;return false}),true);
+  assert.equal(calls,2);
+  assert.equal(C.approvePendingStudyTransition(null,undefined),true);
 });
 test('repeat study finalizes only pending results, reapplies mastery filter, resets and restores a new session', () => {
   const words=['a','b','c'].map(id=>({id}));
@@ -1420,7 +1469,9 @@ test('last disclosure progress survives core persistence while legacy snapshots 
   const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const progress=C.recordStudyDisclosure({},words,'normal',[],'7'),store=memoryStorage();
   C.saveCore(store,'ledger',{state:{},gptSessions:{},registeredGptSessionIds:[],activeSession:null,studyProgress:progress});
-  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}).studyProgress,progress);
+  const restored=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.deepEqual(restored.studyProgress,progress);
+  assert.deepEqual(C.resolveGptContinuationStart(words,restored.studyProgress,{sortMode:'normal',fallbackStartId:'1'}),{startId:'8',source:'continuation',reason:'ok'});
   const legacy=memoryStorage({ledger:JSON.stringify({state:{},gptSessions:{},registeredGptSessionIds:[],activeSession:null})});
   assert.equal(Object.hasOwn(C.loadCore(legacy,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}),'studyProgress'),false);
 });

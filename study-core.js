@@ -73,8 +73,18 @@
     const gptWordCount=[5,10,20,30,50].includes(Number(raw.gptWordCount))?Number(raw.gptWordCount):20;
     return {pageSize,masteryThreshold,defaultAnswer,gptWordCount};
   }
+  function resolveGptContinuationStart(words,studyProgress,{sortMode="normal",randomIds=[],fallbackStartId}={}) {
+    const fallback={startId:fallbackStartId==null?null:String(fallbackStartId),source:"page-start",reason:"invalid-cursor"};
+    const cursor=normalizeStudyProgress(studyProgress)[sortMode],identity=studyOrderIdentity(words,sortMode,randomIds),ordered=orderedWords(words,sortMode,randomIds);
+    if(!cursor||!identity||!ordered||cursor.sortMode!==sortMode||cursor.wordCount!==identity.wordCount||
+      cursor.orderFingerprint!==identity.orderFingerprint||cursor.csvOrderFingerprint!==identity.csvOrderFingerprint||cursor.contentFingerprint!==identity.contentFingerprint)return fallback;
+    const index=ordered.findIndex(word=>String(word.id)===cursor.id);
+    if(index<0)return fallback;
+    if(index>=ordered.length-1)return{startId:null,source:"continuation",reason:"end"};
+    return{startId:String(ordered[index+1].id),source:"continuation",reason:"ok"};
+  }
   function selectGptWords(words,state,{sortMode="normal",randomIds=[],startId,excludeStreak=false,masteryThreshold=3,count=20}={}) {
-    if(!Array.isArray(words)||!Array.isArray(randomIds))throw new TypeError("GPT出題対象の単語順が不正です。");
+    if(!Array.isArray(words)||!Array.isArray(randomIds))throw new TypeError("GPT出題対象の問題順が不正です。");
     const ids=words.map(word=>String(word.id));
     if(ids.some(id=>id==="undefined"||id==="null")||new Set(ids).size!==ids.length)throw new Error("単語IDは一意である必要があります。");
     const validCount=[5,10,20,30,50].includes(Number(count))?Number(count):20;
@@ -162,7 +172,7 @@
   function createGptIssueContext(words,{sortMode="normal",randomIds=[],startId,pageSize=10,excludeStreak=false,masteryThreshold=3,ids=[]}={}) {
     const order=orderedWords(words,sortMode,randomIds);if(!order)throw new Error("GPT発行時の単語順序が不正です。");
     const startIndex=order.findIndex(w=>String(w.id)===String(startId));if(startIndex<0)throw new Error("GPT発行時の開始単語が見つかりません。");
-    if(![10,20,50,100].includes(Number(pageSize)))throw new Error("GPT発行時のページ語数が不正です。");
+    if(![10,20,50,100].includes(Number(pageSize)))throw new Error("GPT発行時のページ問題数が不正です。");
     const positionById=new Map(order.map((w,i)=>[String(w.id),i])),targetIds=ids.map(String);
     if(!targetIds.length||new Set(targetIds).size!==targetIds.length||targetIds.some(id=>!positionById.has(id))||
       targetIds.some((id,i)=>i&&positionById.get(id)<=positionById.get(targetIds[i-1])))throw new Error("GPT発行対象と出題順序が一致しません。");
@@ -437,6 +447,9 @@
     const finalized=new Set((session?.finalizedIds||[]).map(String));
     return (session?.studiedIds||[]).some(id=>!finalized.has(String(id)));
   }
+  function approvePendingStudyTransition(session,confirmFn) {
+    return !hasPendingStudyResults(session)||(typeof confirmFn==="function"&&!!confirmFn());
+  }
   function setSessionAnswer(session,id,checked) {
     if(!session.studiedIds.includes(id)||session.finalizedIds.includes(id)) return false;
     const index=session.checkedIds.indexOf(id);
@@ -617,7 +630,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,question,answer})=>({id:String(id),word:question??"",meaning:answer??""})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
