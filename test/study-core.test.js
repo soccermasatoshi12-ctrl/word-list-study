@@ -324,6 +324,39 @@ test('normal next shares the existing bottom navigation while random navigation 
   assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),sortMode:"random",randomStart:0\},\{nextRandomIds:order,writeRandomOrder:true\}\)/);
   assert.match(html,/途中までの学習結果を確定して、次のページへ進みますか？/);
 });
+test('compact row actions gate shared explanation popup on disclosure without persisting popup state',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/\.word-row\{display:grid;grid-template-columns:minmax\(0,210px\) 28px minmax\(0,1fr\)/);
+  assert.match(html,/\.word-row\{grid-template-columns:minmax\(96px,max\(96px,min\(calc\(\(100% - 54px\)\/2\),calc\(100% - 164px\)\)\)\) 28px minmax\(110px,1fr\);gap:6px;padding:6px\}/);
+  assert.match(html,/\.row-actions\{display:grid;grid-template-rows:28px 20px;align-items:center;justify-items:center;align-self:center;gap:0;width:28px;height:48px/);
+  assert.match(html,/\.row-actions button\{[^}]*width:28px[^}]*background:#f7f8fa/);
+  assert.match(html,/\.answer-toggle\{height:28px;min-height:28px;font-size:1\.05rem\}/);
+  assert.match(html,/\.row-actions \.explanation-button\{width:28px;height:20px;min-height:20px;padding:0;border:0;background:transparent;color:#2563eb/);
+  assert.match(html,/\.explanation-button svg\{display:block;width:16px;height:16px/);
+  assert.match(html,/\.row-actions\{display:grid;grid-template-rows:28px 20px;align-items:center;justify-items:center;align-self:center;gap:0;width:28px;height:48px/);
+  assert.match(html,/<div id="explanationPopup" class="explanation-popup" role="tooltip" aria-hidden="true" hidden><\/div>/);
+  assert.match(html,/const explanation=document\.createElement\("button"\);explanation\.type="button";explanation\.className="explanation-button";explanation\.dataset\.id=String\(w\.id\);explanation\.dataset\.explanation=String\(w\.explanation\|\|""\)/);
+  assert.match(html,/cc\.appendChild\(explanation\)/);
+  assert.match(html,/book\.setAttribute\("viewBox","0 0 24 24"\)/);
+  assert.match(html,/bookPath\.setAttribute\("d","M12 6\.5/);
+  assert.doesNotMatch(html,/textContent="ⓘ"/);
+  assert.match(html,/function rowDisclosed\(id\)\{return\(activeSession\?\.studiedIds\|\|\[\]\)\.some\(value=>String\(value\)===String\(id\)\)\}/);
+  assert.match(html,/function syncExplanationControl\(row,id\)[\s\S]*hasExplanation=!!String\(button\.dataset\.explanation\|\|""\)\.trim\(\),available=hasExplanation&&rowDisclosed\(id\);button\.disabled=!available/);
+  assert.match(html,/function showExplanationPopup\(button,clientX,clientY\)[\s\S]*if\(!String\(explanation\|\|""\)\.trim\(\)\|\|!rowDisclosed\(id\)\)return/);
+  assert.match(html,/els\.explanationPopup\.textContent=explanation/);
+  assert.doesNotMatch(html,/explanationPopup\.innerHTML/);
+  assert.match(html,/addEventListener\("pointerdown",event=>beginExplanationPress/);
+  assert.match(html,/addEventListener\("pointerleave",endExplanationPress\)/);
+  assert.match(html,/addEventListener\("pointercancel",endExplanationPress\)/);
+  assert.match(html,/function beginExplanationKey\(event,button\)[\s\S]*\['Enter',' '\]/);
+  assert.match(html,/window\.addEventListener\("pointerup"/);
+  assert.match(html,/window\.addEventListener\("pointercancel"/);
+  assert.match(html,/function beginExplanationPress\(event,button\)\{if\(button\.disabled\|\|event\.button>0\)return;event\.stopPropagation\(\);explanationPointerId=event\.pointerId;showExplanationPopup\(button,event\.clientX,event\.clientY\)\}/);
+  assert.match(html,/function hideExplanationPopup\(\)[\s\S]*els\.explanationPopup\.hidden=true/);
+  assert.match(html,/function renderRowsOnly\(current=pageWords\(\)\)\{\s*hideExplanationPopup\(\)/);
+  assert.match(html,/function showHome\(\)\{\s*hideExplanationPopup\(\)/);
+  assert.doesNotMatch(html,/STORAGE_EXPLANATION|explanationPopup.*localStorage/);
+});
 test('study screen groups controls, exposes accessible header icons, and places actions after the list', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<header class="app-header">[\s\S]*?<h1 class="app-title">Word List Study<\/h1>[\s\S]*?id="openSettings"[^>]*aria-label="設定"[^>]*>[\s\S]*?id="openGpt"[^>]*aria-label="GPT学習"/);
@@ -338,6 +371,7 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/changeDisplaySettings\(10,3,"wrong",20\)/);
   assert.match(html,/pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20/);
   assert.match(html,/answer\.type="button";answer\.className="answer-toggle"/);
+  assert.match(html,/cc\.className="row-actions"/);
   assert.match(html,/answer\.addEventListener\("click",\(\)=>toggleAnswer\(w\.id\)\)/);
   assert.match(html,/if\(!changed\)\{renderAnswerControlFor\(id\);return\}\s*renderAnswerControlFor\(id\);saveActiveSession\(true\)/);
   assert.match(html,/button\.setAttribute\("aria-pressed",String\(revealed&&correct\)\)/);

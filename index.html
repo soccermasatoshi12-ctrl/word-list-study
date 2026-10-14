@@ -62,7 +62,7 @@
     .study-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
     .study-actions button{min-width:0}
     .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:8px}
-    .word-row{display:grid;grid-template-columns:minmax(0,210px) 48px minmax(0,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
+    .word-row{display:grid;grid-template-columns:minmax(0,210px) 28px minmax(0,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
     .word-cell{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-content:center;column-gap:6px;row-gap:3px;padding:2px 4px}
     .word-main{grid-column:2;grid-row:1;align-self:baseline;min-width:0;font-weight:650;overflow-wrap:anywhere;word-break:break-word}
     .word-index{grid-column:1;grid-row:1;align-self:baseline;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -70,7 +70,18 @@
     .word-meta .recent{display:inline-flex;align-items:center;gap:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
     .history-slot.provisional{outline:1px solid var(--muted);outline-offset:1px;border-radius:2px;background:#f1f3f6;text-decoration:underline dotted;text-underline-offset:2px}
     .word-medal{width:15px;height:17px;margin-left:1px;vertical-align:middle}
-    .check-cell{display:flex;align-items:center;justify-content:center;min-width:0}.answer-toggle{display:grid;place-items:center;box-sizing:border-box;width:100%;height:48px;min-height:48px;padding:0;border-radius:9px;font-size:1.25rem;font-weight:700;line-height:1;touch-action:manipulation}
+    .row-actions{display:grid;grid-template-rows:28px 20px;align-items:center;justify-items:center;align-self:center;gap:0;width:28px;height:48px;min-width:0}
+    .row-actions button{display:grid;place-items:center;box-sizing:border-box;width:28px;min-height:0;padding:0;border:1px solid #cbd3dd;border-radius:8px;background:#f7f8fa;color:#354052;font-size:1rem;font-weight:700;line-height:1;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+    .row-actions button:hover:not(:disabled){border-color:#aeb9c8;background:#edf1f6}
+    .row-actions button:active:not(:disabled){border-color:#8b98a9;background:#e2e7ee}
+    .row-actions button:focus-visible{outline:3px solid #2563eb66;outline-offset:1px}
+    .answer-toggle{height:28px;min-height:28px;font-size:1.05rem}
+    .answer-toggle:disabled{opacity:.55}
+    .row-actions .explanation-button{width:28px;height:20px;min-height:20px;padding:0;border:0;background:transparent;color:#2563eb;font-size:0}
+    .row-actions .explanation-button:hover:not(:disabled),.row-actions .explanation-button:active:not(:disabled){border:0;background:transparent;color:#1d4ed8}
+    .explanation-button svg{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    .row-actions .explanation-button:disabled{color:#aeb6c2;opacity:1;cursor:default}
+    .explanation-popup{position:fixed;z-index:40;width:min(340px,calc(100vw - 24px));max-height:min(42dvh,280px);overflow:auto;padding:12px 14px;border:1px solid #aeb6c2;border-radius:10px;background:#fff;color:var(--text);box-shadow:0 8px 28px rgba(15,23,42,.22);font-size:.95rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:auto;overscroll-behavior:contain;touch-action:pan-y;user-select:text;-webkit-user-select:text}
     .meaning-cell{position:relative;display:flex;align-items:center;min-height:48px;overflow:hidden;border-radius:8px;background:#fafafa;border:1px solid var(--border)}
     .meaning-text{position:relative;display:block;width:100%;padding:6px 10px;font-size:13px;line-height:1.35;overflow-wrap:anywhere;word-break:break-word}
     .empty-state{padding:18px;text-align:center;color:var(--muted)}
@@ -85,7 +96,7 @@
     .settings-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
     .settings-item>label:first-child{min-width:0}
     .settings-item select{flex:0 0 auto}
-    @media(max-width:560px){.answer-toggle{height:42px;min-height:42px;font-size:1.15rem}.home-panel.registration,.home-panel.study{grid-template-columns:minmax(0,1fr) auto}.home-study-heading{flex-wrap:wrap}.home-title-editor{flex-wrap:wrap}.home-title-editor input{flex-basis:100%}.home-start-study{grid-row:1 / span 2}}
+    @media(max-width:560px){.home-panel.registration,.home-panel.study{grid-template-columns:minmax(0,1fr) auto}.home-study-heading{flex-wrap:wrap}.home-title-editor{flex-wrap:wrap}.home-title-editor input{flex-basis:100%}.home-start-study{grid-row:1 / span 2}}
     .settings-actions{display:flex;flex-wrap:wrap;gap:8px}
     dialog.modal input[type="text"]{max-width:100%;min-width:0;overflow-wrap:anywhere}
     .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
@@ -103,7 +114,7 @@
       .tabs button{min-height:40px;padding:6px 9px}
       .study-actions{justify-content:stretch;gap:6px;margin-top:8px;padding-top:8px}
       .study-actions button{flex:1 1 auto}
-      .word-row{grid-template-columns:minmax(96px,1fr) 42px minmax(110px,1fr);gap:6px;padding:6px}
+      .word-row{grid-template-columns:minmax(96px,max(96px,min(calc((100% - 54px)/2),calc(100% - 164px)))) 28px minmax(110px,1fr);gap:6px;padding:6px}
       .word-main{font-size:.98rem}.word-meta{font-size:.7rem;gap:5px}.meaning-text{padding:5px 8px}
     }
   </style>
@@ -207,6 +218,7 @@
       <div id="emptyState" class="empty-state" hidden>表示対象の単語がありません。</div>
       <div id="meaningCurtain" class="meaning-curtain hidden" aria-hidden="true"></div>
       <div id="curtainHandle" class="curtain-handle hidden" aria-label="意味カバーを上下に動かす"></div>
+      <div id="explanationPopup" class="explanation-popup" role="tooltip" aria-hidden="true" hidden></div>
     </div>
     <div class="study-actions" aria-label="学習操作">
       <button id="repeatStudy" disabled>もう一度学習</button>
@@ -290,7 +302,7 @@
     count:document.getElementById("count"),pagePositionRow:document.getElementById("pagePositionRow"),pagePosition:document.getElementById("pagePosition"),tabs:document.getElementById("tabs"),normalNext:document.getElementById("normalNext"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),gptWordCountSummary:document.getElementById("gptWordCountSummary"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
-    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),
+    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),explanationPopup:document.getElementById("explanationPopup"),
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
     makeSession:document.getElementById("makeSession"),copySession:document.getElementById("copySession"),sessionUrl:document.getElementById("sessionUrl"),
@@ -440,11 +452,13 @@
     catch(error){cancelListTitleEdit();els.homeStatus.textContent=`タイトルを保存できませんでした。${error.message||error}`;els.homeStatus.className="status bad";return false}
   }
   function showHome(){
+    hideExplanationPopup();
     try{saveActiveSession(false,[{key:STORAGE_SCREEN,value:"home"}])}
     catch(error){alert("保存に失敗したためホームへ移動できませんでした。"+(error.message||error));return false}
     updateHome();els.studyScreen.hidden=true;els.homeScreen.hidden=false;return true;
   }
   function showStudy(){
+    hideExplanationPopup();
     if(!words.length){updateHome();els.homeStatus.textContent="学習データを登録してから学習できます。";return false}
     try{startSession(false,[{key:STORAGE_SCREEN,value:"study"}])}
     catch(error){els.homeStatus.textContent="学習状態を復元できませんでした。"+(error.message||error);els.homeStatus.className="status bad";return false}
@@ -572,13 +586,35 @@
   }
 
   function syncAnswerControl(row,id){const button=row.querySelector('.answer-toggle');if(!button)return;const revealed=!!activeSession?.studiedIds?.includes(id),correct=!!activeSession?.checkedIds?.includes(id),word=row.querySelector('.word-main')?.textContent||"単語";button.textContent=revealed?(correct?"○":"×"):"—";button.disabled=!revealed||!!activeSession?.finalizedIds?.includes(id);button.setAttribute("aria-pressed",String(revealed&&correct));button.setAttribute("aria-label",revealed?`${word} の評価は${correct?"○（正答）":"×（誤答）"}。押すと${correct?"×（誤答）":"○（正答）"}に切り替え`:`${word} の評価（未露出）`)}
+  let explanationPointerId=null,explanationKeyCode=null;
+  function hideExplanationPopup(){els.explanationPopup.hidden=true;els.explanationPopup.setAttribute("aria-hidden","true");els.explanationPopup.textContent="";explanationPointerId=null;explanationKeyCode=null}
+  function showExplanationPopup(button,clientX,clientY){
+    const id=button.dataset.id,explanation=button.dataset.explanation;
+    if(!String(explanation||"").trim()||!rowDisclosed(id))return;
+    els.explanationPopup.textContent=explanation;els.explanationPopup.hidden=false;els.explanationPopup.setAttribute("aria-hidden","false");
+    const anchor=button.getBoundingClientRect(),popup=els.explanationPopup.getBoundingClientRect(),vw=document.documentElement.clientWidth,vh=document.documentElement.clientHeight,pad=12;
+    const x=Number.isFinite(clientX)?clientX:anchor.right+8,y=Number.isFinite(clientY)?clientY:anchor.top+anchor.height/2;
+    let left=x+18;if(left+popup.width>vw-pad)left=x-popup.width-18;left=Math.max(pad,Math.min(left,vw-popup.width-pad));
+    let top=y+18;if(top+popup.height>vh-pad)top=y-popup.height-18;top=Math.max(pad,Math.min(top,vh-popup.height-pad));
+    els.explanationPopup.style.left=`${left}px`;els.explanationPopup.style.top=`${top}px`;
+  }
+  function beginExplanationPress(event,button){if(button.disabled||event.button>0)return;event.stopPropagation();explanationPointerId=event.pointerId;showExplanationPopup(button,event.clientX,event.clientY)}
+  function endExplanationPress(event){if(event?.type==="pointerleave"&&els.explanationPopup.contains(event.relatedTarget))return;if(explanationPointerId!==null)hideExplanationPopup()}
+  function beginExplanationKey(event,button){if(button.disabled||!['Enter',' '].includes(event.key)||event.repeat)return;event.preventDefault();explanationKeyCode=event.code;showExplanationPopup(button)}
+  function endExplanationKey(event){if(explanationKeyCode&&event.code===explanationKeyCode)hideExplanationPopup();else if(event.key==="Escape")hideExplanationPopup()}
+  window.addEventListener("pointerup",event=>{if(explanationPointerId===event.pointerId)hideExplanationPopup()},true);
+  window.addEventListener("pointercancel",event=>{if(explanationPointerId===event.pointerId)hideExplanationPopup()},true);
+  window.addEventListener("keyup",endExplanationKey,true);
+  window.addEventListener("blur",hideExplanationPopup);
+  function rowDisclosed(id){return(activeSession?.studiedIds||[]).some(value=>String(value)===String(id))}
+  function syncExplanationControl(row,id){const button=row.querySelector('.explanation-button');if(!button)return;const question=row.querySelector('.word-main')?.textContent||"問題",hasExplanation=!!String(button.dataset.explanation||"").trim(),available=hasExplanation&&rowDisclosed(id);button.disabled=!available;button.setAttribute("aria-label",available?`${question} の解説を押している間表示`:hasExplanation?`${question} の解説（解答を開示すると利用できます）`:`${question} の解説（解説なし）`)}
   function renderAnswerControlFor(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncAnswerControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
   function syncMeaningDisclosure(row,id){
     const cell=row.querySelector('.meaning-cell'),text=cell?.querySelector('.meaning-text');if(!cell||!text)return;
-    const disclosed=(activeSession?.studiedIds||[]).some(studiedId=>String(studiedId)===String(id));
+    const disclosed=rowDisclosed(id);
     text.classList.toggle('is-undisclosed',!disclosed);text.setAttribute('aria-hidden',String(!disclosed));
   }
-  function renderAnswerControlForExposure(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncMeaningDisclosure(row,id);syncAnswerControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
+  function renderAnswerControlForExposure(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncMeaningDisclosure(row,id);syncAnswerControl(row,id);syncExplanationControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
   function toggleAnswer(id){if(!activeSession?.studiedIds?.includes(id)||activeSession.finalizedIds?.includes(id))return;markAnswer(id,!activeSession.checkedIds.includes(id))}
   function refreshVisibleRows(){
     const scrollX=window.scrollX,scrollY=window.scrollY;
@@ -617,7 +653,7 @@
   }
 
   function renderRowsOnly(current=pageWords()){
-    els.words.replaceChildren();els.emptyState.hidden=current.length>0;
+    hideExplanationPopup();els.words.replaceChildren();els.emptyState.hidden=current.length>0;
     for(const w of current){
       const st=getState(w.id);
       const row=document.createElement("div");row.className="word-row";row.dataset.id=w.id;
@@ -629,20 +665,25 @@
       const recent=document.createElement("span");recent.className="recent";renderRecent(recent,w.id,st);
       meta.append(recent);if(isMastered(st))meta.append(makeMedalIcon());wc.append(number,main,meta);
 
-      const cc=document.createElement("div");cc.className="check-cell";
+      const cc=document.createElement("div");cc.className="row-actions";
       const answer=document.createElement("button");answer.type="button";answer.className="answer-toggle";
       answer.addEventListener("click",()=>toggleAnswer(w.id));
       cc.appendChild(answer);
+      const explanation=document.createElement("button");explanation.type="button";explanation.className="explanation-button";explanation.dataset.id=String(w.id);explanation.dataset.explanation=String(w.explanation||"");explanation.setAttribute("aria-describedby","explanationPopup");
+      const book=document.createElementNS("http://www.w3.org/2000/svg","svg");book.setAttribute("viewBox","0 0 24 24");book.setAttribute("aria-hidden","true");book.setAttribute("focusable","false");
+      const bookPath=document.createElementNS("http://www.w3.org/2000/svg","path");bookPath.setAttribute("d","M12 6.5C9.5 4.8 6.5 4.7 3.5 5.8v13c3-1.1 6-1 8.5.7m0-13c2.5-1.7 5.5-1.8 8.5-.7v13c-3-1.1-6-1-8.5.7m0-13v13.7");book.appendChild(bookPath);explanation.appendChild(book);
+      explanation.addEventListener("pointerdown",event=>beginExplanationPress(event,explanation));explanation.addEventListener("pointerleave",endExplanationPress);explanation.addEventListener("pointercancel",endExplanationPress);explanation.addEventListener("keydown",event=>beginExplanationKey(event,explanation));explanation.addEventListener("blur",hideExplanationPopup);explanation.addEventListener("contextmenu",event=>event.preventDefault());cc.appendChild(explanation);
 
       const mc=document.createElement("div");mc.className="meaning-cell";mc.dataset.id=w.id;
       const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.answer;mc.appendChild(mt);
-      row.append(wc,cc,mc);syncMeaningDisclosure(row,w.id);syncAnswerControl(row,w.id);els.words.appendChild(row);
+      row.append(wc,cc,mc);syncMeaningDisclosure(row,w.id);syncAnswerControl(row,w.id);syncExplanationControl(row,w.id);els.words.appendChild(row);
     }
     if(curtainLayoutObserver){curtainLayoutObserver.disconnect();for(const row of els.words.querySelectorAll(".word-row"))curtainLayoutObserver.observe(row)}
     requestAnimationFrame(positionCurtain);
   }
 
   function render(){
+    hideExplanationPopup();
     const model=pageModel(),target=buildTarget();let page=target.page,current=page?.entries||[];
     pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
     renderTabs(model);renderRowsOnly(current);
