@@ -228,13 +228,13 @@
 <script src="study-core.js"></script>
 <script>
 (() => {
-  const SESSION_TTL_MS=5*60*1000;
   const STORAGE_WORDS="wordlist.words.v2";
   const STORAGE_STATE="wordlist.state.v2";
   const STORAGE_GPT_SESSIONS="wordlist.gptSessions.v2";
   const STORAGE_ACTIVE_SESSION="wordlist.activeStudySession.v2";
   const STORAGE_RANDOM_ORDER="wordlist.randomOrder.v1";
   const STORAGE_VIEW="wordlist.view.v1";
+  const STORAGE_SCREEN="wordlist.screen.v1";
   const STORAGE_PREFERENCES="wordlist.preferences.v1";
   const STORAGE_LEDGER="wordlist.studyLedger.v1";
   const savedCore=StudyCore.loadCore(localStorage,STORAGE_LEDGER,{stateKey:STORAGE_STATE,gptSessionsKey:STORAGE_GPT_SESSIONS,activeSessionKey:STORAGE_ACTIVE_SESSION});
@@ -248,7 +248,7 @@
   const rawSavedView=loadJson(STORAGE_VIEW,{});
   const rawSavedPreferences=loadJson(STORAGE_PREFERENCES,{});
   const savedSessionView=savedCore.activeSession?.viewState;
-  const canRecoverSavedSessionView=savedSessionView&& !StudyCore.sessionExpired(savedCore.activeSession,Date.now(),SESSION_TTL_MS);
+  const canRecoverSavedSessionView=!!savedSessionView;
   const savedView=canRecoverSavedSessionView?{...rawSavedView,...savedSessionView}:rawSavedView;
   const savedPreferences=canRecoverSavedSessionView&&savedSessionView.pageSize?{...rawSavedPreferences,pageSize:savedSessionView.pageSize,masteryThreshold:savedSessionView.masteryThreshold}:rawSavedPreferences;
   const PAGE_SIZES=[10,20,50,100], MASTERY_THRESHOLDS=[2,3,4,5], GPT_WORD_COUNTS=[5,10,20,30,50];
@@ -394,11 +394,11 @@
   function sessionKey(view=currentView(),size=pageSize){
     return StudyCore.studySessionKey(view,size);
   }
-  function saveActiveSession(touch=false){
-    if(!activeSession)return;
+  function saveActiveSession(touch=false,writes=[]){
+    if(!activeSession){if(writes.length)StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds,studyProgress},writes);return}
     const draftSession=JSON.parse(JSON.stringify(activeSession));
     if(touch)draftSession.updatedAt=Date.now();draftSession.revealY=revealY;draftSession.viewState=sessionView();
-    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress});
+    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress},writes);
     activeSession=draftSession;
   }
   function updateHome(){
@@ -408,13 +408,13 @@
     els.homeStudyCard.hidden=!available;
   }
   function showHome(){
-    try{saveActiveSession()}
+    try{saveActiveSession(false,[{key:STORAGE_SCREEN,value:"home"}])}
     catch(error){alert("保存に失敗したためホームへ移動できませんでした。"+(error.message||error));return false}
     updateHome();els.studyScreen.hidden=true;els.homeScreen.hidden=false;return true;
   }
   function showStudy(){
     if(!words.length){updateHome();els.homeStatus.textContent="学習用CSVを登録してから学習できます。";return false}
-    try{if(!activeSession)startSession(false)}
+    try{startSession(false,[{key:STORAGE_SCREEN,value:"study"}])}
     catch(error){els.homeStatus.textContent="学習状態を復元できませんでした。"+(error.message||error);els.homeStatus.className="status bad";return false}
     revealY=Number(activeSession?.revealY||0);
     els.homeStatus.textContent="";els.homeStatus.className="status";
@@ -428,8 +428,8 @@
     StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress});
     state=draft.state;activeSession=null;
   }
-  function tryRestoreSession(){
-    const stored=activeSession;
+  function tryRestoreSession(extraWrites=[]){
+    const stored=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
     if(!stored)return false;
     const legacyThreshold=Math.min(10,Math.max(2,Number(savedView.excludeStreakN||3)));
     const target=buildTarget();
@@ -444,7 +444,7 @@
     }
     const legacyKey=`${filter}:${excludeStreak?legacyThreshold:"off"}:${sortMode}:${pageIndex}`;
     const restored=StudyCore.tryRestoreSession(stored,{
-      now:Date.now(),ttl:SESSION_TTL_MS,currentKey:sessionKey(target.view),legacyKey,filter,sortMode,pageIndex,
+      currentKey:sessionKey(target.view),legacyKey,filter,sortMode,pageIndex,
       excludeStreak,masteryThreshold,legacyThreshold,words,state,randomIds,currentPageIds:target.ids
     });
     if(!restored){
@@ -462,18 +462,21 @@
       ...(restored.preserveTargetIds?{preserveTargetIds:true,preservedTargetIdentity:restored.preservedTargetIdentity}: {})
     };
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:restoredSession,gptSessions,registeredGptSessionIds,studyProgress},[
-      {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))}
+      {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
     ]);
     activeSession=restoredSession;
     revealY=activeSession.revealY;return true;
   }
-  function startSession(forceNew=false){
-    if(!forceNew&&tryRestoreSession())return;
+  function startSession(forceNew=false,extraWrites=[]){
+    if(!forceNew&&tryRestoreSession(extraWrites))return;
     const target=buildTarget();pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
-    if(!words.length){activeSession=null;revealY=0;persistView(target.view);return}
+    if(!words.length){activeSession=null;revealY=0;StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress},[
+      {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
+    ]);return}
     const nextSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
-    persistView(target.view);
-    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress});
+    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress},[
+      {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
+    ]);
     activeSession=nextSession;revealY=0;
   }
   function finalizeSessionResults(){
@@ -863,9 +866,31 @@
   els.copySession.addEventListener("click",async()=>{if(!lastSessionUrl)return;const ok=await copyText(lastSessionUrl);els.copySession.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copySession.textContent="URLをコピー",1200)});
   els.applyResults.addEventListener("click",applyGptResults);
 
-  validateRandomOrder();persistView();attachCurtainDrag();
-  window.addEventListener("beforeunload",()=>{saveActiveSession();persistView()});
-  startSession(false);revealY=Number(activeSession?.revealY||0);render();requestAnimationFrame(positionCurtain);
+  let screenStorage,screenState;
+  try{screenStorage=window.localStorage;screenState=StudyCore.inspectInitialScreen(screenStorage,STORAGE_SCREEN,words.length>0)}
+  catch(error){screenState={screen:"home",savedScreen:null,readFailed:true,needsSave:false,error}}
+  let initialScreen=screenState.screen;
+  updateHome();
+  els.homeScreen.hidden=initialScreen!=="home";els.studyScreen.hidden=initialScreen!=="study";
+  if(screenState.readFailed){
+    els.homeStatus.textContent="保存済みの画面状態を読み取れませんでした。保存データは変更していません。"+(screenState.error?.message?` ${screenState.error.message}`:"");els.homeStatus.className="status bad";
+    return;
+  }
+  const screenSave=StudyCore.persistInitialScreen(screenStorage,STORAGE_SCREEN,screenState);
+  if(!screenSave.ok){
+    els.homeStatus.textContent="画面状態を保存できませんでした。保存済みの学習状態は変更していません。"+(screenSave.error?.message?` ${screenSave.error.message}`:"");els.homeStatus.className="status bad";
+    return;
+  }
+  try{
+    validateRandomOrder();persistView();attachCurtainDrag();
+    window.addEventListener("beforeunload",()=>{saveActiveSession();persistView()});
+    if(initialScreen==="study")startSession(false);
+    revealY=Number(activeSession?.revealY||0);
+    if(initialScreen==="study"){render();requestAnimationFrame(positionCurtain)}
+  }catch(error){
+    initialScreen="home";els.studyScreen.hidden=true;els.homeScreen.hidden=false;updateHome();
+    els.homeStatus.textContent="学習状態を保存・復元できなかったためホームを表示しています。"+(error.message||error);els.homeStatus.className="status bad";
+  }
 })();
 </script>
 </body>

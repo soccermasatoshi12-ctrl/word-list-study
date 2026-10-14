@@ -9,7 +9,7 @@ function memoryStorage(seed={}) {
 }
 function runRestore(storage,config,now) {
   const snapshot=C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
-  const restored=C.tryRestoreSession(snapshot.activeSession,{...config,now,ttl:300000});
+  const restored=C.tryRestoreSession(snapshot.activeSession,config);
   if(restored)snapshot.activeSession={...restored,targetIds:restored.targetIds||config.currentPageIds.map(String)};
   else {
     const stored=snapshot.activeSession;
@@ -168,7 +168,7 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/meta\.append\(recent\);if\(isMastered\(st\)\)meta\.append\(makeMedalIcon\(\)\)/);
   assert.match(html,/if\(mastered&&!medal\)row\.querySelector\('\.recent'\)\.after\(makeMedalIcon\(\)\)/);
   assert.match(html,/function isMastered\(st\)\{return\(st\.currentStreak\|\|0\)>=masteryThreshold\}/);
-  assert.match(html,/revealY=Number\(activeSession\?\.revealY\|\|0\);render\(\);requestAnimationFrame\(positionCurtain\)/);
+  assert.match(html,/revealY=Number\(activeSession\?\.revealY\|\|0\);\s*if\(initialScreen==="study"\)\{render\(\);requestAnimationFrame\(positionCurtain\)\}/);
   assert.match(html,/Number\(activeSession\?\.revealY\?\?revealY\)\|\|0,g\.height/);
   assert.match(html,/window\.addEventListener\("resize",correctAfterLayoutChange\)/);
   assert.match(html,/new ResizeObserver\(entries=>/);
@@ -342,20 +342,35 @@ test('home and study screen switching preserves the active study session without
   assert.match(html,/<button id="goHome"[^>]*>ホーム<\/button>/);
   assert.match(html,/function showHome\(\)\{([\s\S]*?)\n  \}/);
   const showHome=html.match(/function showHome\(\)\{([\s\S]*?)\n  \}/)?.[1];
-  assert.ok(showHome.indexOf('saveActiveSession()')<showHome.indexOf('els.studyScreen.hidden=true'));
+  assert.ok(showHome.indexOf('saveActiveSession(false,[{key:STORAGE_SCREEN,value:"home"}])')<showHome.indexOf('els.studyScreen.hidden=true'));
   assert.doesNotMatch(showHome,/transitionView|finalizeStudySession|finalizeSession\(/);
   assert.match(html,/function showStudy\(\)\{([\s\S]*?)\n  \}/);
   const showStudy=html.match(/function showStudy\(\)\{([\s\S]*?)\n  \}/)?.[1];
-  assert.match(showStudy,/if\(!activeSession\)startSession\(false\)/);
+  assert.match(showStudy,/startSession\(false,\[\{key:STORAGE_SCREEN,value:"study"\}\]\)/);
   assert.match(showStudy,/revealY=Number\(activeSession\?\.revealY\|\|0\)/);
   assert.ok(showStudy.indexOf('els.homeScreen.hidden=true')<showStudy.indexOf('els.studyScreen.hidden=false'));
   assert.doesNotMatch(showStudy,/finalizeStudySession|finalizeSession\(/);
-  assert.doesNotMatch(html,/wordlist\.screen|sessionStorage/);
+  assert.match(html,/const STORAGE_SCREEN="wordlist\.screen\.v1"/);
+  assert.match(html,/screenStorage=window\.localStorage;screenState=StudyCore\.inspectInitialScreen\(screenStorage,STORAGE_SCREEN,words\.length>0\)/);
+  assert.match(html,/function saveActiveSession\(touch=false,writes=\[\]\)/);
+  assert.match(html,/function startSession\(forceNew=false,extraWrites=\[\]\)/);
+  assert.match(html,/if\(!forceNew&&tryRestoreSession\(extraWrites\)\)return/);
+  assert.match(html,/els\.homeScreen\.hidden=initialScreen!=="home";els\.studyScreen\.hidden=initialScreen!=="study"/);
+  assert.match(html,/if\(initialScreen==="study"\)startSession\(false\)/);
+  assert.doesNotMatch(html,/SESSION_TTL_MS|sessionExpired/);
   const updateHome=html.match(/function updateHome\(\)\{([\s\S]*?)\n  \}/)?.[1];
   assert.match(updateHome,/els\.homeRegistrationCard\.hidden=available/);
   assert.match(updateHome,/els\.homeStudyCard\.hidden=!available/);
   assert.match(html,/els\.goHome\.addEventListener\("click",showHome\)/);
   assert.match(html,/els\.startStudy\.addEventListener\("click",showStudy\)/);
+  assert.match(html,/if\(screenState\.readFailed\)\{[\s\S]*?return;[\s\S]*?\}/);
+  const screenReadFailure=html.match(/if\(screenState\.readFailed\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.doesNotMatch(screenReadFailure,/startSession|saveActiveSession|localStorage\.setItem/);
+  assert.match(html,/StudyCore\.persistInitialScreen\(screenStorage,STORAGE_SCREEN,screenState\)/);
+  assert.match(html,/if\(!screenSave\.ok\)\{[\s\S]*?return;[\s\S]*?\}/);
+  const startupRecovery=html.match(/\}catch\(error\)\{\n    initialScreen="home";([\s\S]*?)\n  \}\n\}\)\(\);/)?.[1];
+  assert.ok(startupRecovery);
+  assert.doesNotMatch(startupRecovery,/localStorage\.setItem/);
 });
 test('home CSV registration reuses the existing validated import and reports failure without routing to study', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
@@ -533,7 +548,7 @@ test('repeat study finalizes only pending results, reapplies mastery filter, res
   const next={sessionId:'repeat-session',key:'all:2:normal:50:0',updatedAt:2000,revealY:0,targetIds:['a'],studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
   const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:next});
   const restoredSnapshot=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
-  const restored=C.tryRestoreSession(restoredSnapshot.activeSession,{now:2001,ttl:300000,currentKey:next.key,currentPageIds:['a']});
+  const restored=C.tryRestoreSession(restoredSnapshot.activeSession,{currentKey:next.key,currentPageIds:['a']});
   assert.equal(restored.sessionId,'repeat-session');
   assert.deepEqual([restored.revealY,restored.studiedIds,restored.checkedIds,restored.finalizedIds],[0,[],[],[]]);
   assert.equal(C.recordStudy(restored,'a',restoredSnapshot.state.a,'later'),true);
@@ -623,6 +638,16 @@ test('failed view transition rolls back related keys and can be retried without 
   assert.equal(JSON.parse(store.getItem('view')).randomStart,1);
   assert.deepEqual(saved.activeSession.targetIds,['b']);
 });
+test('failed screen and session transition rolls the persisted screen back with the core snapshot', () => {
+  const original={state:{a:{...C.defaultState(),studyCount:1}},gptSessions:{},registeredGptSessionIds:[],activeSession:{sessionId:'s',key:'k',updatedAt:1,revealY:20,targetIds:['a'],studiedIds:['a'],checkedIds:[],finalizedIds:[]}};
+  const durable=memoryStorage({ledger:JSON.stringify(original),screen:'study'});
+  const failing={getItem:durable.getItem,removeItem:durable.removeItem,setItem(key,value){if(key==='ledger')throw new Error('snapshot unavailable');durable.setItem(key,value)}};
+  assert.throws(()=>C.saveCoreTransition(failing,'ledger',{...original,activeSession:{...original.activeSession,revealY:80}},[
+    {key:'screen',value:'home'}
+  ]),/snapshot unavailable/);
+  assert.equal(durable.getItem('screen'),'study');
+  assert.deepEqual(C.loadCore(durable,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}),original);
+});
 test('corrupt or incomplete snapshot falls back to legacy migration inputs', () => {
   const legacy={state:{a:{studyCount:4}},gptSessions:{g:{applied:false}},activeSession:null};
   const seed={ledger:'{"state":{"a":{"studyCount":99}}',oldState:JSON.stringify(legacy.state),oldGpt:JSON.stringify(legacy.gptSessions),oldActive:'null'};
@@ -631,19 +656,20 @@ test('corrupt or incomplete snapshot falls back to legacy migration inputs', () 
   store.setItem('ledger',JSON.stringify({state:{a:{studyCount:99}},gptSessions:{}}));
   assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:null});
 });
-test('five minute reload restores pending state; expiry finalizes it exactly once', () => {
-  const s={sessionId:'s1',updatedAt:1000,revealY:75,studiedIds:['a','b'],checkedIds:['a'],finalizedIds:['b']};
+test('long-inactive session reload restores pending state without finalizing it', () => {
+  const s={sessionId:'s1',key:'same',updatedAt:1000,revealY:75,targetIds:['a','b'],studiedIds:['a','b'],checkedIds:['a'],finalizedIds:['b']};
   const state={a:C.defaultState(),b:C.defaultState()};
   state.a.studyCount=1;state.b.studyCount=1;state.b.recentResults=[false];
   const store=memoryStorage();
   C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:s});
   const restored=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}).activeSession;
   assert.deepEqual(restored,s);
-  assert.equal(C.sessionExpired(s,1000+300000,300000),false);
-  assert.equal(C.sessionExpired(s,1001+300000,300000),true);
-  C.finalizeStudySession(s,id=>state[id]);
+  const restoredAfterDays=C.tryRestoreSession(s,{currentKey:'same',currentPageIds:['a','b']});
+  assert.deepEqual(restoredAfterDays,s);
+  assert.deepEqual([state.a.studyCount,state.a.correctCount,state.a.recentResults],[1,0,[]]);
+  C.finalizeStudySession(restoredAfterDays,id=>state[id]);
   assert.deepEqual([state.a.studyCount,state.a.correctCount,state.a.recentResults],[1,1,[true]]);
-  C.finalizeStudySession(s,id=>state[id]);
+  C.finalizeStudySession(restoredAfterDays,id=>state[id]);
   assert.deepEqual([state.a.studyCount,state.a.correctCount,state.a.recentResults],[1,1,[true]]);
   assert.deepEqual([state.b.studyCount,state.b.correctCount,state.b.recentResults],[1,0,[false]]);
 });
@@ -705,20 +731,21 @@ test('legacy filtered session with no exposed words starts fresh without adding 
   assert.deepEqual([result.state['1'].studyCount,result.state['1'].correctCount,result.state['1'].recentResults,result.state['1'].currentStreak],[1,0,[],0]);
   assert.deepEqual(result.state['2'],C.defaultState());
 });
-test('legacy restore rejects order mismatch, expired, unreconstructable, and inconsistent sessions', () => {
+test('legacy restore rejects order mismatch, unreconstructable, and inconsistent sessions but ignores age', () => {
   const words=['a','b'].map(id=>({id})),state={a:{...C.defaultState(),studyCount:1},b:{...C.defaultState(),studyCount:1}};
   const base={sessionId:'legacy',key:'all:off:random:0',updatedAt:1000,revealY:40,studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
-  const args={now:1001,ttl:300000,currentKey:'all:off:random:50:0',legacyKey:base.key,filter:'all',sortMode:'random',pageIndex:0,words,state,randomIds:['a','b'],currentPageIds:['a','b']};
+  const args={currentKey:'all:off:random:50:0',legacyKey:base.key,filter:'all',sortMode:'random',pageIndex:0,words,state,randomIds:['a','b'],currentPageIds:['a','b']};
   assert.equal(C.tryRestoreSession(base,{...args,currentPageIds:['b','a']}),null);
-  assert.equal(C.tryRestoreSession({...base,updatedAt:0},{...args,now:300001}),null);
+  assert.equal(C.tryRestoreSession({...base,updatedAt:0},args).sessionId,'legacy');
+  assert.equal(C.tryRestoreSession({...base,updatedAt:undefined},args).sessionId,'legacy');
   assert.equal(C.tryRestoreSession(base,{...args,randomIds:['a']}),null);
   assert.equal(C.tryRestoreSession(base,{...args,masteryThreshold:4,legacyThreshold:3,excludeStreak:true}),null);
   assert.equal(C.tryRestoreSession({...base,studiedIds:['unknown']},args),null);
   assert.equal(C.tryRestoreSession({...base,revealY:'invalid'},args),null);
-  assert.equal(C.tryRestoreSession({...base,key:args.currentKey},{...args,now:1001}),null);
+  assert.equal(C.tryRestoreSession({...base,key:args.currentKey},args),null);
   const current={...base,key:args.currentKey,targetIds:['a','b']};
-  assert.equal(C.tryRestoreSession(current,{...args,now:1001}).sessionId,'legacy');
-  assert.equal(C.tryRestoreSession(current,{...args,now:1001,currentPageIds:['b','a']}),null);
+  assert.equal(C.tryRestoreSession(current,args).sessionId,'legacy');
+  assert.equal(C.tryRestoreSession(current,{...args,currentPageIds:['b','a']}),null);
   assert.equal(C.tryRestoreSession({...base,key:'all:off:random:50:1'},args),null);
 });
 test('current random session restoration requires the same saved position and ordered target IDs', () => {
@@ -727,23 +754,58 @@ test('current random session restoration requires the same saved position and or
   const view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:9,randomStart:2};
   const key=C.studySessionKey(view,2);
   const session={sessionId:'random-page',key,updatedAt:1000,revealY:42,targetIds:page.entries.map(word=>word.id),viewState:C.serializeView(view),studiedIds:['b'],checkedIds:['b'],finalizedIds:[]};
-  const args={now:1001,ttl:300000,currentKey:key,currentPageIds:['b','d']};
+  const args={currentKey:key,currentPageIds:['b','d']};
   assert.equal(C.tryRestoreSession(session,args).sessionId,'random-page');
   assert.equal(C.tryRestoreSession(session,{...args,currentKey:C.studySessionKey({...view,randomStart:0},2)}),null);
   assert.equal(C.tryRestoreSession(session,{...args,currentPageIds:['d','b']}),null);
   assert.equal(C.tryRestoreSession({...session,targetIds:['b','b']},args),null);
 });
-test('expired legacy session is finalized once through snapshot reload and replaced', () => {
+test('legacy session from days ago restores without finalizing its pending result', () => {
   const words=[{id:'a'}],state={a:{...C.defaultState(),studyCount:1}};
   const saved={sessionId:'expired-legacy',key:'all:off:normal:0',updatedAt:1000,revealY:20,studiedIds:['a'],checkedIds:['a'],finalizedIds:[]};
   const store=memoryStorage();C.saveCore(store,'ledger',{state,gptSessions:{},activeSession:saved});
   const model=C.buildPageModel(words,state,{pageSize:50});
   const config={currentKey:'all:off:normal:50:0',legacyKey:saved.key,filter:'all',sortMode:'normal',pageIndex:0,words,state,randomIds:[],currentPageIds:model.pages[0].entries.map(w=>w.id)};
-  const result=runRestore(store,config,301001);
-  assert.equal(result.activeSession.sessionId,'new-session');
-  assert.deepEqual([result.state.a.studyCount,result.state.a.correctCount,result.state.a.recentResults],[1,1,[true]]);
-  const again=runRestore(store,config,301002);
-  assert.deepEqual([again.state.a.studyCount,again.state.a.correctCount,again.state.a.recentResults],[1,1,[true]]);
+  const result=runRestore(store,config,7*24*60*60*1000+1000);
+  assert.equal(result.activeSession.sessionId,'expired-legacy');
+  assert.deepEqual([result.state.a.studyCount,result.state.a.correctCount,result.state.a.recentResults],[1,0,[]]);
+  const again=runRestore(store,config,7*24*60*60*1000+2000);
+  assert.equal(again.activeSession.sessionId,'expired-legacy');
+  assert.deepEqual([again.state.a.studyCount,again.state.a.correctCount,again.state.a.recentResults],[1,0,[]]);
+});
+test('initial screen defaults to home and only restores study when words exist', () => {
+  assert.equal(C.resolveInitialScreen(null,true),'home');
+  assert.equal(C.resolveInitialScreen('home',true),'home');
+  assert.equal(C.resolveInitialScreen('study',true),'study');
+  assert.equal(C.resolveInitialScreen('invalid',true),'home');
+  assert.equal(C.resolveInitialScreen('study',false),'home');
+});
+test('initial screen storage read failure is distinct from missing or invalid state', () => {
+  const missing=C.inspectInitialScreen(memoryStorage(), 'screen', true);
+  assert.deepEqual({screen:missing.screen,readFailed:missing.readFailed,needsSave:missing.needsSave},
+    {screen:'home',readFailed:false,needsSave:true});
+  const invalid=C.inspectInitialScreen(memoryStorage({screen:'other'}), 'screen', true);
+  assert.deepEqual({screen:invalid.screen,readFailed:invalid.readFailed,needsSave:invalid.needsSave},
+    {screen:'home',readFailed:false,needsSave:true});
+  const saved=C.inspectInitialScreen(memoryStorage({screen:'study'}), 'screen', true);
+  assert.deepEqual({screen:saved.screen,readFailed:saved.readFailed,needsSave:saved.needsSave},
+    {screen:'study',readFailed:false,needsSave:false});
+  const failure=C.inspectInitialScreen({getItem(){throw new Error('storage unavailable')}}, 'screen', true);
+  assert.equal(failure.screen,'home');
+  assert.equal(failure.readFailed,true);
+  assert.equal(failure.needsSave,false);
+  assert.match(failure.error.message,/storage unavailable/);
+});
+test('initial screen correction save failure is reported once without retry', () => {
+  const state=C.inspectInitialScreen(memoryStorage(), 'screen', true);
+  let writes=0;
+  const unavailable={setItem(){writes++;throw new Error('quota exceeded')}};
+  const result=C.persistInitialScreen(unavailable,'screen',state);
+  assert.deepEqual({ok:result.ok,attempted:result.attempted,writes},{ok:false,attempted:true,writes:1});
+  assert.match(result.error.message,/quota exceeded/);
+  const readFailure=C.inspectInitialScreen({getItem(){throw new Error('denied')}},'screen',true);
+  const notAttempted=C.persistInitialScreen(unavailable,'screen',readFailure);
+  assert.deepEqual({ok:notAttempted.ok,attempted:notAttempted.attempted,writes},{ok:false,attempted:false,writes:1});
 });
 test('GPT application persists outcomes and replay is rejected after reload', () => {
   const store=memoryStorage(), state={a:C.defaultState(),b:C.defaultState(),c:C.defaultState(),d:C.defaultState()};
@@ -988,13 +1050,13 @@ test('GPT landing targetIds reflect mastery exclusions created while finalizing 
   assert.ok(beforeFinalize.includes('1'));
   const visible=C.buildRandomFixedPage(words,result.state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:2,startIndex:10}).entries.map(w=>w.id);
   assert.ok(!visible.includes('1'));assert.notDeepEqual(beforeFinalize,visible);assert.deepEqual(result.activeSession.targetIds,visible);
-  const restored=C.tryRestoreSession(result.activeSession,{now:Date.parse('2026-10-12T00:01:00.000Z'),ttl:300000,
+  const restored=C.tryRestoreSession(result.activeSession,{
     currentKey:C.studySessionKey(result.activeSession.viewState,10),filter:'all',sortMode:'random',excludeStreak:true,masteryThreshold:2,
     words,state:result.state,randomIds,currentPageIds:visible});
   assert.ok(restored);assert.deepEqual(restored.studiedIds,['22']);
-  assert.equal(C.sessionExpired(result.activeSession,result.activeSession.updatedAt+300001,300000),true);
-  assert.equal(C.tryRestoreSession(result.activeSession,{now:result.activeSession.updatedAt+300001,ttl:300000,
-    currentKey:C.studySessionKey(result.activeSession.viewState,10),currentPageIds:visible}),null);
+  const restoredAfterLongAbsence=C.tryRestoreSession(result.activeSession,{
+    currentKey:C.studySessionKey(result.activeSession.viewState,10),currentPageIds:visible});
+  assert.ok(restoredAfterLongAbsence);assert.deepEqual(restoredAfterLongAbsence.studiedIds,['22']);
   const finalized=C.finalizeSessionDraft(result.state,restored);
   assert.deepEqual(finalized.state['1'].recentResults,[true,true]);assert.deepEqual(finalized.state['22'].recentResults,[true]);
   assert.equal(finalized.state['22'].studyCount,1);assert.equal(finalized.state['22'].correctCount,1);
@@ -1018,7 +1080,7 @@ test('GPT integration merges destination results into the same active page witho
   assert.deepEqual(result.activeSession.studiedIds,['2','3','5']);assert.deepEqual(result.activeSession.checkedIds,['2','5']);
   assert.equal(result.state['2'].studyCount,1);assert.deepEqual(result.state['2'].recentResults,[]);
   assert.equal(result.state['3'].studyCount,1);assert.equal(result.state['5'].correctCount,0);
-  const restored=C.tryRestoreSession(result.activeSession,{now:Date.parse('2026-10-12T00:01:00.000Z'),ttl:300000,currentKey:active.key,legacyKey:'legacy',
+  const restored=C.tryRestoreSession(result.activeSession,{currentKey:active.key,legacyKey:'legacy',
     filter:'all',sortMode:'normal',pageIndex:0,pageSize:10,words,state:result.state,randomIds:[],currentPageIds:active.targetIds});
   assert.ok(restored);const finalized=C.finalizeSessionDraft(result.state,restored);
   assert.equal(finalized.state['2'].studyCount,1);assert.equal(finalized.state['3'].studyCount,1);assert.equal(finalized.state['5'].studyCount,1);
@@ -1174,7 +1236,7 @@ test('formal-only GPT import preserves pending answers and pins the current page
   assert.equal(result.activeSession.preserveTargetIds,true);
   const identity=C.studyOrderIdentity(words,'normal',[]),pinned=C.preservedTargetPage(words,[],view,10,result.activeSession.targetIds,identity);
   assert.deepEqual(pinned.ids,active.targetIds);
-  const restored=C.tryRestoreSession({...result.activeSession,preservedTargetIdentity:identity},{now:1000,ttl:300000,currentKey:active.key,currentPageIds:pinned.ids});
+  const restored=C.tryRestoreSession({...result.activeSession,preservedTargetIdentity:identity},{currentKey:active.key,currentPageIds:pinned.ids});
   assert.ok(restored);assert.deepEqual(C.finalizeSessionDraft(result.state,restored).state['12'].recentResults,[false]);
 });
 

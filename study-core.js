@@ -295,9 +295,21 @@
     const available=pages.find(page=>page.entries.length);
     return available?available.index:0;
   }
-  function tryRestoreSession(stored,{now,ttl,currentKey,legacyKey,filter="all",sortMode="normal",pageIndex=0,excludeStreak=false,masteryThreshold=3,legacyThreshold=3,words=[],state={},randomIds=[],currentPageIds=[]}={}) {
-    if(sessionExpired(stored,now,ttl))return null;
-    if(typeof stored?.sessionId!=="string"||!stored.sessionId||!Number.isFinite(Number(stored.updatedAt))||!Number.isFinite(Number(stored.revealY||0)))return null;
+  function resolveInitialScreen(savedScreen,hasWords) { return hasWords&&savedScreen==="study"?"study":"home"; }
+  function inspectInitialScreen(storage,key,hasWords) {
+    let savedScreen;
+    try{savedScreen=storage.getItem(key)}catch(error){return {screen:"home",savedScreen:null,readFailed:true,needsSave:false,error}}
+    const screen=resolveInitialScreen(savedScreen,hasWords);
+    return {screen,savedScreen,readFailed:false,needsSave:savedScreen!==screen,error:null};
+  }
+  function persistInitialScreen(storage,key,screenState) {
+    if(screenState?.readFailed)return {ok:false,attempted:false,error:screenState.error||new Error("screen state read failed")};
+    if(!screenState?.needsSave)return {ok:true,attempted:false,error:null};
+    try{storage.setItem(key,screenState.screen);return {ok:true,attempted:true,error:null}}
+    catch(error){return {ok:false,attempted:true,error}}
+  }
+  function tryRestoreSession(stored,{currentKey,legacyKey,filter="all",sortMode="normal",pageIndex=0,excludeStreak=false,masteryThreshold=3,legacyThreshold=3,words=[],state={},randomIds=[],currentPageIds=[]}={}) {
+    if(typeof stored?.sessionId!=="string"||!stored.sessionId||!Number.isFinite(Number(stored.revealY||0)))return null;
     const visibleIds=currentPageIds.map(String);
     if(new Set(visibleIds).size!==visibleIds.length)return null;
     if(Array.isArray(stored?.targetIds)) {
@@ -415,7 +427,6 @@
     if(nextSession)finalizeStudySession(nextSession,id=>nextState[id]=normalizeState(nextState[id]||defaultState()));
     return{state:nextState,activeSession:null,finalizedIds:nextSession?.finalizedIds||[]};
   }
-  function sessionExpired(session, now, ttl) { return now-Number(session?.updatedAt||0)>ttl; }
   function inspectGptResults(obj, sessions, registeredIds, knownIds) {
     if(obj.version!==1||typeof obj.sessionId!=="string"||!obj.sessionId||!Array.isArray(obj.results)) throw new Error("結果JSONの形式が不正です。");
     const sessionId=String(obj.sessionId),record=sessions?.[sessionId],isReplay=(registeredIds||[]).includes(sessionId);
@@ -576,7 +587,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,word,meaning})=>({id:String(id),word,meaning})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,sessionExpired,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
