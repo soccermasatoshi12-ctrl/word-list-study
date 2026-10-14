@@ -433,6 +433,10 @@
     if(!Array.isArray(targetIds)||targetIds.length===0)return "empty";
     return isStudySessionComplete(session,targetIds)?"restart":"confirm";
   }
+  function hasPendingStudyResults(session) {
+    const finalized=new Set((session?.finalizedIds||[]).map(String));
+    return (session?.studiedIds||[]).some(id=>!finalized.has(String(id)));
+  }
   function setSessionAnswer(session,id,checked) {
     if(!session.studiedIds.includes(id)||session.finalizedIds.includes(id)) return false;
     const index=session.checkedIds.indexOf(id);
@@ -613,7 +617,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,question,answer})=>({id:String(id),word:question??"",meaning:answer??""})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

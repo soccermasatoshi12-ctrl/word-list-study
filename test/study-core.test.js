@@ -157,7 +157,7 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/function historySlots\(id,st\)/);
   assert.match(html,/StudyCore\.buildHistoryPreview\(st\.recentResults,provisional\)/);
   assert.match(html,/function renderRecent\(recent,id,st\)/);
-  assert.match(html,/\.history-slot\.provisional\{outline:[^}]*text-decoration:underline dotted/);
+  assert.match(html,/\.history-slot\{color:#9299a3\}\.history-slot\.provisional\{color:#1f2328;text-decoration:underline;text-decoration-color:#1f2328/);
   assert.match(html,/if\(row\)\{syncAnswerControl\(row,id\);renderRecent\(row\.querySelector\('\.recent'\),id,getState\(id\)\)\}\}/);
   assert.match(html,/recordStudyDisclosure\(studyProgress,words,sortMode,randomIds,id\)/);
   assert.match(html,/saveCore\(localStorage,STORAGE_LEDGER,\{state:draftState,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress\}\)/);
@@ -359,13 +359,29 @@ test('compact row actions gate shared explanation popup on disclosure without pe
 });
 test('study screen groups controls, exposes accessible header icons, and places actions after the list', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  assert.match(html,/<header class="app-header">[\s\S]*?<h1 class="app-title">Word List Study<\/h1>[\s\S]*?id="openSettings"[^>]*aria-label="設定"[^>]*>[\s\S]*?id="openGpt"[^>]*aria-label="GPT学習"/);
-  assert.match(html,/<dialog id="settingsPanel"[\s\S]*?CSV形式: <code>id,question,answer,explanation<\/code>[\s\S]*?<\/dialog>/);
+  assert.match(html,/<header class="app-header">[\s\S]*?<h1 class="app-title">Word List Study<\/h1>[\s\S]*?id="goHome" class="icon-button"[^>]*aria-label="ホーム"[^>]*><svg[\s\S]*?id="openSettings"[^>]*aria-label="設定"[^>]*>[\s\S]*?id="openGpt"[^>]*aria-label="GPT学習"/);
+  assert.match(html,/<dialog id="settingsPanel"[\s\S]*?<details open><summary>CSV形式と読み込みについて<\/summary>[\s\S]*?id,question,answer,explanation[\s\S]*?id,word,meaning[\s\S]*?<\/details>[\s\S]*?<\/dialog>/);
   assert.match(html,/<section class="settings-section" aria-labelledby="learningSettingsTitle">[\s\S]*?1ページの表示問題数[\s\S]*?id="defaultAnswer"[\s\S]*?id="masteryThreshold"[\s\S]*?<\/section>/);
+  const settingsDialog=html.match(/<dialog id="settingsPanel"[\s\S]*?<\/dialog>/)?.[0];
+  const gptDialog=html.match(/<dialog id="gptPanel"[\s\S]*?<\/dialog>/)?.[0];
+  assert.ok(settingsDialog&&gptDialog);
+  assert.doesNotMatch(settingsDialog,/id="gptWordCount"/);
+  assert.match(gptDialog,/class="settings-item gpt-count-setting"[\s\S]*?id="gptWordCount"/);
+  assert.match(html,/\.modal-close\{[^}]*width:36px;height:36px/);
+  assert.match(html,/\.modal-header\{position:sticky/);
+  assert.match(html,/\.settings-item select\{[^}]*min-height:34px[^}]*border-radius:8px/);
   assert.match(html,/<section class="settings-section" aria-labelledby="csvSettingsTitle">[\s\S]*?id="csvFile"[\s\S]*?<\/section>/);
-  assert.match(html,/<section class="settings-section" aria-labelledby="dataSettingsTitle">[\s\S]*?id="resetSettings"[\s\S]*?id="clearData"[\s\S]*?設定の初期化では学習履歴は消去されません[\s\S]*?<\/section>/);
-  assert.match(html,/id="closeSettings" class="modal-close"[^>]*aria-label="設定を閉じる"[^>]*>×/);
-  assert.match(html,/id="closeGpt" class="modal-close"[^>]*aria-label="GPT学習を閉じる"[^>]*>×/);
+  assert.match(html,/<section class="settings-section" aria-labelledby="dataSettingsTitle">[\s\S]*?<div class="data-action-row"><button id="resetSettings"[\s\S]*?学習履歴や登録データは消去されません[\s\S]*?<div class="data-action-row"><button id="clearData"[\s\S]*?この端末の学習データと履歴を削除します[\s\S]*?<\/section>/);
+  assert.match(html,/id="closeSettings" class="modal-close"[^>]*aria-label="設定を閉じる"[^>]*><svg/);
+  assert.match(html,/id="closeGpt" class="modal-close"[^>]*aria-label="GPT学習を閉じる"[^>]*><svg/);
+  assert.match(html,/id="saveListTitle"[^>]*aria-label="タイトルを保存"/);
+  assert.match(html,/id="cancelListTitle"[^>]*aria-label="編集を取り消す"/);
+  assert.match(html,/\.home-study-heading\{position:relative;display:flex;[^}]*min-height:44px/);
+  assert.match(html,/\.home-title-editor\{position:absolute;inset:0/);
+  assert.match(html,/\.home-title-editor button\{display:grid;place-items:center;flex:0 0 34px/);
+  assert.match(html,/function orderChangeNeedsConfirmation\(\)\{[\s\S]*hideExplanationPopup\(\);[\s\S]*!StudyCore\.hasPendingStudyResults\(activeSession\)\|\|confirm\("現在の学習結果を確定して、学習順序を切り替えますか？"\)/);
+  assert.match(html,/normalOrder\.addEventListener\("click",\(\)=>\{if\(sortMode==="normal"\)return;if\(!orderChangeNeedsConfirmation\(\)\)return;/);
+  assert.match(html,/randomOrder\.addEventListener\("click",\(\)=>\{[\s\S]*?if\(!orderChangeNeedsConfirmation\(\)\)return;/);
   assert.match(html,/els\.closeSettings\.addEventListener\("click",\(\)=>els\.settingsPanel\.close\(\)\)/);
   assert.match(html,/els\.closeGpt\.addEventListener\("click",\(\)=>els\.gptPanel\.close\(\)\)/);
   assert.match(html,/changeDisplaySettings\(10,3,"wrong",20\)/);
@@ -411,7 +427,7 @@ test('home and study screen switching preserves the active study session without
   assert.match(registrationCard,/学習データを登録[\s\S]*?CSVを選択[\s\S]*?id="homeCsvFile"/);
   assert.match(html,/<div id="homeStudyCard" class="home-panel study" hidden>[\s\S]*?id="homeListTitle"[\s\S]*?id="editListTitle"[\s\S]*?id="homeTitleEditor"[\s\S]*?id="homeQuestionCount"[\s\S]*?<button id="startStudy"[^>]*>学習する<\/button>[\s\S]*?<\/div>/);
   assert.match(html,/<div id="studyScreen">[\s\S]*?<header class="app-header">[\s\S]*?<main class="study-shell">[\s\S]*?<dialog id="gptPanel"/);
-  assert.match(html,/<button id="goHome"[^>]*>ホーム<\/button>/);
+  assert.match(html,/<button id="goHome" class="icon-button"[^>]*aria-label="ホーム"[^>]*><svg/);
   assert.match(html,/function showHome\(\)\{([\s\S]*?)\n  \}/);
   const showHome=html.match(/function showHome\(\)\{([\s\S]*?)\n  \}/)?.[1];
   assert.ok(showHome.indexOf('saveActiveSession(false,[{key:STORAGE_SCREEN,value:"home"}])')<showHome.indexOf('els.studyScreen.hidden=true'));
@@ -727,6 +743,14 @@ test('repeat-study decision uses exposed IDs, ignores current cover position and
   assert.equal(C.repeatStudyAction(session,['a','b']),'restart');
   assert.equal(JSON.stringify(session),before);
   assert.equal(C.repeatStudyAction(null,['a']),'confirm');
+});
+test('pending study result detection follows studied and finalized IDs without mutating the session',()=>{
+  assert.equal(C.hasPendingStudyResults(null),false);
+  assert.equal(C.hasPendingStudyResults({studiedIds:[],finalizedIds:[]}),false);
+  assert.equal(C.hasPendingStudyResults({studiedIds:['a'],finalizedIds:['a']}),false);
+  const session={studiedIds:['a','b'],finalizedIds:['a']},before=structuredClone(session);
+  assert.equal(C.hasPendingStudyResults(session),true);
+  assert.deepEqual(session,before);
 });
 test('repeat study finalizes only pending results, reapplies mastery filter, resets and restores a new session', () => {
   const words=['a','b','c'].map(id=>({id}));

@@ -20,9 +20,9 @@
     .home-panel{display:grid;gap:12px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px}
     .home-panel.registration{grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:12px;row-gap:4px;padding:12px 14px}.home-registration-heading{display:flex;align-items:center;gap:9px;min-width:0}.home-registration-heading h2{margin:0;font-size:1rem}.home-registration-heading svg{width:20px;height:20px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.home-panel.registration .hint{grid-column:1;margin:0}.home-panel.registration .file-btn{grid-column:2;grid-row:1 / span 2;justify-self:end;margin:0;white-space:nowrap}
     .home-panel.study{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 12px;padding:12px 14px}
-    .home-study-heading{display:flex;align-items:center;gap:6px;min-width:0}.home-study-heading h2{margin:0;min-width:0;overflow-wrap:anywhere;word-break:break-word;font-size:1.05rem}
+    .home-study-heading{position:relative;display:flex;align-items:center;gap:6px;min-width:0;min-height:44px}.home-study-heading h2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin:0;min-width:0;overflow-wrap:anywhere;word-break:break-word;font-size:1.05rem;line-height:1.3}
     .home-study-meta{grid-column:1;margin:0;color:var(--muted);font-size:.82rem}.home-start-study{grid-column:2;grid-row:1 / span 2;justify-self:end;min-height:34px;padding:6px 12px;white-space:nowrap}
-    .home-title-editor{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.home-title-editor input{width:100%;min-width:0;min-height:36px;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font:inherit}.home-title-editor button{min-height:34px;padding:5px 9px;white-space:nowrap}
+    .home-title-editor{position:absolute;inset:0;display:flex;align-items:center;gap:4px;min-width:0}.home-title-editor input{flex:1 1 auto;width:0;min-width:0;min-height:36px;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font:inherit}.home-title-editor button{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;min-height:34px;padding:7px;border-radius:7px}.home-title-editor button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
     .title-edit{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;min-height:32px;padding:6px;border:0;background:transparent}.title-edit svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     .app-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
     .app-title{margin:0;font-size:1.1rem;line-height:1.2}
@@ -68,7 +68,7 @@
     .word-index{grid-column:1;grid-row:1;align-self:baseline;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
     .word-meta{grid-column:1 / -1;grid-row:2;min-width:0;display:flex;gap:6px;align-items:center;font-size:.75rem;color:var(--muted)}
     .word-meta .recent{display:inline-flex;align-items:center;gap:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .history-slot.provisional{outline:1px solid var(--muted);outline-offset:1px;border-radius:2px;background:#f1f3f6;text-decoration:underline dotted;text-underline-offset:2px}
+    .history-slot{color:#9299a3}.history-slot.provisional{color:#1f2328;text-decoration:underline;text-decoration-color:#1f2328;text-underline-offset:3px;font-weight:600}
     .word-medal{width:15px;height:17px;margin-left:1px;vertical-align:middle}
     .row-actions{display:grid;grid-template-rows:28px 20px;align-items:center;justify-items:center;align-self:center;gap:0;width:28px;height:48px;min-width:0}
     .row-actions button{display:grid;place-items:center;box-sizing:border-box;width:28px;min-height:0;padding:0;border:1px solid #cbd3dd;border-radius:8px;background:#f7f8fa;color:#354052;font-size:1rem;font-weight:700;line-height:1;touch-action:manipulation;user-select:none;-webkit-user-select:none}
@@ -86,18 +86,21 @@
     .meaning-text{position:relative;display:block;width:100%;padding:6px 10px;font-size:13px;line-height:1.35;overflow-wrap:anywhere;word-break:break-word}
     .empty-state{padding:18px;text-align:center;color:var(--muted)}
     [hidden]{display:none!important}
-    dialog.modal{width:min(760px,calc(100vw - 24px));max-height:min(90dvh,900px);margin:auto;padding:0;border:0;border-radius:14px;background:transparent;color:var(--text);overflow:auto}
+    dialog.modal{width:min(760px,calc(100vw - 24px));max-height:min(90dvh,900px);margin:auto;padding:0;border:0;border-radius:14px;background:transparent;color:var(--text);overflow:visible}
     dialog.modal::backdrop{background:rgba(15,23,42,.52)}
-    dialog.modal>.panel{margin:0;border-radius:14px;overflow-wrap:anywhere}
-    .modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-    .modal-close{display:grid;place-items:center;flex:0 0 42px;width:42px;height:42px;min-height:42px;padding:0;border-radius:50%;font-size:1.7rem;line-height:1}
-    .settings-section{display:grid;gap:10px;padding:12px 0;border-top:1px solid var(--border)}
+    dialog.modal>.panel{max-height:min(90dvh,900px);margin:0;border-radius:14px;overflow:auto;overflow-wrap:anywhere}
+    .modal-header{position:sticky;top:-10px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-10px -10px 8px;padding:10px;background:var(--panel)}
+    .modal-close{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;min-height:36px;padding:0;border-radius:50%;font-size:0;line-height:1}
+    .modal-close svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+    .settings-section{display:grid;gap:7px;padding:9px 0;border-top:1px solid var(--border)}
     .settings-section h2{margin:0;font-size:1rem}
-    .settings-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+    .settings-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;min-height:34px}
     .settings-item>label:first-child{min-width:0}
-    .settings-item select{flex:0 0 auto}
-    @media(max-width:560px){.home-panel.registration,.home-panel.study{grid-template-columns:minmax(0,1fr) auto}.home-study-heading{flex-wrap:wrap}.home-title-editor{flex-wrap:wrap}.home-title-editor input{flex-basis:100%}.home-start-study{grid-row:1 / span 2}}
-    .settings-actions{display:flex;flex-wrap:wrap;gap:8px}
+    .settings-item select{flex:0 0 auto;min-height:34px;padding:5px 28px 5px 9px;border-radius:8px;font-size:.9rem}
+    .gpt-count-setting{margin:8px 0}
+    .settings-section details{font-size:.9rem;line-height:1.4}.settings-section details summary{width:fit-content;color:var(--accent);cursor:pointer}.settings-section details .hint{margin:5px 0 0}
+    .data-action-row{display:grid;grid-template-columns:minmax(150px,auto) minmax(0,1fr);align-items:center;gap:10px}.data-action-row button{justify-self:start;min-height:34px;padding:6px 9px;border-radius:8px;font-size:.9rem}.data-action-row .hint{margin:0}
+    @media(max-width:560px){.home-panel.registration,.home-panel.study{grid-template-columns:minmax(0,1fr) auto}.home-study-heading{flex-wrap:nowrap}.home-title-editor{flex-wrap:nowrap}.home-title-editor input{flex-basis:0}.home-start-study{grid-row:1 / span 2}.data-action-row{grid-template-columns:minmax(0,1fr);gap:3px}.data-action-row button{max-width:100%;white-space:normal;text-align:left}}
     dialog.modal input[type="text"]{max-width:100%;min-width:0;overflow-wrap:anywhere}
     .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
     .meaning-text.is-undisclosed{visibility:hidden}
@@ -129,7 +132,7 @@
       <p class="hint">id・question・answer列を含むCSVを選択してください。</p>
     </div>
     <div id="homeStudyCard" class="home-panel study" hidden>
-      <div class="home-study-heading"><h2 id="homeListTitle"></h2><button id="editListTitle" class="title-edit" type="button" aria-label="学習タイトルを編集" title="学習タイトルを編集"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4.2-.9L19 8.3a2.1 2.1 0 0 0-3-3L5.2 16.1 4 20Z"/></svg></button><div id="homeTitleEditor" class="home-title-editor" hidden><input id="homeTitleInput" type="text" maxlength="80" aria-label="学習タイトル"><button id="saveListTitle" class="primary" type="button">保存</button><button id="cancelListTitle" type="button">キャンセル</button></div></div>
+      <div class="home-study-heading"><h2 id="homeListTitle"></h2><button id="editListTitle" class="title-edit" type="button" aria-label="学習タイトルを編集" title="学習タイトルを編集"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4.2-.9L19 8.3a2.1 2.1 0 0 0-3-3L5.2 16.1 4 20Z"/></svg></button><div id="homeTitleEditor" class="home-title-editor" hidden><input id="homeTitleInput" type="text" maxlength="80" aria-label="学習タイトル"><button id="saveListTitle" class="primary" type="button" aria-label="タイトルを保存" title="保存"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h12l3 3v13H4V4h1Zm2 0v6h10V4M8 20v-7h8v7"/></svg></button><button id="cancelListTitle" type="button" aria-label="編集を取り消す" title="キャンセル"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div></div>
       <p id="homeQuestionCount" class="home-study-meta"></p>
       <button id="startStudy" class="primary home-start-study" type="button">学習する</button>
     </div>
@@ -139,7 +142,7 @@
   <header class="app-header">
     <h1 class="app-title">Word List Study</h1>
     <div class="header-actions">
-      <button id="goHome" type="button" aria-label="ホームへ戻る">ホーム</button>
+      <button id="goHome" class="icon-button" type="button" aria-label="ホーム" title="ホーム"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3.5 10.5 8.5-7 8.5 7v9.8a.7.7 0 0 1-.7.7h-5.6v-6.5H9.8V21H4.2a.7.7 0 0 1-.7-.7z"/></svg></button>
       <button id="openSettings" class="icon-button" type="button" aria-label="設定" title="設定">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M10 3h4l.6 2.5c.7.2 1.3.6 1.8 1l2.5-.8 2 3.5-1.9 1.8a8 8 0 0 1 0 2l1.9 1.8-2 3.5-2.5-.8c-.5.4-1.1.8-1.8 1L14 21h-4l-.6-2.5c-.7-.2-1.3-.6-1.8-1l-2.5.8-2-3.5L5 13a8 8 0 0 1 0-2L3.1 9.2l2-3.5 2.5.8c.5-.4 1.1-.8 1.8-1z"/></svg>
       </button>
@@ -151,7 +154,7 @@
 
   <dialog id="settingsPanel" class="modal" aria-labelledby="settingsTitle">
   <div class="panel">
-    <div class="modal-header"><strong id="settingsTitle">設定</strong><button id="closeSettings" class="modal-close" type="button" aria-label="設定を閉じる" title="閉じる">×</button></div>
+    <div class="modal-header"><strong id="settingsTitle">設定</strong><button id="closeSettings" class="modal-close" type="button" aria-label="設定を閉じる" title="閉じる"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
     <section class="settings-section" aria-labelledby="learningSettingsTitle">
       <h2 id="learningSettingsTitle">学習設定</h2>
       <div class="settings-item"><label for="pageSize">1ページの表示問題数</label>
@@ -164,11 +167,6 @@
           <option value="wrong">×</option><option value="correct">○</option>
         </select>
       </div>
-      <div class="settings-item"><label for="gptWordCount">GPT出題語数</label>
-        <select id="gptWordCount" aria-label="GPT出題語数">
-          <option value="5">5語</option><option value="10">10語</option><option value="20">20語</option><option value="30">30語</option><option value="50">50語</option>
-        </select>
-      </div>
       <div class="settings-item"><label class="mastery-setting" for="masteryThreshold"><svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>習得済み判定（連続正答）</label>
         <select id="masteryThreshold" aria-label="習得済み判定の連続正答回数">
           <option value="2">2回</option><option value="3">3回</option><option value="4">4回</option><option value="5">5回</option>
@@ -178,14 +176,13 @@
     <section class="settings-section" aria-labelledby="csvSettingsTitle">
       <h2 id="csvSettingsTitle">CSV管理</h2>
       <label class="file-btn">CSV読込・差し替え<input id="csvFile" type="file" accept=".csv,text/csv"></label>
-      <div class="hint">CSV形式: <code>id,question,answer,explanation</code>（explanation列は任意）。旧形式の <code>id,word,meaning</code> も読み込めます。同じidなら再読込しても学習履歴を引き継ぎます。</div>
+      <details open><summary>CSV形式と読み込みについて</summary><div class="hint">UTF-8のCSVを使用します。新形式は <code>id,question,answer,explanation</code> で、<code>id</code>・<code>question</code>・<code>answer</code>が必須、<code>explanation</code>列は任意です。カンマ・改行・引用符を含む値はCSVの二重引用符で囲み、引用符自体は二重にします。旧形式の <code>id,word,meaning</code> も読み込めます。同じIDの問題・解答なら、再読込後も学習履歴を引き継ぎます。</div></details>
       <div class="hint">通常順ではCSV登録順の固定範囲をタブに分け、ランダム順では保存済み順序の固定範囲に対して習得済み除外を適用します。</div>
     </section>
     <section class="settings-section" aria-labelledby="dataSettingsTitle">
       <h2 id="dataSettingsTitle">データ管理</h2>
-      <div class="settings-actions"><button id="resetSettings" type="button">設定を初期値に戻す</button><button id="clearData" type="button">データ消去</button></div>
-      <div class="hint">設定の初期化では学習履歴は消去されません。</div>
-      <div class="hint">データ消去では、この端末の単語データと学習履歴を削除します。</div>
+      <div class="data-action-row"><button id="resetSettings" type="button">設定を初期値に戻す</button><div class="hint">学習履歴や登録データは消去されません。</div></div>
+      <div class="data-action-row"><button id="clearData" type="button">データ消去</button><div class="hint">この端末の学習データと履歴を削除します。</div></div>
     </section>
   </div>
   </dialog>
@@ -230,7 +227,8 @@
 
   <dialog id="gptPanel" class="modal" aria-labelledby="gptTitle">
     <div class="panel">
-    <div class="modal-header"><strong id="gptTitle">GPT学習</strong><button id="closeGpt" class="modal-close" type="button" aria-label="GPT学習を閉じる" title="閉じる">×</button></div>
+    <div class="modal-header"><strong id="gptTitle">GPT学習</strong><button id="closeGpt" class="modal-close" type="button" aria-label="GPT学習を閉じる" title="閉じる"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div class="settings-item gpt-count-setting"><label for="gptWordCount">出題語数</label><select id="gptWordCount" aria-label="GPT出題語数"><option value="5">5語</option><option value="10">10語</option><option value="20">20語</option><option value="30">30語</option><option value="50">50語</option></select></div>
       <div class="row" style="margin-top:8px">
         <button id="makeSession" class="primary">このタブをGPT用URLにする</button>
         <button id="copySession" disabled>URLをコピー</button>
@@ -739,6 +737,10 @@
     const visibleIds=[...els.words.querySelectorAll(".word-row")].map(row=>row.dataset.id);
     return StudyCore.repeatStudyAction(activeSession,visibleIds)!=="confirm"||confirm(message);
   }
+  function orderChangeNeedsConfirmation(){
+    hideExplanationPopup();
+    return !StudyCore.hasPendingStudyResults(activeSession)||confirm("現在の学習結果を確定して、学習順序を切り替えますか？");
+  }
   function nextNormalPage(){
     if(sortMode!=="normal")return;
     const model=pageModel(),next=StudyCore.nextAvailablePageIndex(model.pages,pageIndex);
@@ -933,9 +935,10 @@
     changeDisplaySettings(10,3,"wrong",20);
   });
 
-  els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
+  els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;if(!orderChangeNeedsConfirmation())return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
   els.randomOrder.addEventListener("click",()=>{
     if(sortMode==="random"){render();return}
+    if(!orderChangeNeedsConfirmation())return;
     let order=randomIds,writeRandomOrder=false;
     if(!sameIdSet(order,words.map(word=>String(word.id)))){order=shuffledIds();writeRandomOrder=words.length>0}
     requestViewTransition({...currentView(),sortMode:"random"},{nextRandomIds:order,writeRandomOrder});
