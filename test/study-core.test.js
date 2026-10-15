@@ -169,7 +169,7 @@ test('home and study screens share circular mastery rings and a modal progress d
   assert.match(html,/text\.textContent=value===null\?"—":`\$\{Math\.round\(value\)\}%`/);
   assert.match(html,/segment\.style\.width=`\$\{bucket\.ratio\*100\}%`/);
   assert.match(html,/label\.textContent=`\$\{bucket\.label\}：\$\{bucket\.questionCount\}問`/);
-  assert.match(html,/state=draftState;activeSession=draftSession;studyProgress=draftProgress;renderAnswerControlForExposure\(id\);renderProgressSummary\(\)/);
+  assert.match(html,/state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure\(id\);renderProgressSummary\(\)/);
   assert.match(html,/els\.distributionEmpty\.textContent=empty\?"対象問題なし"/);
   assert.match(html,/els\.openProgressDetails\.addEventListener\("click",\(\)=>\{if\(!els\.progressDialog\.open\)els\.progressDialog\.showModal\(\)\}\)/);
   assert.match(html,/els\.closeProgressDetails\.addEventListener\("click",\(\)=>\{if\(els\.progressDialog\.open\)els\.progressDialog\.close\(\)\}\)/);
@@ -271,6 +271,11 @@ test('processRevealThresholds skips GPT-disclosed IDs while stopping on a later 
   const result=C.processRevealThresholds(thresholds,100,committed,id=>{calls.push(id);if(id==='c')return false;committed.push(id);return true});
   assert.equal(result,false);assert.deepEqual(calls,['a','b','c']);assert.deepEqual(committed,['gpt','a','b']);
 });
+test('processRevealThresholds does not auto-disclose explicitly GPT-skipped rows',()=>{
+  const thresholds=['a','skip','b'].map((id,index)=>({id,bottom:(index+1)*20})),calls=[];
+  assert.equal(C.processRevealThresholds(thresholds,100,[],id=>{calls.push(id);return true},['skip']),true);
+  assert.deepEqual(calls,['a','b']);
+});
 test('processRevealThresholds retry handles only remaining IDs without recounting committed words',()=>{
   const thresholds=['a','b','c','d'].map((id,index)=>({id,bottom:(index+1)*20})),committed=[],firstCalls=[];
   assert.equal(C.processRevealThresholds(thresholds,100,committed,id=>{firstCalls.push(id);if(id==='c')return false;committed.push(id);return true}),false);
@@ -293,19 +298,21 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.doesNotMatch(html,/createElement\('span'\);mask\.className='meaning-mask'/);
   assert.match(html,/row\.append\(wc,cc,mc\);syncMeaningDisclosure\(row,w\.id\)/);
   assert.match(html,/function renderAnswerControlForExposure\(id\)\{const row=.*syncMeaningDisclosure\(row,id\)/);
-  assert.match(html,/function processRevealProgress\(\).*StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,markStudied\)/);
-  assert.match(html,/function markStudied\(id,committedRevealY=revealY\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
-  assert.match(html,/const restoreCommittedPosition=\(\)=>\{cancelDrag\(\);revealY=Number\(activeSession\?\.revealY\|\|0\);positionCurtain\(\)\}/);
-  assert.match(html,/const persistDragPosition=\(\)=>\{try\{saveActiveSession\(true\);return true\}catch\(error\)[\s\S]*restoreCommittedPosition\(\);return false\}/);
+  assert.match(html,/function processRevealProgress\(g=geometry\(\)\).*StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,markStudied,gptSkipped\.ids\)/);
+  assert.match(html,/function markStudied\(id,committedRevealY=revealY,clearSkipped=false\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
+  assert.match(html,/const restoreCommittedPosition=\(\)=>\{cancelDrag\(\);curtainUserDragging=false;revealY=Number\(activeSession\?\.revealY\|\|0\);positionCurtain\(\)\}/);
+  assert.match(html,/const persistDragPosition=\(\)=>\{try\{saveActiveSession\(true,\[\],true\);return true\}catch\(error\)[\s\S]*restoreCommittedPosition\(\);return false\}/);
   assert.doesNotMatch(html,/safeRevealBoundary\(activeSession\?\.studiedIds/);
-  assert.match(html,/function positionCurtain\(\)[\s\S]*?els\.meaningCurtain\.style\.height=`\$\{Math\.max\(0,g\.height-revealY\)\}px`[\s\S]*?els\.curtainHandle\.style\.top=/);
+  assert.match(html,/function positionCurtain\(g=geometry\(\)\)[\s\S]*?els\.meaningCurtain\.style\.height=`\$\{Math\.max\(0,g\.height-revealY\)\}px`[\s\S]*?els\.curtainHandle\.style\.top=[\s\S]*?syncAnswerControl\(row,row\.dataset\.id,g\)/);
+  assert.match(html,/function canIndividuallyDisclose\(id,measuredGeometry=undefined\)[\s\S]*?measuredGeometry===undefined\?geometry\(\):measuredGeometry/);
+  assert.match(html,/row\.append\(wc,cc,mc\);syncMeaningDisclosure\(row,w\.id\);syncAnswerControl\(row,w\.id,null\)/);
   assert.match(html,/function historySlots\(id,st\)/);
   assert.match(html,/StudyCore\.buildHistoryPreview\(st\.recentResults,provisional\)/);
   assert.match(html,/function renderRecent\(recent,id,st\)/);
   assert.match(html,/\.history-slot\{color:#9299a3\}\.history-slot\.provisional\{color:#1f2328;text-decoration:underline;text-decoration-color:#1f2328/);
   assert.match(html,/if\(row\)\{syncAnswerControl\(row,id\);renderRecent\(row\.querySelector\('\.recent'\),id,getState\(id\)\)\}\}/);
   assert.match(html,/recordStudyDisclosure\(studyProgress,words,sortMode,randomIds,id\)/);
-  assert.match(html,/saveCore\(localStorage,STORAGE_LEDGER,\{state:draftState,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress\}\)/);
+  assert.match(html,/saveCore\(localStorage,STORAGE_LEDGER,\{state:draftState,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped\}\)/);
   assert.match(html,/renderAnswerControlFor\(id\);saveActiveSession\(true\)/);
   assert.match(html,/const recent=document\.createElement\("span"\);recent\.className="recent";renderRecent\(recent,w\.id,st\)/);
   assert.match(html,/\.word-meta\{grid-column:1 \/ -1;grid-row:2/);
@@ -313,7 +320,8 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/meta\.append\(recent\);if\(isMastered\(st\)\)meta\.append\(makeMedalIcon\(\)\)/);
   assert.match(html,/if\(mastered&&!medal\)row\.querySelector\('\.recent'\)\.after\(makeMedalIcon\(\)\)/);
   assert.match(html,/function isMastered\(st\)\{return\(st\.currentStreak\|\|0\)>=masteryThreshold\}/);
-  assert.match(html,/revealY=Number\(activeSession\?\.revealY\|\|0\);\s*if\(initialScreen==="study"\)\{render\(\);requestAnimationFrame\(positionCurtain\)\}/);
+  assert.match(html,/revealY=Number\(activeSession\?\.revealY\|\|0\);\s*if\(initialScreen==="study"\)\{render\(\);requestAnimationFrame\(\(\)=>positionCurtain\(\)\)\}/);
+  assert.doesNotMatch(html,/requestAnimationFrame\(positionCurtain\)/);
   assert.match(html,/Number\(activeSession\?\.revealY\?\?revealY\)\|\|0,g\.height/);
   assert.match(html,/window\.addEventListener\("resize",correctAfterLayoutChange\)/);
   assert.match(html,/new ResizeObserver\(entries=>/);
@@ -603,9 +611,10 @@ test('home and study screen switching preserves the active study session without
   assert.doesNotMatch(showStudy,/finalizeStudySession|finalizeSession\(/);
   assert.match(html,/const STORAGE_SCREEN="wordlist\.screen\.v1"/);
   assert.match(html,/screenStorage=window\.localStorage;screenState=StudyCore\.inspectInitialScreen\(screenStorage,STORAGE_SCREEN,words\.length>0\)/);
-  assert.match(html,/function saveActiveSession\(touch=false,writes=\[\]\)/);
+  assert.match(html,/function saveActiveSession\(touch=false,writes=\[\],clearGptRevealAnchor=false\)/);
   assert.match(html,/function startSession\(forceNew=false,extraWrites=\[\]\)/);
   assert.match(html,/if\(!forceNew&&tryRestoreSession\(extraWrites\)\)return/);
+  assert.match(html,/typeof restored\.gptRevealTargetId==="string"\?\{gptRevealTargetId:restored\.gptRevealTargetId\}:\{\}/);
   assert.match(html,/els\.homeScreen\.hidden=initialScreen!=="home";els\.studyScreen\.hidden=initialScreen!=="study"/);
   assert.match(html,/if\(initialScreen==="study"\)startSession\(false\)/);
   assert.doesNotMatch(html,/SESSION_TTL_MS|sessionExpired/);
@@ -1435,15 +1444,15 @@ test('GPT issue context survives save/load while legacy records keep their old s
   assert.equal(C.evaluateGptJump(forged,words,jumpView({sortMode:'normal',filter:'all'},10,[]),[{id:'1',result:'correct'}]).reason,'invalid-context');
 });
 
-test('GPT jump uses last practical result in issue order and computes normal page across boundary',()=>{
+test('GPT jump uses the furthest returned result including skipped and computes normal page across boundary',()=>{
   const words=Array.from({length:35},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const ids=['9','10','11','12'],context=C.createGptIssueContext(words,{startId:'9',pageSize:10,ids});
   const record={ids,context};
   const result=C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',pageIndex:0,randomStart:0,excludeStreak:false,masteryThreshold:3},10,[]),[
     {id:'12',result:'skipped'},{id:'9',result:'correct'},{id:'11',result:'uncertain'}
   ]);
-  assert.equal(result.canJump,true);assert.equal(result.lastResultId,'11');assert.equal(result.orderPreserved,true);
-  assert.deepEqual(result.candidatePosition,{sortMode:'normal',pageIndex:1,randomStart:null,wordIndex:10});
+  assert.equal(result.canJump,true);assert.equal(result.lastResultId,'12');assert.equal(result.orderPreserved,true);
+  assert.deepEqual(result.candidatePosition,{sortMode:'normal',pageIndex:1,randomStart:null,wordIndex:11});
   assert.deepEqual(Object.keys(jumpView()).sort(),['excludeStreak','excludeStreakN','filter','masteryThreshold','pageIndex','pageSize','randomIds','randomStart','sortMode'].sort());
 });
 
@@ -1479,7 +1488,8 @@ test('GPT jump suppresses changed CSV, content, random order, and missing legacy
   assert.equal(C.evaluateGptJump(record,words.slice(0,-1),view,results).reason,'dataset-changed');
   assert.equal(C.evaluateGptJump({ids},words,view,results).reason,'legacy-no-context');
   assert.equal(C.evaluateGptJump(record,words,view,[]).reason,'no-practical-result');
-  assert.equal(C.evaluateGptJump(record,words,view,[{id:'2',result:'skipped'}]).reason,'no-practical-result');
+  const skipped=C.evaluateGptJump(record,words,view,[{id:'2',result:'skipped'}]);
+  assert.equal(skipped.canJump,true);assert.equal(skipped.lastResultId,'2');
 });
 
 test('GPT jump rejects filtered targets and recalculates candidate for current page size',()=>{
@@ -1565,7 +1575,7 @@ test('GPT integration merges destination results into the same active page witho
   assert.equal(finalized.state['3'].currentStreak,0);assert.equal(finalized.state['5'].currentStreak,1);
 });
 
-test('GPT integration does not treat an already finalized active-session result as a pending collision',()=>{
+test('GPT integration keeps finalized active-session overlaps on the formal history path',()=>{
   const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['2'];
   const context=C.createGptIssueContext(words,{startId:'2',pageSize:10,ids}),record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:['2'],pendingId:null};
@@ -1658,6 +1668,54 @@ test('failed first-import snapshot write leaves memory inputs and prior durable 
   const durable=C.loadCore(store,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
   assert.deepEqual(durable.state.a.recentResults,[]);assert.deepEqual(durable.gptSessions,sessions);assert.deepEqual(durable.registeredGptSessionIds,[]);
   assert.deepEqual(durable.activeSession.finalizedIds,[]);
+});
+
+test('advanceStudyProgress moves to GPT reach without moving a valid cursor backward',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),randomIds=[...words].reverse().map(word=>word.id);
+  let progress=C.recordStudyDisclosure({},words,'normal',randomIds,'15');
+  progress=C.recordStudyDisclosure(progress,words,'random',randomIds,'4');
+  const earlier=C.advanceStudyProgress(progress,words,'normal',randomIds,'8');
+  assert.equal(earlier.normal.id,'15');assert.equal(earlier.random.id,'4');
+  const later=C.advanceStudyProgress(progress,words,'normal',randomIds,'18');
+  assert.equal(later.normal.id,'18');assert.equal(later.random.id,'4');
+});
+
+test('GPT integration advances to furthest returned skipped result while masking missing and skipped rows',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['1','2','3','4','5','6'];
+  const context=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids}),record={createdAt:'t',ids,context};
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'1',result:'correct'},{id:'4',result:'skipped'},{id:'5',result:'wrong'}]},
+    {sessions:{s:record},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],studyProgress:{},gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.jump.lastResultId,'5');assert.equal(result.activeSession.gptRevealTargetId,'5');
+  assert.deepEqual(result.activeSession.studiedIds,['1','5']);assert.deepEqual(result.gptSkipped.ids,['4']);
+  assert.equal(result.gptSkipped.ids.includes('3'),false);assert.equal(result.gptSkipped.ids.includes('6'),false);
+  assert.equal(result.state['4'],undefined);assert.equal(result.state['3'],undefined);
+  assert.equal(result.state['1'].studyCount,1);assert.equal(result.state['5'].studyCount,1);
+  assert.equal(result.studyProgress.normal.id,'5');
+});
+
+test('GPT skipped-only result advances to its page without recording study history',()=>{
+  const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['11','12'];
+  const context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context};
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const result=C.prepareGptIntegration({version:1,sessionId:'skip-only',results:[{id:'12',result:'skipped'}]},
+    {sessions:{'skip-only':record},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],studyProgress:{},gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(result.transition.kind,'jump');assert.equal(result.transition.view.pageIndex,1);
+  assert.equal(result.activeSession.gptRevealTargetId,'12');assert.deepEqual(result.activeSession.studiedIds,[]);
+  assert.equal(result.state['12'],undefined);assert.deepEqual(result.gptSkipped.ids,['12']);assert.equal(result.studyProgress.normal.id,'12');
+});
+
+test('GPT result for an already disclosed active row preserves its session state and does not overwrite it',()=>{
+  const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['2'];
+  const context=C.createGptIssueContext(words,{startId:'2',pageSize:10,ids}),record={createdAt:'t',ids,context};
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:34,targetIds:words.map(word=>word.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:[],pendingId:'2'};
+  const state={'2':{...C.defaultState(),studyCount:1}};
+  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'2',result:'skipped'}]},
+    {sessions:{s:record},registeredIds:[],knownIds:words.map(word=>word.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],gptSkipped:C.setGptSkippedState(null,words,'2'),studyProgress:{},now:'2026-10-12T00:00:00.000Z'});
+  assert.deepEqual(result.activeSession.studiedIds,['2']);assert.deepEqual(result.activeSession.checkedIds,['2']);
+  assert.deepEqual(result.gptSkipped.ids,[]);assert.equal(result.state['2'].studyCount,1);
+  assert.deepEqual(result.ignoredOverlapIds,[]);assert.equal(result.jump.canJump,false);
 });
 
 test('last disclosure tracks the latest newly opened position independently for normal and random order',()=>{

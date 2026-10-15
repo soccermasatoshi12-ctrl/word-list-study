@@ -300,6 +300,7 @@
   let studyProgress=StudyCore.normalizeStudyProgress(savedCore.studyProgress);
   let gptSessions=savedCore.gptSessions;
   let registeredGptSessionIds=savedCore.registeredGptSessionIds||[];
+  let gptSkipped=StudyCore.normalizeGptSkippedState(savedCore.gptSkipped,words);
   let randomIds=loadJson(STORAGE_RANDOM_ORDER,[]);
   const rawSavedView=loadJson(STORAGE_VIEW,{});
   const rawSavedPreferences=loadJson(STORAGE_PREFERENCES,{});
@@ -323,7 +324,7 @@
   let defaultAnswer=initialPreferences.defaultAnswer;
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
-  let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null;
+  let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
   let distributionMode="all";
 
   const els={
@@ -347,7 +348,7 @@
     localStorage.setItem(STORAGE_WORDS,JSON.stringify(words));
     writeCoreSnapshot();
   }
-  function writeCoreSnapshot(){StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds,studyProgress})}
+  function writeCoreSnapshot(){StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped})}
   function currentView(){return{filter,sortMode,excludeStreak,excludeStreakN:masteryThreshold,masteryThreshold,pageIndex,randomStart}}
   function sessionView(view=currentView(),size=pageSize){return{...view,pageSize:size}}
   function persistView(view=currentView()){
@@ -492,11 +493,12 @@
   function sessionKey(view=currentView(),size=pageSize){
     return StudyCore.studySessionKey(view,size);
   }
-  function saveActiveSession(touch=false,writes=[]){
-    if(!activeSession){if(writes.length)StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds,studyProgress},writes);return}
+  function saveActiveSession(touch=false,writes=[],clearGptRevealAnchor=false){
+    if(!activeSession){if(writes.length)StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped},writes);return}
     const draftSession=JSON.parse(JSON.stringify(activeSession));
     if(touch)draftSession.updatedAt=Date.now();draftSession.revealY=revealY;draftSession.viewState=sessionView();
-    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress},writes);
+    if(clearGptRevealAnchor)draftSession.gptRevealTargetId=null;
+    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped},writes);
     activeSession=draftSession;
   }
   function updateHome(){
@@ -536,13 +538,13 @@
     revealY=Number(activeSession?.revealY||0);
     els.homeStatus.textContent="";els.homeStatus.className="status";
     els.homeScreen.hidden=true;els.studyScreen.hidden=false;
-    render();requestAnimationFrame(positionCurtain);return true;
+    render();requestAnimationFrame(()=>positionCurtain());return true;
   }
   function finalizeStoredSession(stored){
     if(!stored)return;
     const session={studiedIds:Array.isArray(stored.studiedIds)?stored.studiedIds:[],checkedIds:Array.isArray(stored.checkedIds)?stored.checkedIds:[],finalizedIds:Array.isArray(stored.finalizedIds)?stored.finalizedIds:[]};
     const draft=StudyCore.finalizeSessionDraft(state,session);
-    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress});
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped});
     state=draft.state;activeSession=null;
   }
   function tryRestoreSession(extraWrites=[]){
@@ -576,9 +578,10 @@
       checkedIds:Array.isArray(restored.checkedIds)?restored.checkedIds:[],
       finalizedIds:Array.isArray(restored.finalizedIds)?restored.finalizedIds:[],
       pendingId:restored.pendingId||null,
+      ...(typeof restored.gptRevealTargetId==="string"?{gptRevealTargetId:restored.gptRevealTargetId}:{}),
       ...(restored.preserveTargetIds?{preserveTargetIds:true,preservedTargetIdentity:restored.preservedTargetIdentity}: {})
     };
-    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:restoredSession,gptSessions,registeredGptSessionIds,studyProgress},[
+    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:restoredSession,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped},[
       {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
     ]);
     activeSession=restoredSession;
@@ -587,11 +590,11 @@
   function startSession(forceNew=false,extraWrites=[]){
     if(!forceNew&&tryRestoreSession(extraWrites))return;
     const target=buildTarget();pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
-    if(!words.length){activeSession=null;revealY=0;StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress},[
+    if(!words.length){activeSession=null;revealY=0;StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped},[
       {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
     ]);return}
     const nextSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
-    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress},[
+    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped},[
       {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
     ]);
     activeSession=nextSession;revealY=0;
@@ -603,7 +606,7 @@
   function finalizeSession(){
     if(!activeSession)return;
     const draft=StudyCore.finalizeSessionDraft(state,activeSession);
-    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress});
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped});
     state=draft.state;activeSession=null;localStorage.removeItem(STORAGE_ACTIVE_SESSION);
   }
   function applyView(view,size,threshold,answer){
@@ -621,14 +624,15 @@
       ?{sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(view,nextPageSize),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null}
       :{...priorSession,key:sessionKey(view,nextPageSize),targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),updatedAt:Date.now()};
     if(nextSession){delete nextSession.preserveTargetIds;delete nextSession.preservedTargetIdentity}
+    const draftSkipped=StudyCore.normalizeGptSkippedState(gptSkipped,nextWords);
     const writes=[];
     if(writeWords)writes.push({key:STORAGE_WORDS,value:JSON.stringify(nextWords)});
     if(writeRandomOrder)writes.push({key:STORAGE_RANDOM_ORDER,value:JSON.stringify(nextRandomIds)});
     if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold,defaultAnswer:nextDefaultAnswer,gptWordCount:nextGptWordCount})});
     if(writeListTitle)writes.push({key:STORAGE_LIST_TITLE,value:JSON.stringify(nextListTitle)});
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
-    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress},writes);
-    state=draftState;studyProgress=draftProgress;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;if(writeListTitle)listTitle=nextListTitle;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
+    StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped},writes);
+    state=draftState;studyProgress=draftProgress;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;gptSkipped=draftSkipped;if(writeListTitle)listTitle=nextListTitle;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
     if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
   }
@@ -637,17 +641,20 @@
     catch(error){alert(`保存に失敗したため操作を適用できませんでした。${error.message||error}`);return false}
   }
 
-  function markStudied(id,committedRevealY=revealY){
+  function markStudied(id,committedRevealY=revealY,clearSkipped=false){
     if(!activeSession)startSession();
     const draftState=JSON.parse(JSON.stringify(state)),draftSession=JSON.parse(JSON.stringify(activeSession));
     const st=draftState[id]=normalizeState(draftState[id]||defaultState());if(!StudyCore.recordStudy(draftSession,id,st,undefined,defaultAnswer))return true;
     draftSession.pendingId=id;draftSession.updatedAt=Date.now();draftSession.revealY=Number(committedRevealY)||0;
-    const draftProgress=StudyCore.recordStudyDisclosure(studyProgress,words,sortMode,randomIds,id);
-    try{StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress})}
+    const draftProgress=clearSkipped
+      ?StudyCore.advanceStudyProgress(studyProgress,words,sortMode,randomIds,id)
+      :StudyCore.recordStudyDisclosure(studyProgress,words,sortMode,randomIds,id);
+    const draftSkipped=clearSkipped?StudyCore.setGptSkippedState(gptSkipped,words,id,false):gptSkipped;
+    try{StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped})}
     catch(error){
       alert(`学習状態を保存できなかったため、開示を記録できませんでした。${error.message||error}`);return false
     }
-    state=draftState;activeSession=draftSession;studyProgress=draftProgress;renderAnswerControlForExposure(id);renderProgressSummary();return true;
+    state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure(id);renderProgressSummary();return true;
   }
   function markAnswer(id,checked){
     if(!activeSession)return;
@@ -656,7 +663,18 @@
     renderAnswerControlFor(id);saveActiveSession(true);
   }
 
-  function syncAnswerControl(row,id){const button=row.querySelector('.answer-toggle');if(!button)return;const revealed=!!activeSession?.studiedIds?.includes(id),correct=!!activeSession?.checkedIds?.includes(id),word=row.querySelector('.word-main')?.textContent||"単語";button.textContent=revealed?(correct?"○":"×"):"—";button.disabled=!revealed||!!activeSession?.finalizedIds?.includes(id);button.setAttribute("aria-pressed",String(revealed&&correct));button.setAttribute("aria-label",revealed?`${word} の評価は${correct?"○（正答）":"×（誤答）"}。押すと${correct?"×（誤答）":"○（正答）"}に切り替え`:`${word} の評価（未露出）`)}
+  function canIndividuallyDisclose(id,measuredGeometry=undefined){
+    if(!activeSession||rowDisclosed(id))return false;
+    const g=measuredGeometry===undefined?geometry():measuredGeometry,threshold=g?.thresholds.find(item=>String(item.id)===String(id));
+    return!!threshold&&revealY>=Number(threshold.bottom)-1;
+  }
+  function syncAnswerControl(row,id,measuredGeometry=undefined){
+    const button=row.querySelector('.answer-toggle');if(!button)return;
+    const revealed=rowDisclosed(id),correct=!!activeSession?.checkedIds?.includes(id),canOpen=!revealed&&canIndividuallyDisclose(id,measuredGeometry),word=row.querySelector('.word-main')?.textContent||"問題";
+    button.textContent=revealed?(correct?"○":"×"):"－";button.disabled=revealed?!!activeSession?.finalizedIds?.includes(id):!canOpen;
+    button.setAttribute("aria-pressed",String(revealed&&correct));
+    button.setAttribute("aria-label",revealed?`${word} の評価は${correct?"○（正答）":"×（誤答）"}。押すと${correct?"×（誤答）":"○（正答）"}に切り替え`:canOpen?`${word} は未開示。押すとこの問題だけ開示`:`${word} の評価（未開示。カーテンを開くと操作できます）`);
+  }
   let explanationPointerId=null,explanationKeyCode=null;
   function hideExplanationPopup(){els.explanationPopup.hidden=true;els.explanationPopup.setAttribute("aria-hidden","true");els.explanationPopup.textContent="";explanationPointerId=null;explanationKeyCode=null}
   function showExplanationPopup(button,clientX,clientY){
@@ -686,17 +704,21 @@
     text.classList.toggle('is-undisclosed',!disclosed);text.setAttribute('aria-hidden',String(!disclosed));
   }
   function renderAnswerControlForExposure(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncMeaningDisclosure(row,id);syncAnswerControl(row,id);syncExplanationControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
-  function toggleAnswer(id){if(!activeSession?.studiedIds?.includes(id)||activeSession.finalizedIds?.includes(id))return;markAnswer(id,!activeSession.checkedIds.includes(id))}
+  function toggleAnswer(id){
+    if(rowDisclosed(id)){if(activeSession?.finalizedIds?.includes(id))return;markAnswer(id,!activeSession.checkedIds.includes(id));return}
+    if(canIndividuallyDisclose(id))markStudied(id,revealY,true);
+  }
   function refreshVisibleRows(){
     const scrollX=window.scrollX,scrollY=window.scrollY;
-    for(const row of els.words.querySelectorAll('.word-row')){
+    const rows=[...els.words.querySelectorAll('.word-row')];
+    for(const row of rows){
       const id=row.dataset.id,st=getState(id);
       renderRecent(row.querySelector('.recent'),id,st);
       const mastered=isMastered(st),medal=row.querySelector('.word-medal');
       if(mastered&&!medal)row.querySelector('.recent').after(makeMedalIcon());
       else if(!mastered&&medal)medal.remove();
-      syncAnswerControl(row,id);
     }
+    const measured=geometry();for(const row of rows)syncAnswerControl(row,row.dataset.id,measured);
     window.scrollTo(scrollX,scrollY);
   }
 
@@ -747,10 +769,10 @@
 
       const mc=document.createElement("div");mc.className="meaning-cell";mc.dataset.id=w.id;
       const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.answer;mc.appendChild(mt);
-      row.append(wc,cc,mc);syncMeaningDisclosure(row,w.id);syncAnswerControl(row,w.id);syncExplanationControl(row,w.id);els.words.appendChild(row);
+      row.append(wc,cc,mc);syncMeaningDisclosure(row,w.id);syncAnswerControl(row,w.id,null);syncExplanationControl(row,w.id);els.words.appendChild(row);
     }
     if(curtainLayoutObserver){curtainLayoutObserver.disconnect();for(const row of els.words.querySelectorAll(".word-row"))curtainLayoutObserver.observe(row)}
-    requestAnimationFrame(positionCurtain);
+    requestAnimationFrame(()=>positionCurtain());
   }
 
   function render(){
@@ -790,14 +812,16 @@
     const thresholds=cells.map(cell=>{const r=cell.getBoundingClientRect();return{id:cell.dataset.id,top:r.top-firstRect.top,bottom:r.bottom-firstRect.top}});
     return{top,left,width,height:bottom-top,thresholds};
   }
-  function processRevealProgress(){const g=geometry();if(!g||!activeSession)return true;return StudyCore.processRevealThresholds(g.thresholds,revealY,activeSession.studiedIds,markStudied)}
-  function positionCurtain(){
-    const g=geometry();
+  function processRevealProgress(g=geometry()){if(!g||!activeSession)return true;return StudyCore.processRevealThresholds(g.thresholds,revealY,activeSession.studiedIds,markStudied,gptSkipped.ids)}
+  function positionCurtain(g=geometry()){
     if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");return}
+    const anchor=!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
+    if(anchor)revealY=Number(anchor.bottom);
     revealY=Math.max(0,Math.min(revealY,g.height));
     els.meaningCurtain.classList.remove("hidden");els.curtainHandle.classList.remove("hidden");
     els.meaningCurtain.style.left=`${g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${g.top+revealY}px`;els.meaningCurtain.style.height=`${Math.max(0,g.height-revealY)}px`;
     els.curtainHandle.style.left=`${g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${g.top+revealY}px`;
+    for(const row of els.words.querySelectorAll(".word-row"))syncAnswerControl(row,row.dataset.id,g);
   }
   function repeatStudy(){
     const visibleIds=[...els.words.querySelectorAll(".word-row")].map(row=>row.dataset.id);
@@ -842,12 +866,12 @@
   function attachCurtainDrag(){
     let dragging=false,startClientY=0,startRevealY=0,pointerId=null;
     const cancelDrag=()=>{if(!dragging)return;dragging=false;try{if(pointerId!==null&&els.curtainHandle.hasPointerCapture(pointerId))els.curtainHandle.releasePointerCapture(pointerId)}catch{}pointerId=null};
-    const restoreCommittedPosition=()=>{cancelDrag();revealY=Number(activeSession?.revealY||0);positionCurtain()};
-    const persistDragPosition=()=>{try{saveActiveSession(true);return true}catch(error){alert(`学習位置を保存できなかったため、直前の保存位置へ戻しました。${error.message||error}`);restoreCommittedPosition();return false}};
+    const restoreCommittedPosition=()=>{cancelDrag();curtainUserDragging=false;revealY=Number(activeSession?.revealY||0);positionCurtain()};
+    const persistDragPosition=()=>{try{saveActiveSession(true,[],true);return true}catch(error){alert(`学習位置を保存できなかったため、直前の保存位置へ戻しました。${error.message||error}`);restoreCommittedPosition();return false}};
     const correctAfterLayoutChange=()=>{
-      cancelDrag();const g=geometry();if(!g){positionCurtain();return}
+      cancelDrag();const g=geometry();if(!g){positionCurtain(g);return}
       revealY=Math.max(0,Math.min(Number(activeSession?.revealY??revealY)||0,g.height));
-      positionCurtain();
+      positionCurtain(g);
     };
     window.addEventListener("resize",correctAfterLayoutChange);
     if(typeof ResizeObserver!=="undefined"){
@@ -860,18 +884,18 @@
     }
     els.curtainHandle.addEventListener("pointerdown",e=>{
       if(els.curtainHandle.classList.contains("hidden"))return;
-      dragging=true;pointerId=e.pointerId;startClientY=e.clientY;startRevealY=revealY;els.curtainHandle.setPointerCapture(e.pointerId);e.preventDefault();
+      dragging=true;curtainUserDragging=true;pointerId=e.pointerId;startClientY=e.clientY;startRevealY=revealY;els.curtainHandle.setPointerCapture(e.pointerId);e.preventDefault();
     });
     els.curtainHandle.addEventListener("pointermove",e=>{
       if(!dragging)return;const g=geometry();if(!g)return;
-      revealY=Math.max(0,Math.min(startRevealY+(e.clientY-startClientY),g.height));positionCurtain();
-      if(!processRevealProgress()){restoreCommittedPosition();e.preventDefault();return}
+      revealY=Math.max(0,Math.min(startRevealY+(e.clientY-startClientY),g.height));positionCurtain(g);
+      if(!processRevealProgress(g)){restoreCommittedPosition();e.preventDefault();return}
       if(!persistDragPosition()){e.preventDefault();return}e.preventDefault();
     });
     const finish=e=>{
       if(!dragging)return;
       if(!processRevealProgress()){restoreCommittedPosition();return}
-      if(!persistDragPosition())return;dragging=false;
+      if(!persistDragPosition())return;dragging=false;curtainUserDragging=false;
       try{els.curtainHandle.releasePointerCapture(e.pointerId)}catch{}pointerId=null;
     };
     els.curtainHandle.addEventListener("pointerup",finish);els.curtainHandle.addEventListener("pointercancel",finish);
@@ -893,7 +917,7 @@
     try{context=StudyCore.createGptIssueContext(words,{sortMode,randomIds,startId:start.startId,pageSize,excludeStreak,masteryThreshold,ids})}
     catch(err){alert(err.message||"GPT発行時の情報を準備できませんでした。");return}
     const nextSessions={...gptSessions,[sessionId]:{createdAt:new Date().toISOString(),ids,context}};
-    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions:nextSessions,registeredGptSessionIds,studyProgress});
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions:nextSessions,registeredGptSessionIds,studyProgress,gptSkipped});
     gptSessions=nextSessions;
     const url=new URL(location.href);url.search="";url.hash="";
     url.searchParams.set("study",btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
@@ -912,11 +936,11 @@
         els.resultStatus.textContent="登録をキャンセルしました。";return;
       }
       const sessionId=String(obj.sessionId),record=gptSessions[sessionId];
-      const integrationArgs={sessions:gptSessions,registeredIds:registeredGptSessionIds,knownIds:words.map(w=>w.id),words,state,activeSession,currentView:currentView(),pageSize,randomIds,now:Date.now()};
+      const integrationArgs={sessions:gptSessions,registeredIds:registeredGptSessionIds,knownIds:words.map(w=>w.id),words,state,activeSession,currentView:currentView(),pageSize,randomIds,studyProgress,gptSkipped,now:Date.now()};
       let forceFormalOnly=false;
       if(!checked.isReplay&&record){
-        const pending=new Set((activeSession?.studiedIds||[]).map(String).filter(id=>!(activeSession?.finalizedIds||[]).map(String).includes(id)));
-        const resultById=new Map(checked.results.filter(result=>result.result!=="skipped"&&!pending.has(result.id)).map(result=>[result.id,result.result]));
+        const disclosed=new Set((activeSession?.studiedIds||[]).map(String));
+        const resultById=new Map(checked.results.filter(result=>!disclosed.has(result.id)).map(result=>[result.id,result.result]));
         let lastResultId=null;for(const id of record.ids||[])if(resultById.has(String(id)))lastResultId=String(id);
         if(!lastResultId)forceFormalOnly="no-practical-result";
         else {
@@ -949,11 +973,19 @@
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump&&!draft.activeSession){
         const target=buildTarget(nextView,draft.state,words,randomIds,pageSize);
         draft.activeSession={sessionId:`gpt-${sessionId}-view`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+        draft.activeSession.gptRevealTargetId=draft.jump.lastResultId;
+      }
+      if(draft.activeSession?.gptRevealTargetId&&draft.samePage){
+        const g=geometry(),targetIndex=g?.thresholds.findIndex(item=>String(item.id)===String(draft.activeSession.gptRevealTargetId))??-1;
+        if(g&&targetIndex>=0&&g.thresholds[targetIndex].bottom<=revealY+1){
+          const boundaryIndex=g.thresholds.findIndex(item=>item.bottom>=revealY-1);
+          draft.activeSession.gptRevealTargetId=boundaryIndex>=0?g.thresholds[boundaryIndex].id:g.thresholds.at(-1).id;
+        }
       }
       const writes=[];
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump)writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(nextView))});
-      StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,studyProgress},writes);
-      state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;registeredGptSessionIds=draft.registeredGptSessionIds;
+      StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,studyProgress:draft.studyProgress,gptSkipped:draft.gptSkipped},writes);
+      state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;registeredGptSessionIds=draft.registeredGptSessionIds;studyProgress=draft.studyProgress;gptSkipped=draft.gptSkipped;
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump)applyView(nextView,pageSize,masteryThreshold,defaultAnswer);
       revealY=Number(activeSession?.revealY||0);render();
       els.resultStatus.textContent=`${draft.applied}件を反映しました。${draft.transition?.kind==="jump"&&draft.jump?.canJump?" GPT結果の続きへ移動しました。":""}`;els.resultStatus.className="status good";
@@ -1044,7 +1076,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("学習データと履歴をこの端末から削除しますか？"))return;
-    words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
+    words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];gptSkipped=StudyCore.normalizeGptSkippedState(null,[]);randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES,STORAGE_LIST_TITLE])localStorage.removeItem(key);
     updateHome();
     startSession(true);render();
@@ -1078,7 +1110,7 @@
     window.addEventListener("beforeunload",()=>{saveActiveSession();persistView()});
     if(initialScreen==="study")startSession(false);
     revealY=Number(activeSession?.revealY||0);
-    if(initialScreen==="study"){render();requestAnimationFrame(positionCurtain)}
+    if(initialScreen==="study"){render();requestAnimationFrame(()=>positionCurtain())}
   }catch(error){
     initialScreen="home";els.studyScreen.hidden=true;els.homeScreen.hidden=false;updateHome();
     els.homeStatus.textContent="学習状態を保存・復元できなかったためホームを表示しています。"+(error.message||error);els.homeStatus.className="status bad";
