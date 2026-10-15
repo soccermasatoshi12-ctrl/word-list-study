@@ -42,6 +42,13 @@
     .study-controls{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid var(--border)}
     .filter-controls,.sort-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
     .study-controls button{min-height:36px;padding:6px 9px;font-size:.9rem}
+    .progress-overview{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px 12px;margin:0 0 8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#fff}
+    .progress-overview-heading{display:flex;align-items:baseline;gap:8px;min-width:0}.progress-overview-label{font-size:.82rem;color:var(--muted)}.progress-overview-rate{font-size:1.05rem;font-weight:700;font-variant-numeric:tabular-nums}.progress-overview-count{margin-left:auto;color:var(--muted);font-size:.82rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .progress-bar{grid-column:1 / -1;display:flex;overflow:hidden;width:100%;height:7px;border-radius:999px;background:#e8ebf0}.progress-bar-fill{height:100%;background:#2563eb;transition:width .2s ease}
+    .progress-detail-toggle{grid-column:2;grid-row:1;min-height:30px;padding:4px 8px;border-radius:8px;font-size:.8rem;white-space:nowrap}
+    .progress-details{grid-column:1 / -1;padding-top:8px;border-top:1px solid #edf0f3}.progress-distribution-title{margin:0 0 3px;font-size:.9rem}.progress-distribution-count{margin:0 0 8px;color:var(--muted);font-size:.8rem}
+    .distribution-mode{display:flex;gap:5px;margin:0 0 8px}.distribution-mode button{min-height:30px;padding:4px 9px;border-radius:8px;font-size:.8rem}.distribution-mode button[aria-pressed="true"]{border-color:var(--accent);background:#eff6ff;color:var(--accent);font-weight:600}
+    .distribution-bar{display:flex;overflow:hidden;width:100%;min-height:24px;border-radius:6px;background:#eef1f5}.distribution-segment{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;color:#fff;font-size:.68rem;font-weight:650;white-space:nowrap}.distribution-legend{display:flex;flex-wrap:wrap;gap:5px 14px;margin:8px 0 0;padding:0;list-style:none}.distribution-legend li{display:flex;align-items:center;gap:5px;min-width:0;font-size:.78rem;font-variant-numeric:tabular-nums}.distribution-swatch{width:9px;height:9px;flex:0 0 9px;border-radius:2px}.distribution-empty{margin:8px 0 0;color:var(--muted);font-size:.84rem}
     .page-position-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.count,.page-position{color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
     .page-navigation{padding:8px 0 4px}
     .hint{font-size:.84rem;color:var(--muted);line-height:1.45;margin-top:6px}
@@ -110,6 +117,7 @@
     @media(max-width:560px){
       .app{padding:8px}
       .study-shell{padding:8px}
+      .progress-overview{gap:4px 8px;margin-bottom:6px;padding:7px 8px}.progress-overview-heading{gap:5px}.progress-overview-rate{font-size:1rem}.progress-overview-count{font-size:.76rem}.progress-bar{height:6px}.progress-details{padding-top:7px}.distribution-legend{gap:5px 10px}.distribution-legend li{font-size:.74rem}
       .study-controls{display:flex;gap:6px 10px;padding-bottom:7px}
       .filter-controls,.sort-controls{gap:6px}
       .study-controls button{min-height:40px;padding:6px 9px}
@@ -188,6 +196,22 @@
   </dialog>
 
   <main class="study-shell">
+    <section id="progressOverview" class="progress-overview" aria-label="学習進捗">
+      <div class="progress-overview-heading"><span class="progress-overview-label">習得率</span><strong id="masteryRate" class="progress-overview-rate">—</strong><span id="masteryCount" class="progress-overview-count">0 / 0問</span></div>
+      <button id="progressDetailToggle" class="progress-detail-toggle" type="button" aria-expanded="false" aria-controls="progressDetails">詳細</button>
+      <div id="masteryBar" class="progress-bar" role="progressbar" aria-label="習得率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="masteryBarFill" class="progress-bar-fill" style="width:0%"></span></div>
+      <div id="progressDetails" class="progress-details" hidden>
+        <h2 class="progress-distribution-title">学習回数の分布</h2>
+        <p id="distributionCount" class="progress-distribution-count"></p>
+        <div class="distribution-mode" role="group" aria-label="分布の対象">
+          <button id="distributionAll" type="button" aria-pressed="true">全問題</button>
+          <button id="distributionUnmastered" type="button" aria-pressed="false">未習得のみ</button>
+        </div>
+        <div id="distributionBar" class="distribution-bar" role="img" aria-label="学習回数の分布"></div>
+        <ul id="distributionLegend" class="distribution-legend"></ul>
+        <p id="distributionEmpty" class="distribution-empty" hidden></p>
+      </div>
+    </section>
     <div class="study-controls" aria-label="学習対象と表示順">
       <div class="sort-controls" aria-label="表示順">
       <button id="normalOrder" class="active">通常順</button>
@@ -292,12 +316,14 @@
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null;
+  let distributionMode="all",progressDetailsOpen=false;
 
   const els={
     homeScreen:document.getElementById("homeScreen"),homeRegistrationCard:document.getElementById("homeRegistrationCard"),homeStudyCard:document.getElementById("homeStudyCard"),homeListTitle:document.getElementById("homeListTitle"),homeQuestionCount:document.getElementById("homeQuestionCount"),editListTitle:document.getElementById("editListTitle"),homeTitleEditor:document.getElementById("homeTitleEditor"),homeTitleInput:document.getElementById("homeTitleInput"),saveListTitle:document.getElementById("saveListTitle"),cancelListTitle:document.getElementById("cancelListTitle"),studyScreen:document.getElementById("studyScreen"),startStudy:document.getElementById("startStudy"),goHome:document.getElementById("goHome"),homeStatus:document.getElementById("homeStatus"),
     openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),homeCsvFile:document.getElementById("homeCsvFile"),clearData:document.getElementById("clearData"),
     pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),defaultAnswer:document.getElementById("defaultAnswer"),gptWordCount:document.getElementById("gptWordCount"),gptStartPosition:document.getElementById("gptStartPosition"),resetSettings:document.getElementById("resetSettings"),
+    masteryRate:document.getElementById("masteryRate"),masteryCount:document.getElementById("masteryCount"),masteryBar:document.getElementById("masteryBar"),masteryBarFill:document.getElementById("masteryBarFill"),progressDetailToggle:document.getElementById("progressDetailToggle"),progressDetails:document.getElementById("progressDetails"),distributionCount:document.getElementById("distributionCount"),distributionAll:document.getElementById("distributionAll"),distributionUnmastered:document.getElementById("distributionUnmastered"),distributionBar:document.getElementById("distributionBar"),distributionLegend:document.getElementById("distributionLegend"),distributionEmpty:document.getElementById("distributionEmpty"),
     count:document.getElementById("count"),pagePositionRow:document.getElementById("pagePositionRow"),pagePosition:document.getElementById("pagePosition"),tabs:document.getElementById("tabs"),normalNext:document.getElementById("normalNext"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),gptWordCountSummary:document.getElementById("gptWordCountSummary"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
@@ -346,6 +372,37 @@
     svg.append(circle,ribbon,star);return svg;
   }
   function isMastered(st){return(st.currentStreak||0)>=masteryThreshold}
+  const PROGRESS_COLORS=["#2563eb","#0f766e","#7c3aed","#c2410c","#be123c","#475569"];
+  function renderProgressSummary(){
+    const summary=StudyCore.buildProgressSummary(words,state,{masteryThreshold,distributionMode});
+    const total=summary.registeredQuestionCount,mastered=summary.masteredQuestionCount,rate=summary.masteryRate;
+    els.masteryRate.textContent=rate===null?"—":`${Math.round(rate)}%`;
+    els.masteryCount.textContent=`${mastered} / ${total}問`;
+    els.masteryBarFill.style.width=`${rate===null?0:Math.max(0,Math.min(100,rate))}%`;
+    els.masteryBar.setAttribute("aria-valuenow",String(rate===null?0:Math.round(rate)));
+    els.masteryBar.setAttribute("aria-valuetext",rate===null?"登録問題なし":`${Math.round(rate)}%、${mastered} / ${total}問`);
+    els.progressDetailToggle.textContent=progressDetailsOpen?"閉じる":"詳細";
+    els.progressDetailToggle.setAttribute("aria-expanded",String(progressDetailsOpen));
+    els.progressDetails.hidden=!progressDetailsOpen;
+    els.distributionAll.setAttribute("aria-pressed",String(distributionMode==="all"));
+    els.distributionUnmastered.setAttribute("aria-pressed",String(distributionMode==="unmastered"));
+    els.distributionCount.textContent=`対象：${summary.distributionQuestionCount}問`;
+    els.distributionBar.replaceChildren();els.distributionLegend.replaceChildren();
+    const empty=summary.distributionQuestionCount===0;
+    els.distributionBar.hidden=empty;els.distributionLegend.hidden=empty;els.distributionEmpty.hidden=!empty;
+    els.distributionEmpty.textContent=empty?"対象問題なし":"";
+    els.distributionBar.setAttribute("aria-label",`学習回数の分布、${summary.distributionQuestionCount}問`);
+    summary.distribution.forEach((bucket,index)=>{
+      const color=PROGRESS_COLORS[index%PROGRESS_COLORS.length],segment=document.createElement("span");
+      segment.className="distribution-segment";segment.style.width=`${bucket.ratio*100}%`;segment.style.backgroundColor=color;
+      segment.setAttribute("aria-hidden","true");
+      if(bucket.ratio>=.12)segment.textContent=`${Math.round(bucket.ratio*100)}%`;
+      els.distributionBar.appendChild(segment);
+      const item=document.createElement("li"),swatch=document.createElement("span"),label=document.createElement("span");
+      swatch.className="distribution-swatch";swatch.style.backgroundColor=color;swatch.setAttribute("aria-hidden","true");
+      label.textContent=`${bucket.label}：${bucket.questionCount}問`;item.append(swatch,label);els.distributionLegend.appendChild(item);
+    });
+  }
 
   function sameIdSet(orderIds,currentIds){
     if(!Array.isArray(orderIds)||orderIds.length!==currentIds.length)return false;
@@ -575,7 +632,7 @@
     catch(error){
       alert(`学習状態を保存できなかったため、開示を記録できませんでした。${error.message||error}`);return false
     }
-    state=draftState;activeSession=draftSession;studyProgress=draftProgress;renderAnswerControlForExposure(id);return true;
+    state=draftState;activeSession=draftSession;studyProgress=draftProgress;renderAnswerControlForExposure(id);renderProgressSummary();return true;
   }
   function markAnswer(id,checked){
     if(!activeSession)return;
@@ -686,6 +743,7 @@
     const model=pageModel(),target=buildTarget();let page=target.page,current=page?.entries||[];
     pageIndex=target.view.pageIndex;randomStart=target.view.randomStart;
     renderTabs(model);renderRowsOnly(current);
+    renderProgressSummary();
     els.repeatStudy.disabled=current.length===0;
     const positionPages=sortMode==="random"?model.pages:model.pages.filter(item=>item.entries.length>0);
     const currentPosition=sortMode==="random"?randomStart:pageIndex;
@@ -979,6 +1037,9 @@
   els.makeSession.addEventListener("click",makeGptSession);
   els.copySession.addEventListener("click",async()=>{if(!lastSessionUrl)return;const ok=await copyText(lastSessionUrl);els.copySession.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copySession.textContent="URLをコピー",1200)});
   els.applyResults.addEventListener("click",applyGptResults);
+  els.progressDetailToggle.addEventListener("click",()=>{progressDetailsOpen=!progressDetailsOpen;renderProgressSummary()});
+  els.distributionAll.addEventListener("click",()=>{if(distributionMode==="all")return;distributionMode="all";renderProgressSummary()});
+  els.distributionUnmastered.addEventListener("click",()=>{if(distributionMode==="unmastered")return;distributionMode="unmastered";renderProgressSummary()});
 
   let screenStorage,screenState;
   try{screenStorage=window.localStorage;screenState=StudyCore.inspectInitialScreen(screenStorage,STORAGE_SCREEN,words.length>0)}

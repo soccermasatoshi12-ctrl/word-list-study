@@ -146,6 +146,22 @@ test('progress distribution never loses, duplicates, or exceeds its registered t
   }
 });
 
+test('study screen exposes progress summary controls and renders only the core-provided distribution',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/<section id="progressOverview"[^>]*aria-label="学習進捗"/);
+  assert.match(html,/<strong id="masteryRate"[^>]*>—<\/strong>/);
+  assert.match(html,/<div id="progressDetails" class="progress-details" hidden>/);
+  assert.match(html,/<button id="distributionAll"[^>]*aria-pressed="true">全問題<\/button>/);
+  assert.match(html,/<button id="distributionUnmastered"[^>]*aria-pressed="false">未習得のみ<\/button>/);
+  assert.match(html,/StudyCore\.buildProgressSummary\(words,state,\{masteryThreshold,distributionMode\}\)/);
+  assert.match(html,/segment\.style\.width=`\$\{bucket\.ratio\*100\}%`/);
+  assert.match(html,/label\.textContent=`\$\{bucket\.label\}：\$\{bucket\.questionCount\}問`/);
+  assert.match(html,/state=draftState;activeSession=draftSession;studyProgress=draftProgress;renderAnswerControlForExposure\(id\);renderProgressSummary\(\)/);
+  assert.match(html,/els\.distributionEmpty\.textContent=empty\?"対象問題なし"/);
+  assert.match(html,/progressDetails\.hidden=!progressDetailsOpen/);
+  assert.match(html,/els\.distributionBar\.hidden=empty;els\.distributionLegend\.hidden=empty/);
+});
+
 test('recent history is capped at ten while streak remains exact', () => {
   const s=C.defaultState();
   for(let i=0;i<15;i++) C.appendResult(s,true);
