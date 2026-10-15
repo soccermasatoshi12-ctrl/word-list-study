@@ -146,19 +146,37 @@ test('progress distribution never loses, duplicates, or exceeds its registered t
   }
 });
 
-test('study screen exposes progress summary controls and renders only the core-provided distribution',()=>{
+test('home and study screens share circular mastery rings and a modal progress detail view',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<section id="progressOverview"[^>]*aria-label="学習進捗"/);
-  assert.match(html,/<strong id="masteryRate"[^>]*>—<\/strong>/);
-  assert.match(html,/<div id="progressDetails" class="progress-details" hidden>/);
+  assert.match(html,/<div id="homeMasteryRing" class="home-study-mastery" aria-label="習得率"><\/div>/);
+  assert.match(html,/<div id="studyMasteryRing"><\/div>/);
+  assert.match(html,/<dialog id="progressDialog" class="progress-dialog"/);
+  assert.match(html,/<button id="openProgressDetails"[^>]*aria-label="進捗詳細を開く"/);
+  assert.match(html,/<button id="closeProgressDetails"[^>]*aria-label="進捗詳細を閉じる"/);
+  assert.match(html,/<div class="mastery-detail"><div class="mastery-detail-heading"><svg class="medal-icon"[^>]*viewBox="0 0 20 24">[\s\S]*?<\/svg><h3 id="progressMasteryTitle">習得率<\/h3><\/div><div id="detailMasteryRing"><\/div><p id="masteryCount" class="mastery-detail-count">/);
+  const masterySwitchMedal=html.match(/<label class="mastery-switch">\s*(<svg class="medal-icon"[\s\S]*?<\/svg>)/)?.[1];
+  const dialogMedal=html.match(/<div class="mastery-detail-heading">(<svg class="medal-icon"[\s\S]*?<\/svg>)/)?.[1];
+  assert.ok(masterySwitchMedal&&dialogMedal,'dialog heading uses the mastery medal artwork');
+  assert.equal(masterySwitchMedal.replace(/^[\s\S]*?>/,'').replace(/<\/svg>$/,''),dialogMedal.replace(/^[\s\S]*?>/,'').replace(/<\/svg>$/,''));
+  assert.match(html,/\.mastery-detail\{display:flex;align-items:flex-start;justify-content:flex-start;gap:16px\}/);
+  assert.match(html,/\.mastery-detail-count\{align-self:center/);
+  assert.match(html,/<h3 id="progressDistributionTitle">学習回数の分布<\/h3>/);
   assert.match(html,/<button id="distributionAll"[^>]*aria-pressed="true">全問題<\/button>/);
   assert.match(html,/<button id="distributionUnmastered"[^>]*aria-pressed="false">未習得のみ<\/button>/);
   assert.match(html,/StudyCore\.buildProgressSummary\(words,state,\{masteryThreshold,distributionMode\}\)/);
+  assert.match(html,/function makeMasteryRing\(rate,size,label\)/);
+  assert.match(html,/text\.textContent=value===null\?"—":`\$\{Math\.round\(value\)\}%`/);
   assert.match(html,/segment\.style\.width=`\$\{bucket\.ratio\*100\}%`/);
   assert.match(html,/label\.textContent=`\$\{bucket\.label\}：\$\{bucket\.questionCount\}問`/);
   assert.match(html,/state=draftState;activeSession=draftSession;studyProgress=draftProgress;renderAnswerControlForExposure\(id\);renderProgressSummary\(\)/);
   assert.match(html,/els\.distributionEmpty\.textContent=empty\?"対象問題なし"/);
-  assert.match(html,/progressDetails\.hidden=!progressDetailsOpen/);
+  assert.match(html,/els\.openProgressDetails\.addEventListener\("click",\(\)=>\{if\(!els\.progressDialog\.open\)els\.progressDialog\.showModal\(\)\}\)/);
+  assert.match(html,/els\.closeProgressDetails\.addEventListener\("click",\(\)=>\{if\(els\.progressDialog\.open\)els\.progressDialog\.close\(\)\}\)/);
+  assert.match(html,/els\.homeMasteryRing\.replaceChildren\(makeMasteryRing\(rate,"small","習得率"\)\)/);
+  assert.match(html,/els\.studyMasteryRing\.replaceChildren\(makeMasteryRing\(rate,"medium","習得率"\)\)/);
+  assert.match(html,/els\.detailMasteryRing\.replaceChildren\(makeMasteryRing\(rate,"large","習得率"\)\)/);
+  assert.doesNotMatch(html,/distributionCount|対象：\$\{summary\.distributionQuestionCount\}問/);
   assert.match(html,/els\.distributionBar\.hidden=empty;els\.distributionLegend\.hidden=empty/);
 });
 
@@ -527,10 +545,25 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.doesNotMatch(header,/CSV形式:/);
   const study=html.match(/<main class="study-shell">([\s\S]*?)<\/main>/)?.[1];
   assert.ok(study,'all study controls and list should share one study region');
+  const progressHeading=study.match(/<div class="progress-overview-heading">([\s\S]*?)<\/div>/)?.[1];
+  assert.match(progressHeading,/<svg class="medal-icon progress-overview-medal"[^>]*viewBox="0 0 20 24">([\s\S]*?)<\/svg><span class="progress-overview-label">習得率<\/span>/);
+  const settingsMedal=study.match(/<label class="mastery-switch">\s*(<svg class="medal-icon"[\s\S]*?<\/svg>)/)?.[1];
+  const progressMedal=progressHeading?.match(/(<svg[^>]*>)([\s\S]*?)<\/svg>/)?.slice(1);
+  assert.ok(settingsMedal&&progressMedal,'progress heading reuses the mastery medal artwork');
+  assert.equal(settingsMedal.match(/viewBox="([^"]+)"/)?.[1],progressMedal[0].match(/viewBox="([^"]+)"/)?.[1]);
+  assert.equal(settingsMedal.replace(/^[\s\S]*?>/,'').replace(/<\/svg>$/,''),progressMedal[1]);
+  assert.match(html,/\.progress-overview\{display:grid;grid-template-columns:auto auto minmax\(0,1fr\) 42px;grid-template-rows:minmax\(52px,auto\);align-items:start;[\s\S]*?border-bottom:1px solid var\(--border\)\}/);
+  assert.match(html,/\.progress-overview-heading\{grid-column:1;grid-row:1/);
+  assert.match(html,/\.progress-overview #studyMasteryRing\{grid-column:2;grid-row:1\}/);
+  assert.match(html,/\.progress-overview \.progress-overview-medal\{width:14px;height:17px\}/);
+  assert.match(html,/\.progress-overview-label\{color:var\(--text\);font-size:\.88rem;font-weight:650\}/);
+  assert.match(html,/\.progress-open-button\{grid-column:4;grid-row:1;align-self:end/);
+  assert.match(html,/\.distribution-legend\{display:flex;flex-wrap:wrap;align-content:flex-start;gap:5px 14px;[\s\S]*?line-height:1\.4;min-height:calc\(2 \* 1\.4em \+ 6px\)\}/);
+  assert.match(html,/\.study-controls\{display:flex;[\s\S]*?border-bottom:1px solid var\(--border\)\}/);
   assert.match(study,/<div class="study-controls"[\s\S]*id="normalOrder"[\s\S]*id="randomOrder"[\s\S]*id="excludeStreak" type="checkbox" role="switch"/);
   assert.doesNotMatch(study,/非正答あり|data-filter=/);
-  assert.equal((study.match(/class="medal-icon"/g)||[]).length,1);
-  assert.equal((html.match(/class="medal-icon"/g)||[]).length,2);
+  assert.equal((study.match(/class="medal-icon/g)||[]).length,3);
+  assert.equal((html.match(/class="medal-icon/g)||[]).length,4);
   assert.match(html,/aria-checked="false"/);
   assert.ok(study.indexOf('id="listWrap"')<study.indexOf('class="study-actions"'));
   const actions=study.match(/<div class="study-actions"[\s\S]*?<\/div>/)?.[0];
@@ -784,7 +817,9 @@ test('home cards, title persistence, filename title, and import transaction are 
   assert.match(html,/<div id="homeStudyCard" class="home-panel study" hidden>[\s\S]*?id="homeListTitle"[\s\S]*?id="editListTitle"[\s\S]*?id="homeTitleEditor"[\s\S]*?id="homeQuestionCount"[\s\S]*?学習する/);
   assert.match(html,/#homeTitleEditor\[hidden\],#editListTitle\[hidden\]\{display:none!important\}/);
   assert.match(html,/\.home-panel\.study\{grid-template-columns:minmax\(0,1fr\) auto/);
-  assert.match(html,/\.home-start-study\{grid-column:2;grid-row:1 \/ span 2;justify-self:end/);
+  assert.match(html,/\.home-panel\.study\{grid-template-columns:minmax\(0,1fr\) auto auto/);
+  assert.match(html,/\.home-start-study\{grid-column:3;grid-row:1 \/ span 2;justify-self:end/);
+  assert.match(html,/\.home-study-mastery\{grid-column:2;grid-row:1 \/ span 2/);
   assert.match(html,/\.home-panel\.registration\{grid-template-columns:minmax\(0,1fr\) auto/);
   assert.match(html,/function titleFromFileName\(fileName\)[\s\S]*?replace\(\/\\\.csv\$\/i/);
   assert.match(html,/STORAGE_LIST_TITLE="wordlist\.listTitle\.v1"/);
