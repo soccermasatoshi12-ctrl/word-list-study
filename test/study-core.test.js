@@ -1028,26 +1028,72 @@ test('legacy individual keys migrate when no integrated snapshot exists', () => 
   const legacy={state:{a:{studyCount:3}},gptSessions:{g:{applied:false}},active:{key:'all',updatedAt:50,studiedIds:['a'],checkedIds:[],finalizedIds:[],revealY:80}};
   const store=memoryStorage({oldState:JSON.stringify(legacy.state),oldGpt:JSON.stringify(legacy.gptSessions),oldActive:JSON.stringify(legacy.active)});
   const loaded=C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'});
-  assert.deepEqual(loaded,{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:legacy.active});
+  assert.deepEqual(loaded,{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:legacy.active,gptSkipped:{contentFingerprint:null,ids:[]}});
   C.saveCore(store,'ledger',loaded);
-  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:legacy.active});
+  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:legacy.active,gptSkipped:{contentFingerprint:null,ids:[]}});
 });
 test('integrated snapshot wins over stale legacy keys and preserves session progress', () => {
   const store=memoryStorage({oldState:JSON.stringify({a:{studyCount:90}}),oldGpt:JSON.stringify({old:{applied:false}}),oldActive:'null'});
   const snapshot={state:{a:{studyCount:2,correctCount:1,recentResults:[true],currentStreak:1}},gptSessions:{g:{ids:['a'],applied:false}},activeSession:{key:'all:off:normal:0',updatedAt:100,revealY:140,studiedIds:['a'],checkedIds:['a'],finalizedIds:['a']}};
   C.saveCore(store,'ledger',snapshot);
   const loaded=C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'});
-  assert.deepEqual(loaded,{state:snapshot.state,gptSessions:{g:{createdAt:null,ids:['a']}},registeredGptSessionIds:[],activeSession:snapshot.activeSession});
+  assert.deepEqual(loaded,{state:snapshot.state,gptSessions:{g:{createdAt:null,ids:['a']}},registeredGptSessionIds:[],activeSession:snapshot.activeSession,gptSkipped:{contentFingerprint:null,ids:[]}});
   const st=loaded.state.a, session=loaded.activeSession;
   assert.equal(C.recordStudy(session,'a',st),false);
   assert.equal(C.setSessionAnswer(session,'a',true),false);
   assert.deepEqual([st.studyCount,st.correctCount,st.recentResults],[2,1,[true]]);
 });
+test('legacy snapshots load with an empty GPT skipped state and new snapshots round-trip it',()=>{
+  const words=[{id:'a',question:'Q A',answer:'A A'},{id:'b',question:'Q B',answer:'A B'}];
+  const store=memoryStorage({ledger:JSON.stringify({state:{},gptSessions:{},registeredGptSessionIds:[],activeSession:null})});
+  const keys={stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'};
+  const legacy=C.loadCore(store,'ledger',keys);
+  assert.deepEqual(legacy.gptSkipped,{contentFingerprint:null,ids:[]});
+  const marked=C.setGptSkippedState(legacy.gptSkipped,words,'b');
+  C.saveCore(store,'ledger',{...legacy,gptSkipped:marked});
+  assert.deepEqual(C.loadCore(store,'ledger',keys).gptSkipped,marked);
+  // Existing callers that omit this optional field must not erase it.
+  const {gptSkipped:ignored,...legacyCall}=legacy;
+  C.saveCore(store,'ledger',{...legacyCall,state:{a:C.defaultState()}});
+  assert.deepEqual(C.loadCore(store,'ledger',keys).gptSkipped,marked);
+});
+test('GPT skipped state is distinct from missing outcomes and does not mutate study data',()=>{
+  const words=[{id:'a',question:'Q A',answer:'A A'},{id:'b',question:'Q B',answer:'A B'}];
+  const state={a:{...C.defaultState(),studyCount:2,correctCount:1,currentStreak:1,recentResults:[true,false]}};
+  const progress={normal:{id:'a',sortMode:'normal',wordCount:2,orderFingerprint:'1111111111111111',csvOrderFingerprint:'2222222222222222',contentFingerprint:'3333333333333333'},random:null};
+  const before=JSON.stringify({state,progress,words});
+  const skipped=C.setGptSkippedState(null,words,'a',true);
+  assert.deepEqual(skipped.ids,['a']);
+  assert.equal(skipped.ids.includes('b'),false); // no result is not persisted as skipped
+  assert.equal(JSON.stringify({state,progress,words}),before);
+  assert.equal(Object.hasOwn(skipped,'unansweredIds'),false);
+  assert.equal(Object.hasOwn(skipped,'missingIds'),false);
+});
+test('GPT skipped registration is idempotent, removable by ID, and rejects unknown or malformed input',()=>{
+  const words=[{id:'a',question:'Q A',answer:'A A'},{id:'b',question:'Q B',answer:'A B'}];
+  const once=C.setGptSkippedState(null,words,'a');
+  const twice=C.setGptSkippedState(once,words,'a');
+  assert.deepEqual(twice.ids,['a']);
+  assert.deepEqual(C.setGptSkippedState(twice,words,'missing'),twice);
+  assert.deepEqual(C.setGptSkippedState(twice,words,'a',false),{contentFingerprint:C.studyContentFingerprint(words),ids:[]});
+  assert.deepEqual(C.normalizeGptSkippedState({contentFingerprint:'bad',ids:['a']},words),{contentFingerprint:C.studyContentFingerprint(words),ids:[]});
+  assert.deepEqual(C.normalizeGptSkippedState({contentFingerprint:C.studyContentFingerprint(words),ids:['a',3,'', 'a','unknown']},words),{contentFingerprint:C.studyContentFingerprint(words),ids:['a']});
+  assert.deepEqual(C.normalizeGptSkippedState({contentFingerprint:C.studyContentFingerprint(words),ids:['a']},words.slice(0,1)),{contentFingerprint:C.studyContentFingerprint(words.slice(0,1)),ids:[]});
+});
+test('GPT skipped fingerprint ignores presentation order and explanation but rejects reused IDs with changed content',()=>{
+  const words=[{id:'a',question:'Q A',answer:'A A',explanation:'old'},{id:'b',question:'Q B',answer:'A B'}];
+  const marked=C.setGptSkippedState(null,words,'a');
+  assert.equal(marked.contentFingerprint,C.studyOrderIdentity(words,'normal',[]).contentFingerprint);
+  assert.deepEqual(C.normalizeGptSkippedState(marked,[{...words[1]},{...words[0],explanation:'new'}]),marked);
+  const reused=[{...words[0],question:'Different question'},words[1]];
+  assert.deepEqual(C.normalizeGptSkippedState(marked,reused),{contentFingerprint:C.studyContentFingerprint(reused),ids:[]});
+});
 test('a failed snapshot write leaves the previous committed snapshot intact', () => {
-  const store=memoryStorage({ledger:JSON.stringify({state:{a:{studyCount:1}},gptSessions:{},activeSession:null})});
+  const prior={state:{a:{studyCount:1}},gptSessions:{},activeSession:null,gptSkipped:{contentFingerprint:'1234567890abcdef',ids:['a']}};
+  const store=memoryStorage({ledger:JSON.stringify(prior)});
   const broken={...store,setItem(){throw new Error('write interrupted')}};
   assert.throws(()=>C.saveCore(broken,'ledger',{state:{a:{studyCount:2}},gptSessions:{},activeSession:null}));
-  assert.deepEqual(JSON.parse(store.getItem('ledger')).state,{a:{studyCount:1}});
+  assert.deepEqual(JSON.parse(store.getItem('ledger')),prior);
 });
 test('failed view transition rolls back related keys and can be retried without double finalization', () => {
   const state={a:C.defaultState()};state.a.studyCount=1;
@@ -1078,15 +1124,15 @@ test('failed screen and session transition rolls the persisted screen back with 
     {key:'screen',value:'home'}
   ]),/snapshot unavailable/);
   assert.equal(durable.getItem('screen'),'study');
-  assert.deepEqual(C.loadCore(durable,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}),original);
+  assert.deepEqual(C.loadCore(durable,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}),{...original,gptSkipped:{contentFingerprint:null,ids:[]}});
 });
 test('corrupt or incomplete snapshot falls back to legacy migration inputs', () => {
   const legacy={state:{a:{studyCount:4}},gptSessions:{g:{applied:false}},activeSession:null};
   const seed={ledger:'{"state":{"a":{"studyCount":99}}',oldState:JSON.stringify(legacy.state),oldGpt:JSON.stringify(legacy.gptSessions),oldActive:'null'};
   const store=memoryStorage(seed);
-  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:null});
+  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:null,gptSkipped:{contentFingerprint:null,ids:[]}});
   store.setItem('ledger',JSON.stringify({state:{a:{studyCount:99}},gptSessions:{}}));
-  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:null});
+  assert.deepEqual(C.loadCore(store,'ledger',{stateKey:'oldState',gptSessionsKey:'oldGpt',activeSessionKey:'oldActive'}),{state:legacy.state,gptSessions:{g:{createdAt:null,ids:[]}},registeredGptSessionIds:[],activeSession:null,gptSkipped:{contentFingerprint:null,ids:[]}});
 });
 test('long-inactive session reload restores pending state without finalizing it', () => {
   const s={sessionId:'s1',key:'same',updatedAt:1000,revealY:75,targetIds:['a','b'],studiedIds:['a','b'],checkedIds:['a'],finalizedIds:['b']};

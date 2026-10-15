@@ -26,6 +26,32 @@
     const pick=cursor=>({id:cursor.id,sortMode:cursor.sortMode,wordCount:cursor.wordCount,orderFingerprint:cursor.orderFingerprint,csvOrderFingerprint:cursor.csvOrderFingerprint,contentFingerprint:cursor.contentFingerprint});
     return {normal:valid(raw?.normal,"normal")?pick(raw.normal):null,random:valid(raw?.random,"random")?pick(raw.random):null};
   }
+  function studyContentFingerprint(words) {
+    if(!Array.isArray(words))return null;
+    const normalized=normalizeWords(words),ids=normalized.map(word=>word.id);
+    if(ids.some(id=>!id)||new Set(ids).size!==ids.length)return null;
+    const content=normalized.map(word=>[word.id,word.question,word.answer]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+    return fingerprint(content);
+  }
+  function normalizeGptSkippedState(raw,words) {
+    const hasWords=Array.isArray(words),contentFingerprint=hasWords?studyContentFingerprint(words):null;
+    const empty={contentFingerprint:hasWords?contentFingerprint:null,ids:[]};
+    if(!raw||typeof raw!=="object"||typeof raw.contentFingerprint!=="string"||!/^[0-9a-f]{16}$/.test(raw.contentFingerprint)||!Array.isArray(raw.ids))return empty;
+    if(hasWords&&(!contentFingerprint||raw.contentFingerprint!==contentFingerprint))return empty;
+    const allowed=hasWords?new Set(words.map(word=>String(word?.id??""))):null,seen=new Set(),ids=[];
+    for(const value of raw.ids) {
+      if(typeof value!=="string"||!value||seen.has(value)||(allowed&&!allowed.has(value)))continue;
+      seen.add(value);ids.push(value);
+    }
+    return{contentFingerprint:hasWords?contentFingerprint:raw.contentFingerprint,ids};
+  }
+  function setGptSkippedState(raw,words,id,skipped=true) {
+    const next=normalizeGptSkippedState(raw,words),key=String(id??"");
+    if(!next.contentFingerprint||!key||!Array.isArray(words)||!words.some(word=>String(word?.id??"")===key)||typeof skipped!=="boolean")return next;
+    const ids=new Set(next.ids);
+    if(skipped)ids.add(key);else ids.delete(key);
+    return{contentFingerprint:next.contentFingerprint,ids:[...ids]};
+  }
   function loadCore(storage, snapshotKey, legacyKeys) {
     const snapshot=readJson(storage,snapshotKey,null);
     const legacy={state:readJson(storage,legacyKeys.stateKey,{}),gptSessions:readJson(storage,legacyKeys.gptSessionsKey,{}),activeSession:readJson(storage,legacyKeys.activeSessionKey,null)};
@@ -34,19 +60,21 @@
       !snapshot.gptSessions||typeof snapshot.gptSessions!=="object"||!has("activeSession")||
       (snapshot.activeSession!==null&&typeof snapshot.activeSession!=="object")) {
       const normalized=normalizeGptSessionRecords(legacy.gptSessions);
-      const result={...legacy,...normalized};Object.defineProperty(result,"gptSessionMigrationNeeded",{value:true});return result;
+      const result={...legacy,...normalized,gptSkipped:normalizeGptSkippedState(null)};Object.defineProperty(result,"gptSessionMigrationNeeded",{value:true});return result;
     }
     const normalized=normalizeGptSessionRecords(snapshot.gptSessions,snapshot.registeredGptSessionIds);
     const migrationNeeded=!has("registeredGptSessionIds")||JSON.stringify(normalized.gptSessions)!==JSON.stringify(snapshot.gptSessions)||
       JSON.stringify(normalized.registeredGptSessionIds)!==JSON.stringify(snapshot.registeredGptSessionIds);
-    const result={state:snapshot.state,...normalized,activeSession:snapshot.activeSession};
+    const result={state:snapshot.state,...normalized,activeSession:snapshot.activeSession,gptSkipped:normalizeGptSkippedState(snapshot.gptSkipped)};
     if(has("studyProgress"))result.studyProgress=normalizeStudyProgress(snapshot.studyProgress);
     Object.defineProperty(result,"gptSessionMigrationNeeded",{value:migrationNeeded});return result;
   }
   function saveCore(storage, snapshotKey, snapshot) {
     const normalized=normalizeGptSessionRecords(snapshot.gptSessions,snapshot.registeredGptSessionIds);
+    const previous=readJson(storage,snapshotKey,null);
     const value={state:snapshot.state,gptSessions:normalized.gptSessions,
-      registeredGptSessionIds:normalized.registeredGptSessionIds,activeSession:snapshot.activeSession};
+      registeredGptSessionIds:normalized.registeredGptSessionIds,activeSession:snapshot.activeSession,
+      gptSkipped:normalizeGptSkippedState(Object.prototype.hasOwnProperty.call(snapshot,"gptSkipped")?snapshot.gptSkipped:previous?.gptSkipped)};
     if(Object.prototype.hasOwnProperty.call(snapshot,"studyProgress"))value.studyProgress=normalizeStudyProgress(snapshot.studyProgress);
     storage.setItem(snapshotKey,JSON.stringify(value));
   }
@@ -677,7 +705,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,question,answer})=>({id:String(id),word:question??"",meaning:answer??""})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
