@@ -676,18 +676,29 @@
     button.setAttribute("aria-label",revealed?`${word} の評価は${correct?"○（正答）":"×（誤答）"}。押すと${correct?"×（誤答）":"○（正答）"}に切り替え`:canOpen?`${word} は未開示。押すとこの問題だけ開示`:`${word} の評価（未開示。カーテンを開くと操作できます）`);
   }
   let explanationPointerId=null,explanationKeyCode=null;
-  function hideExplanationPopup(){els.explanationPopup.hidden=true;els.explanationPopup.setAttribute("aria-hidden","true");els.explanationPopup.textContent="";explanationPointerId=null;explanationKeyCode=null}
-  function showExplanationPopup(button,clientX,clientY){
+  function hideExplanationPopup(){els.explanationPopup.hidden=true;els.explanationPopup.setAttribute("aria-hidden","true");els.explanationPopup.textContent="";els.explanationPopup.style.maxHeight="";explanationPointerId=null;explanationKeyCode=null}
+  function showExplanationPopup(button,clientX,clientY,pointerType="mouse",contactHeight=0){
     const id=button.dataset.id,explanation=button.dataset.explanation;
     if(!String(explanation||"").trim()||!rowDisclosed(id))return;
-    els.explanationPopup.textContent=explanation;els.explanationPopup.hidden=false;els.explanationPopup.setAttribute("aria-hidden","false");
+    els.explanationPopup.style.maxHeight="";els.explanationPopup.textContent=explanation;els.explanationPopup.hidden=false;els.explanationPopup.setAttribute("aria-hidden","false");
     const anchor=button.getBoundingClientRect(),popup=els.explanationPopup.getBoundingClientRect(),vw=document.documentElement.clientWidth,vh=document.documentElement.clientHeight,pad=12;
     const x=Number.isFinite(clientX)?clientX:anchor.right+8,y=Number.isFinite(clientY)?clientY:anchor.top+anchor.height/2;
-    let left=x+18;if(left+popup.width>vw-pad)left=x-popup.width-18;left=Math.max(pad,Math.min(left,vw-popup.width-pad));
-    let top=y+18;if(top+popup.height>vh-pad)top=y-popup.height-18;top=Math.max(pad,Math.min(top,vh-popup.height-pad));
+    let left,top;
+    if(pointerType==="touch"){
+      const fingerHalfHeight=Math.max(24,(Number(contactHeight)||0)/2),gap=24;
+      left=x-popup.width/2;left=Math.max(pad,Math.min(left,vw-popup.width-pad));
+      const aboveSpace=Math.max(0,y-fingerHalfHeight-gap-pad),belowTop=y+fingerHalfHeight+gap,belowSpace=Math.max(0,vh-pad-belowTop);
+      const fitsAbove=popup.height<=aboveSpace,fitsBelow=popup.height<=belowSpace,useAbove=fitsAbove||(!fitsBelow&&aboveSpace>=belowSpace);
+      const available=useAbove?aboveSpace:belowSpace;
+      if(!fitsAbove&&!fitsBelow){const style=getComputedStyle(els.explanationPopup),padding=parseFloat(style.paddingTop)+parseFloat(style.paddingBottom),borders=parseFloat(style.borderTopWidth)+parseFloat(style.borderBottomWidth);els.explanationPopup.style.maxHeight=`${Math.max(0,available-padding-borders)}px`}
+      const measured=els.explanationPopup.getBoundingClientRect();top=useAbove?y-fingerHalfHeight-gap-measured.height:belowTop;top=Math.max(pad,Math.min(top,vh-measured.height-pad));
+    }else{
+      left=x+18;if(left+popup.width>vw-pad)left=x-popup.width-18;left=Math.max(pad,Math.min(left,vw-popup.width-pad));
+      top=y+18;if(top+popup.height>vh-pad)top=y-popup.height-18;top=Math.max(pad,Math.min(top,vh-popup.height-pad));
+    }
     els.explanationPopup.style.left=`${left}px`;els.explanationPopup.style.top=`${top}px`;
   }
-  function beginExplanationPress(event,button){if(button.disabled||event.button>0)return;event.stopPropagation();explanationPointerId=event.pointerId;showExplanationPopup(button,event.clientX,event.clientY)}
+  function beginExplanationPress(event,button){if(button.disabled||event.button>0)return;event.stopPropagation();explanationPointerId=event.pointerId;showExplanationPopup(button,event.clientX,event.clientY,event.pointerType,event.height)}
   function endExplanationPress(event){if(event?.type==="pointerleave"&&els.explanationPopup.contains(event.relatedTarget))return;if(explanationPointerId!==null)hideExplanationPopup()}
   function beginExplanationKey(event,button){if(button.disabled||!['Enter',' '].includes(event.key)||event.repeat)return;event.preventDefault();explanationKeyCode=event.code;showExplanationPopup(button)}
   function endExplanationKey(event){if(explanationKeyCode&&event.code===explanationKeyCode)hideExplanationPopup();else if(event.key==="Escape")hideExplanationPopup()}

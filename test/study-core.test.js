@@ -495,7 +495,11 @@ test('compact row actions gate shared explanation popup on disclosure without pe
   assert.doesNotMatch(html,/textContent="ⓘ"/);
   assert.match(html,/function rowDisclosed\(id\)\{return\(activeSession\?\.studiedIds\|\|\[\]\)\.some\(value=>String\(value\)===String\(id\)\)\}/);
   assert.match(html,/function syncExplanationControl\(row,id\)[\s\S]*hasExplanation=!!String\(button\.dataset\.explanation\|\|""\)\.trim\(\),available=hasExplanation&&rowDisclosed\(id\);button\.disabled=!available/);
-  assert.match(html,/function showExplanationPopup\(button,clientX,clientY\)[\s\S]*if\(!String\(explanation\|\|""\)\.trim\(\)\|\|!rowDisclosed\(id\)\)return/);
+  assert.match(html,/function showExplanationPopup\(button,clientX,clientY,pointerType="mouse",contactHeight=0\)[\s\S]*if\(!String\(explanation\|\|""\)\.trim\(\)\|\|!rowDisclosed\(id\)\)return/);
+  assert.match(html,/if\(pointerType==="touch"\)[\s\S]*fingerHalfHeight=Math\.max\(24,\(Number\(contactHeight\)\|\|0\)\/2\),gap=24/);
+  assert.match(html,/fitsAbove=popup\.height<=aboveSpace,fitsBelow=popup\.height<=belowSpace/);
+  assert.match(html,/style\.maxHeight=`\$\{Math\.max\(0,available-padding-borders\)\}px`/);
+  assert.match(html,/function hideExplanationPopup\(\)[\s\S]*els\.explanationPopup\.style\.maxHeight=""/);
   assert.match(html,/els\.explanationPopup\.textContent=explanation/);
   assert.doesNotMatch(html,/explanationPopup\.innerHTML/);
   assert.match(html,/addEventListener\("pointerdown",event=>beginExplanationPress/);
@@ -504,7 +508,7 @@ test('compact row actions gate shared explanation popup on disclosure without pe
   assert.match(html,/function beginExplanationKey\(event,button\)[\s\S]*\['Enter',' '\]/);
   assert.match(html,/window\.addEventListener\("pointerup"/);
   assert.match(html,/window\.addEventListener\("pointercancel"/);
-  assert.match(html,/function beginExplanationPress\(event,button\)\{if\(button\.disabled\|\|event\.button>0\)return;event\.stopPropagation\(\);explanationPointerId=event\.pointerId;showExplanationPopup\(button,event\.clientX,event\.clientY\)\}/);
+  assert.match(html,/function beginExplanationPress\(event,button\)\{if\(button\.disabled\|\|event\.button>0\)return;event\.stopPropagation\(\);explanationPointerId=event\.pointerId;showExplanationPopup\(button,event\.clientX,event\.clientY,event\.pointerType,event\.height\)\}/);
   assert.match(html,/function hideExplanationPopup\(\)[\s\S]*els\.explanationPopup\.hidden=true/);
   assert.match(html,/function renderRowsOnly\(current=pageWords\(\)\)\{\s*hideExplanationPopup\(\)/);
   assert.match(html,/function showHome\(\)\{\s*hideExplanationPopup\(\)/);
