@@ -35,6 +35,117 @@ test('legacy hasMiss view is removed from the page UI and migrates safely to all
   assert.match(html,/露出済みの結果を確定して全単語表示で再開します/);
 });
 
+function progressInput(frequencies) {
+  const words=[],state={};let id=0;
+  for(const [studyCount,questionCount] of frequencies)for(let i=0;i<questionCount;i++) {
+    const key=String(++id);words.push({id:key});state[key]={studyCount,currentStreak:0};
+  }
+  return{words,state};
+}
+
+test('progress summary computes mastery count and percentage from all registered questions',()=>{
+  const words=[{id:'a'},{id:'b'},{id:'c'},{id:'d'}],state={a:{currentStreak:2,studyCount:1},b:{currentStreak:3,studyCount:2},c:{currentStreak:5,studyCount:3}};
+  assert.deepEqual(C.buildProgressSummary(words,state,{masteryThreshold:3}),{
+    registeredQuestionCount:4,masteredQuestionCount:2,masteryRate:50,distributionMode:'all',distributionQuestionCount:4,
+    distribution:[{lowerBound:0,upperBound:0,questionCount:1,ratio:.25,label:'0回'},{lowerBound:1,upperBound:1,questionCount:1,ratio:.25,label:'1回'},
+      {lowerBound:2,upperBound:2,questionCount:1,ratio:.25,label:'2回'},{lowerBound:3,upperBound:3,questionCount:1,ratio:.25,label:'3回'}]
+  });
+  assert.equal(C.buildProgressSummary(words,state,{masteryThreshold:2}).masteredQuestionCount,3);
+  assert.equal(C.buildProgressSummary(words,{}, {masteryThreshold:2}).masteredQuestionCount,0);
+  assert.equal(C.buildProgressSummary(words,{a:{currentStreak:2},b:{currentStreak:2},c:{currentStreak:2},d:{currentStreak:2}},{masteryThreshold:2}).masteryRate,100);
+});
+
+test('progress summary reports an explicit zero denominator and empty distribution',()=>{
+  assert.deepEqual(C.buildProgressSummary([],{orphan:{studyCount:8,currentStreak:9}}),{
+    registeredQuestionCount:0,masteredQuestionCount:0,masteryRate:null,distributionMode:'all',distributionQuestionCount:0,distribution:[]
+  });
+});
+
+test('progress distribution supports all and unmastered scopes without changing mastery totals',()=>{
+  const words=[{id:'a'},{id:'b'},{id:'c'},{id:'d'}],state={a:{studyCount:0,currentStreak:3},b:{studyCount:1,currentStreak:0},c:{studyCount:4,currentStreak:2},orphan:{studyCount:99,currentStreak:0}};
+  const all=C.buildProgressSummary(words,state,{masteryThreshold:3,distributionMode:'all',excludeStreak:true});
+  const unmastered=C.buildProgressSummary(words,state,{masteryThreshold:3,distributionMode:'unmastered'});
+  assert.equal(all.masteredQuestionCount,1);assert.equal(all.masteryRate,25);assert.equal(all.distributionQuestionCount,4);
+  assert.equal(unmastered.masteredQuestionCount,all.masteredQuestionCount);assert.equal(unmastered.masteryRate,all.masteryRate);
+  assert.equal(unmastered.distributionMode,'unmastered');assert.equal(unmastered.distributionQuestionCount,3);
+  assert.deepEqual(unmastered.distribution.map(bucket=>[bucket.label,bucket.questionCount]),[['0回',1],['1回',1],['4回',1]]);
+  assert.equal(C.buildProgressSummary(words,state,{masteryThreshold:3,distributionMode:'unmastered'}).distributionQuestionCount,3);
+  assert.equal(C.buildProgressSummary(words,state,{masteryThreshold:3,distributionMode:'invalid'}).distributionMode,'all');
+  const mastered=C.buildProgressSummary(words,{a:{currentStreak:3},b:{currentStreak:3},c:{currentStreak:3},d:{currentStreak:3}},{masteryThreshold:3,distributionMode:'unmastered'});
+  assert.equal(mastered.distributionQuestionCount,0);assert.deepEqual(mastered.distribution,[]);
+});
+
+test('progress distribution uses studyCount as stored, including provisional counts, and ignores unregistered states',()=>{
+  const words=[{id:'a'},{id:'b'}],state={a:{studyCount:7,currentStreak:0},b:{studyCount:0,currentStreak:0},orphan:{studyCount:100,currentStreak:0}};
+  const before=JSON.stringify({words,state});
+  const result=C.buildProgressSummary(words,state,{masteryThreshold:3});
+  assert.deepEqual(result.distribution.map(bucket=>[bucket.label,bucket.questionCount]),[['0回',1],['7回',1]]);
+  assert.equal(result.distributionQuestionCount,2);assert.equal(JSON.stringify({words,state}),before);
+});
+
+test('progress distribution keeps six or fewer present study counts as individual buckets, including gaps',()=>{
+  const {words,state}=progressInput([[0,2],[1,1],[2,3],[20,2],[100,1],[1000,1]]);
+  const result=C.buildProgressSummary(words,state);
+  assert.deepEqual(result.distribution.map(bucket=>bucket.label),['0回','1回','2回','20回','100回','1000回']);
+  assert.equal(result.distribution.length,6);
+});
+
+test('progress distribution centers the densest four-count window and aggregates lower counts by actual edge',()=>{
+  const {words,state}=progressInput([[0,1],[1,10],[2,20],[3,30],[4,20],[5,10],[6,1],[7,40],[8,40],[9,40],[10,40]]);
+  const result=C.buildProgressSummary(words,state);
+  assert.deepEqual(result.distribution.map(bucket=>bucket.label),['6回以下','7回','8回','9回','10回']);
+  assert.equal(result.distribution[0].lowerBound,0);assert.equal(result.distribution[0].upperBound,6);assert.equal(result.distribution[0].questionCount,92);
+  assert.equal(result.distribution.reduce((sum,bucket)=>sum+bucket.questionCount,0),result.distributionQuestionCount);
+});
+
+test('progress distribution resolves tied peaks toward the lower four-count window',()=>{
+  const {words,state}=progressInput([[0,2],[1,2],[2,2],[3,2],[100,2],[101,2],[102,2],[103,2]]);
+  const result=C.buildProgressSummary(words,state);
+  assert.deepEqual(result.distribution.map(bucket=>bucket.label),['0回','1回','2回','3回','100回以上']);
+  assert.equal(result.distribution.at(-1).questionCount,8);
+});
+
+test('progress distribution labels a one-count lower tail individually and aggregates a multi-count upper tail',()=>{
+  const {words,state}=progressInput([[0,1],[10,3],[11,3],[12,3],[13,3],[14,3],[15,3],[16,3]]);
+  const result=C.buildProgressSummary(words,state);
+  assert.deepEqual(result.distribution.map(bucket=>bucket.label),['0回','10回','11回','12回','13回','14回以上']);
+  assert.equal(result.distribution[0].lowerBound,result.distribution[0].upperBound);
+  assert.equal(result.distribution.at(-1).lowerBound,14);assert.equal(result.distribution.at(-1).upperBound,16);
+});
+
+test('progress distribution handles a selected window at the high end without an upper aggregate',()=>{
+  const {words,state}=progressInput([[0,1],[1,1],[2,1],[3,10],[4,10],[5,10],[6,10]]);
+  const result=C.buildProgressSummary(words,state);
+  assert.deepEqual(result.distribution.map(bucket=>bucket.label),['2回以下','3回','4回','5回','6回']);
+});
+
+test('progress distribution renders a single-count upper tail as an individual bucket',()=>{
+  const {words,state}=progressInput([[0,1],[1,1],[2,10],[3,10],[4,10],[5,10],[100,1]]);
+  const result=C.buildProgressSummary(words,state);
+  assert.deepEqual(result.distribution.map(bucket=>bucket.label),['1回以下','2回','3回','4回','5回','100回']);
+});
+
+test('progress distribution handles very large counts without iterating through missing integer values',()=>{
+  const large=1_000_000_000_000,{words,state}=progressInput([[0,1],[1,1],[2,1],[3,1],[large,1],[large+1,1],[large+2,1],[large+3,1]]);
+  const result=C.buildProgressSummary(words,state);
+  assert.deepEqual(result.distribution.map(bucket=>bucket.label),['0回','1回','2回','3回',`${large}回以上`]);
+  assert.ok(result.distribution.length<=6);
+});
+
+test('progress distribution never loses, duplicates, or exceeds its registered targets',()=>{
+  for(const frequencies of [ [[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[100,1]], [[0,4],[1,2],[2,1],[9,7],[10,2],[100,5],[1000,1]] ]) {
+    const {words,state}=progressInput(frequencies),result=C.buildProgressSummary(words,state);
+    assert.ok(result.distribution.length<=6);
+    assert.equal(result.distribution.reduce((sum,bucket)=>sum+bucket.questionCount,0),words.length);
+    assert.ok(Math.abs(result.distribution.reduce((sum,bucket)=>sum+bucket.ratio,0)-1)<1e-12);
+    for(const [count,number] of frequencies){
+      const matches=result.distribution.filter(bucket=>count>=bucket.lowerBound&&count<=bucket.upperBound);
+      assert.equal(matches.length,1,`studyCount ${count} belongs to exactly one bucket`);
+      assert.ok(matches[0].questionCount>=number);
+    }
+  }
+});
+
 test('recent history is capped at ten while streak remains exact', () => {
   const s=C.defaultState();
   for(let i=0;i<15;i++) C.appendResult(s,true);

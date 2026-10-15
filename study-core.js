@@ -415,6 +415,53 @@
     return {studyCount:Number(raw?.studyCount||0),correctCount:Number(raw?.correctCount||0),recentResults:recent,
       currentStreak:Number.isFinite(Number(raw?.currentStreak))?Number(raw.currentStreak):deriveStreak(recent),lastStudiedAt:raw?.lastStudiedAt||null};
   }
+  function buildProgressSummary(words,state,{masteryThreshold=3,distributionMode="all"}={}) {
+    const registered=Array.isArray(words)?words:[],source=state&&typeof state==="object"?state:{};
+    const threshold=Number.isFinite(Number(masteryThreshold))?Number(masteryThreshold):3;
+    const histogram=new Map();
+    let masteredQuestionCount=0,distributionQuestionCount=0;
+    for(const word of registered) {
+      const id=String(word?.id??""),entry=source[id]||defaultState();
+      const mastered=Number(entry.currentStreak||0)>=threshold;
+      if(mastered)masteredQuestionCount++;
+      if(distributionMode==="unmastered"&&mastered)continue;
+      const rawCount=Number(entry.studyCount||0),studyCount=Number.isFinite(rawCount)?Math.max(0,Math.floor(rawCount)):0;
+      histogram.set(studyCount,(histogram.get(studyCount)||0)+1);distributionQuestionCount++;
+    }
+    const values=[...histogram.keys()].sort((a,b)=>a-b);
+    let ranges=[];
+    if(values.length<=6)ranges=values.map(value=>({minCount:value,maxCount:value}));
+    else {
+      const minimum=values[0],maximumStart=values[values.length-1]-3,candidates=new Set([minimum,maximumStart]);
+      for(const value of values)for(const start of [value,value-3])candidates.add(Math.max(minimum,Math.min(maximumStart,start)));
+      const prefix=[0];for(const value of values)prefix.push(prefix.at(-1)+histogram.get(value));
+      let selectedStart=minimum,selectedTotal=-1,left=0,right=0;
+      for(const start of [...candidates].sort((a,b)=>a-b)) {
+        while(left<values.length&&values[left]<start)left++;
+        if(right<left)right=left;
+        while(right<values.length&&values[right]<=start+3)right++;
+        const total=prefix[right]-prefix[left];
+        if(total>selectedTotal){selectedTotal=total;selectedStart=start}
+      }
+      const lower=values.filter(value=>value<selectedStart),within=values.filter(value=>value>=selectedStart&&value<=selectedStart+3),upper=values.filter(value=>value>selectedStart+3);
+      if(lower.length)ranges.push(lower.length===1?{minCount:lower[0],maxCount:lower[0]}:{minCount:lower[0],maxCount:lower.at(-1),aggregate:"lower"});
+      ranges.push(...within.map(value=>({minCount:value,maxCount:value})));
+      if(upper.length)ranges.push(upper.length===1?{minCount:upper[0],maxCount:upper[0]}:{minCount:upper[0],maxCount:upper.at(-1),aggregate:"upper"});
+    }
+    const distribution=ranges.map(range=>{
+      let questionCount=0;
+      for(const value of values)if(value>=range.minCount&&value<=range.maxCount)questionCount+=histogram.get(value);
+      let label;
+      if(range.minCount===range.maxCount)label=`${range.minCount}回`;
+      else if(range.aggregate==="lower")label=`${range.maxCount}回以下`;
+      else if(range.aggregate==="upper")label=`${range.minCount}回以上`;
+      else label=`${range.minCount}〜${range.maxCount}回`;
+      return{lowerBound:range.minCount,upperBound:range.maxCount,questionCount,ratio:distributionQuestionCount?questionCount/distributionQuestionCount:0,label};
+    });
+    const registeredQuestionCount=registered.length;
+    return{registeredQuestionCount,masteredQuestionCount,masteryRate:registeredQuestionCount?masteredQuestionCount/registeredQuestionCount*100:null,
+      distributionMode:distributionMode==="unmastered"?"unmastered":"all",distributionQuestionCount,distribution};
+  }
   function formatRecentResults(results,slots=5) {
     const count=Math.max(0,Math.floor(Number(slots)||0));
     const recent=Array.isArray(results)&&count?results.slice(-count).map(value=>value?"○":"×"):[];
@@ -630,7 +677,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,question,answer})=>({id:String(id),word:question??"",meaning:answer??""})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyOrderIdentity,recordStudyDisclosure,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
