@@ -169,7 +169,7 @@ test('home and study screens share circular mastery rings and a modal progress d
   assert.match(html,/text\.textContent=value===null\?"—":`\$\{Math\.round\(value\)\}%`/);
   assert.match(html,/segment\.style\.width=`\$\{bucket\.ratio\*100\}%`/);
   assert.match(html,/label\.textContent=`\$\{bucket\.label\}：\$\{bucket\.questionCount\}問`/);
-  assert.match(html,/state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure\(id\);renderProgressSummary\(\)/);
+  assert.match(html,/state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure\(id,measuredGeometry\);renderProgressSummary\(\)/);
   assert.match(html,/els\.distributionEmpty\.textContent=empty\?"対象問題なし"/);
   assert.match(html,/els\.openProgressDetails\.addEventListener\("click",\(\)=>\{if\(!els\.progressDialog\.open\)els\.progressDialog\.showModal\(\)\}\)/);
   assert.match(html,/els\.closeProgressDetails\.addEventListener\("click",\(\)=>\{if\(els\.progressDialog\.open\)els\.progressDialog\.close\(\)\}\)/);
@@ -297,9 +297,9 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/text\.setAttribute\('aria-hidden',String\(!disclosed\)\)/);
   assert.doesNotMatch(html,/createElement\('span'\);mask\.className='meaning-mask'/);
   assert.match(html,/row\.append\(wc,cc,mc\);syncMeaningDisclosure\(row,w\.id\)/);
-  assert.match(html,/function renderAnswerControlForExposure\(id\)\{const row=.*syncMeaningDisclosure\(row,id\)/);
-  assert.match(html,/function processRevealProgress\(g=geometry\(\)\).*StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,markStudied,gptSkipped\.ids\)/);
-  assert.match(html,/function markStudied\(id,committedRevealY=revealY,clearSkipped=false\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
+  assert.match(html,/function renderAnswerControlForExposure\(id,measuredGeometry=undefined\)\{const row=.*syncMeaningDisclosure\(row,id\)/);
+  assert.match(html,/function processRevealProgress\(g=geometry\(\)\).*StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,\(id,boundary\)=>markStudied\(id,boundary,false,g\),gptSkipped\.ids\)/);
+  assert.match(html,/function markStudied\(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
   assert.match(html,/const restoreCommittedPosition=\(\)=>\{cancelDrag\(\);curtainUserDragging=false;revealY=Number\(activeSession\?\.revealY\|\|0\);positionCurtain\(\)\}/);
   assert.match(html,/const persistDragPosition=\(\)=>\{try\{saveActiveSession\(true,\[\],true\);return true\}catch\(error\)[\s\S]*restoreCommittedPosition\(\);return false\}/);
   assert.doesNotMatch(html,/safeRevealBoundary\(activeSession\?\.studiedIds/);
@@ -441,7 +441,7 @@ test('random page navigation advances by the fixed range end and distinguishes f
   assert.deepEqual(C.randomPageNavigation({startIndex:0,endIndex:0,total:0},0),{canNext:false,canReshuffle:false,nextStart:null});
   assert.deepEqual(C.randomPageNavigation({startIndex:0,endIndex:1,total:1},1),{canNext:false,canReshuffle:true,nextStart:null});
 });
-test('normal next shares the existing bottom navigation while random navigation keeps its original UI', () => {
+test('normal next and random navigation share the fixed study footer without changing controls', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/id="randomNav" class="random-nav" hidden/);
   assert.match(html,/id="randomNext" class="primary" hidden>次へ/);
@@ -454,7 +454,7 @@ test('normal next shares the existing bottom navigation while random navigation 
   assert.match(html,/const currentPosition=sortMode==="random"\?randomStart:pageIndex/);
   assert.match(html,/const positionIndex=positionPages\.findIndex\(item=>item\.index===currentPosition\)/);
   assert.match(html,/id="normalNext" class="primary" hidden>次へ/);
-  const actions=html.match(/<div class="study-actions"[\s\S]*?<\/div>/)?.[0];
+  const actions=html.match(/<div class="study-actions study-footer"[\s\S]*?<\/div>/)?.[0];
   assert.match(actions,/id="repeatStudy"[\s\S]*id="normalNext"[\s\S]*id="randomNext"[\s\S]*id="reshuffle"/);
   assert.doesNotMatch(html,/normal-next-row|normalNextRow/);
   assert.match(html,/StudyCore\.nextAvailablePageIndex\(model\.pages,pageIndex\)/);
@@ -469,6 +469,9 @@ test('normal next shares the existing bottom navigation while random navigation 
   assert.doesNotMatch(html,/<div id="randomProgress" class="random-progress"[^>]*>\s*<button/);
   assert.match(html,/function ensureActiveTabVisible\(\)[\s\S]*?els\.tabs\.scrollLeft/);
   assert.match(html,/id="pagePosition" class="page-position">0 \/ 0 ページ/);
+  assert.match(html,/\.study-actions\.study-footer\{position:fixed;z-index:50;left:50%;bottom:calc\(12px \+ env\(safe-area-inset-bottom,0px\)\)/);
+  assert.match(html,/env\(safe-area-inset-bottom,0px\)/);
+  assert.match(html,/id="studyFooterSpacer"/);
   assert.match(html,/els\.count\.textContent=`全\$\{model\.total\}問`/);
   assert.match(html,/els\.pagePosition\.textContent=`\$\{positionIndex<0\?0:positionIndex\+1\} \/ \$\{positionPages\.length\} ページ`/);
   assert.match(html,/els\.randomNext\.addEventListener\("click",nextRandomPage\)/);
@@ -577,8 +580,8 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.equal((study.match(/class="medal-icon/g)||[]).length,3);
   assert.equal((html.match(/class="medal-icon/g)||[]).length,4);
   assert.match(html,/aria-checked="false"/);
-  assert.ok(study.indexOf('id="listWrap"')<study.indexOf('class="study-actions"'));
-  const actions=study.match(/<div class="study-actions"[\s\S]*?<\/div>/)?.[0];
+  assert.ok(study.indexOf('id="listWrap"')<study.indexOf('class="study-actions study-footer"'));
+  const actions=study.match(/<div class="study-actions study-footer"[\s\S]*?<\/div>/)?.[0];
   assert.match(actions,/id="repeatStudy"/);
   assert.match(actions,/id="normalNext"/);
   assert.match(actions,/id="randomNext"/);
@@ -587,6 +590,24 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.doesNotMatch(html,/CSV登録順を.*固定範囲に分けてからフィルタします/);
   assert.match(html,/通常順ではCSV登録順の固定範囲をタブに分け/);
   assert.match(html,/page\.start\}–\$\{page\.end\} · 残\$\{page\.entries\.length\}/);
+  assert.match(html,/id="curtainLockToggle" class="curtain-lock-button hidden"[^>]*aria-label="カーテンをロック"/);
+  assert.match(html,/function updateLockedCurtain\(\)[\s\S]*?lockedY-firstClientY[\s\S]*?processRevealProgress\(g\)[\s\S]*?querySelectorAll\("\.word-row"\)[\s\S]*?window\.scrollY>=naturalScrollMax&&Math\.abs\(lastBottom-\(footerTop-12\)\)<=2/);
+  assert.match(html,/const rows=els\.words\.querySelectorAll\("\.word-row"\),last=rows\[rows\.length-1\],footerTop=els\.studyActions\.getBoundingClientRect\(\)\.top/);
+  const baseline=html.match(/function ensureLockBaseline\(g,\{reset=false\}=\{\}\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(baseline,/first\.getBoundingClientRect\(\)\.top\+window\.scrollY/);
+  assert.doesNotMatch(baseline,/revealY/);
+  assert.match(html,/function beginCurtainLock\(\)[\s\S]*?const baseline=ensureLockBaseline\(g\)[\s\S]*?if\(baseline===null\|\|boundary<baseline-1\)[\s\S]*?boundary\+clearance>footerTop-1/);
+  assert.match(html,/function beginCurtainLock\(\)\{\s*if\(pageSize===10\)\{releaseCurtainLock\(\);return false\}/);
+  assert.match(html,/function setLockButtonState\(g\)\{\s*const button=els\.curtainLockToggle;if\(!g\|\|pageSize===10\)/);
+  assert.match(html,/ロックできません[\s\S]*?解答カバーを少し下げてください。/);
+  assert.doesNotMatch(html,/lockRunway|setLockRunwayForTarget/);
+  assert.match(html,/\.meaning-curtain\.is-curtain-locked,\.curtain-handle\.is-curtain-locked,\.curtain-lock-button\.is-curtain-locked\{position:fixed\}/);
+  assert.match(html,/\.curtain-lock-button\{position:absolute;[\s\S]*?background:var\(--cover\)/);
+  assert.match(html,/function releaseCurtainLock\(preserveViewportBoundary=false\)[\s\S]*?curtainLocked=false;lockedY=null/);
+  assert.match(html,/const appliedJump=draft\.transition\?\.kind==="jump"&&draft\.jump\?\.canJump;\s*if\(appliedJump&&curtainLocked\)\{releaseCurtainLock\(\);lockBaselineViewportY=null\}/);
+  assert.match(html,/if\(curtainLocked&&draft\.samePage&&draft\.transition\?\.kind!=="jump"&&draft\.activeSession\?\.gptRevealTargetId\)\{\s*draft\.activeSession\.gptRevealTargetId=null/);
+  assert.match(html,/if\(curtainLocked\)endCurtainLock\(\);else beginCurtainLock\(\)/);
+  assert.match(html,/window\.addEventListener\("scroll",scheduleLockedCurtainUpdate,\{passive:true\}\)/);
   assert.match(html,/els\.curtainHandle\.addEventListener\("pointerdown"/);
   assert.match(html,/els\.curtainHandle\.addEventListener\("pointermove"/);
   assert.match(html,/els\.openSettings\.addEventListener\("click"/);

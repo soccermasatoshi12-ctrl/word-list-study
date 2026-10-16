@@ -66,6 +66,8 @@
     .random-progress{min-width:0;overflow-wrap:anywhere;color:var(--muted);line-height:1.4}
     .study-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
     .study-actions button{min-width:0}
+    .study-actions.study-footer{position:fixed;z-index:50;left:50%;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(796px,calc(100vw - 16px));margin:0;padding:8px 10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.97);box-shadow:0 -3px 14px rgba(15,23,42,.1);backdrop-filter:blur(8px)}
+    #studyFooterSpacer{display:block;width:100%;height:0;pointer-events:none}
     .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:8px}
     .word-row{display:grid;grid-template-columns:minmax(0,210px) 28px minmax(0,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
     .word-cell{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-content:center;column-gap:6px;row-gap:3px;padding:2px 4px}
@@ -111,6 +113,12 @@
     .meaning-text.is-undisclosed{visibility:hidden}
     .curtain-handle{position:absolute;z-index:21;height:34px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;user-select:none}.curtain-handle.hidden{display:none}
     .curtain-handle::before{content:"";width:58px;height:5px;border-radius:999px;background:#7d848d;box-shadow:0 0 0 6px rgba(223,227,232,.95)}
+    .meaning-curtain.is-curtain-locked,.curtain-handle.is-curtain-locked,.curtain-lock-button.is-curtain-locked{position:fixed}
+    .curtain-lock-button{position:absolute;z-index:22;display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation}.curtain-lock-button.hidden{display:none}
+    .curtain-lock-button[aria-pressed="true"]{border-color:#2563eb;background:var(--cover);color:#1d4ed8}
+    .curtain-lock-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .curtain-lock-feedback{position:absolute;z-index:23;display:grid;gap:2px;max-width:min(250px,calc(100vw - 28px));padding:7px 9px;border:1px solid #d7dde5;border-radius:8px;background:#fff;color:#364152;font-size:.76rem;line-height:1.35;box-shadow:0 2px 8px #0002}
+    .curtain-lock-feedback[hidden]{display:none}.curtain-lock-feedback strong{font-size:.78rem;font-weight:650}
     textarea{width:100%;min-height:120px;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;resize:vertical}#sessionUrl{width:100%;margin-top:8px}
     @media(max-width:560px){
       .app{padding:8px}
@@ -123,8 +131,18 @@
       .tabs button{min-height:40px;padding:6px 9px}
       .study-actions{justify-content:stretch;gap:6px;margin-top:8px;padding-top:8px}
       .study-actions button{flex:1 1 auto}
+      .study-actions.study-footer{gap:5px;padding:7px}
+      .study-actions.study-footer button{flex:1 1 0;padding:7px 5px;font-size:.86rem;white-space:nowrap}
       .word-row{grid-template-columns:minmax(96px,max(96px,min(calc((100% - 54px)/2),calc(100% - 164px)))) 28px minmax(110px,1fr);gap:6px;padding:6px}
       .word-main{font-size:.98rem}.word-meta{font-size:.7rem;gap:5px}.meaning-text{padding:5px 8px}
+    }
+    @media(max-width:560px) and (max-height:420px){
+      .app-header{margin-bottom:4px}
+      .study-shell{padding:5px}
+      .progress-overview{grid-template-rows:minmax(38px,auto);margin-bottom:3px;padding:2px 5px 4px}
+      .study-controls{gap:3px 8px;padding-bottom:4px}
+      .page-navigation{padding:3px 0 0}
+      .tabs{padding:0 0 3px}
     }
   </style>
 </head>
@@ -247,9 +265,11 @@
       <div id="emptyState" class="empty-state" hidden>表示対象の単語がありません。</div>
       <div id="meaningCurtain" class="meaning-curtain hidden" aria-hidden="true"></div>
       <div id="curtainHandle" class="curtain-handle hidden" aria-label="意味カバーを上下に動かす"></div>
+      <button id="curtainLockToggle" class="curtain-lock-button hidden" type="button" aria-label="カーテンをロック" aria-pressed="false" title="カーテンをロック"></button>
+      <div id="curtainLockFeedback" class="curtain-lock-feedback" role="status" aria-live="polite" hidden><strong></strong><span></span></div>
       <div id="explanationPopup" class="explanation-popup" role="tooltip" aria-hidden="true" hidden></div>
     </div>
-    <div class="study-actions" aria-label="学習操作">
+    <div class="study-actions study-footer" aria-label="学習操作">
       <button id="repeatStudy" disabled>もう一度学習</button>
       <button id="normalNext" class="primary" hidden>次へ</button>
       <button id="randomNext" class="primary" hidden>次へ</button>
@@ -273,6 +293,7 @@
       <div id="resultStatus" class="status" role="status" aria-live="polite"></div>
     </div>
   </dialog>
+  <div id="studyFooterSpacer" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -325,6 +346,7 @@
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
+  let curtainLocked=false,lockedY=null,lockScrollFrame=0,lockLastRevealY=0,lockBaselineViewportY=null,lockFeedbackTimer=0;
   let distributionMode="all";
 
   const els={
@@ -336,7 +358,7 @@
     count:document.getElementById("count"),pagePositionRow:document.getElementById("pagePositionRow"),pagePosition:document.getElementById("pagePosition"),tabs:document.getElementById("tabs"),normalNext:document.getElementById("normalNext"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),gptWordCountSummary:document.getElementById("gptWordCountSummary"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
-    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),explanationPopup:document.getElementById("explanationPopup"),
+    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),curtainLockToggle:document.getElementById("curtainLockToggle"),curtainLockFeedback:document.getElementById("curtainLockFeedback"),studyActions:document.querySelector(".study-actions"),studyFooterSpacer:document.getElementById("studyFooterSpacer"),explanationPopup:document.getElementById("explanationPopup"),
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
     makeSession:document.getElementById("makeSession"),copySession:document.getElementById("copySession"),sessionUrl:document.getElementById("sessionUrl"),
@@ -528,6 +550,7 @@
     hideExplanationPopup();
     try{saveActiveSession(false,[{key:STORAGE_SCREEN,value:"home"}])}
     catch(error){alert("保存に失敗したためホームへ移動できませんでした。"+(error.message||error));return false}
+    releaseCurtainLock();
     updateHome();els.studyScreen.hidden=true;els.homeScreen.hidden=false;return true;
   }
   function showStudy(){
@@ -632,6 +655,7 @@
     if(writeListTitle)writes.push({key:STORAGE_LIST_TITLE,value:JSON.stringify(nextListTitle)});
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped},writes);
+    releaseCurtainLock();lockBaselineViewportY=null;
     state=draftState;studyProgress=draftProgress;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;gptSkipped=draftSkipped;if(writeListTitle)listTitle=nextListTitle;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
     if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
@@ -641,7 +665,7 @@
     catch(error){alert(`保存に失敗したため操作を適用できませんでした。${error.message||error}`);return false}
   }
 
-  function markStudied(id,committedRevealY=revealY,clearSkipped=false){
+  function markStudied(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined){
     if(!activeSession)startSession();
     const draftState=JSON.parse(JSON.stringify(state)),draftSession=JSON.parse(JSON.stringify(activeSession));
     const st=draftState[id]=normalizeState(draftState[id]||defaultState());if(!StudyCore.recordStudy(draftSession,id,st,undefined,defaultAnswer))return true;
@@ -654,7 +678,7 @@
     catch(error){
       alert(`学習状態を保存できなかったため、開示を記録できませんでした。${error.message||error}`);return false
     }
-    state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure(id);renderProgressSummary();return true;
+    state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure(id,measuredGeometry);renderProgressSummary();return true;
   }
   function markAnswer(id,checked){
     if(!activeSession)return;
@@ -714,7 +738,7 @@
     const disclosed=rowDisclosed(id);
     text.classList.toggle('is-undisclosed',!disclosed);text.setAttribute('aria-hidden',String(!disclosed));
   }
-  function renderAnswerControlForExposure(id){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncMeaningDisclosure(row,id);syncAnswerControl(row,id);syncExplanationControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
+  function renderAnswerControlForExposure(id,measuredGeometry=undefined){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncMeaningDisclosure(row,id);syncAnswerControl(row,id,measuredGeometry);syncExplanationControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
   function toggleAnswer(id){
     if(rowDisclosed(id)){if(activeSession?.finalizedIds?.includes(id))return;markAnswer(id,!activeSession.checkedIds.includes(id));return}
     if(canIndividuallyDisclose(id))markStudied(id,revealY,true);
@@ -814,6 +838,7 @@
     els.excludeStreak.checked=excludeStreak;els.excludeStreak.setAttribute("aria-checked",String(excludeStreak));
     els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.defaultAnswer.value=defaultAnswer;els.gptWordCount.value=String(gptWordCount);els.gptWordCountSummary.textContent=String(gptWordCount);
     els.normalOrder.classList.toggle("active",sortMode==="normal");els.randomOrder.classList.toggle("active",sortMode==="random");
+    syncStudyFooterSpacer();
   }
 
   function geometry(){
@@ -823,15 +848,108 @@
     const thresholds=cells.map(cell=>{const r=cell.getBoundingClientRect();return{id:cell.dataset.id,top:r.top-firstRect.top,bottom:r.bottom-firstRect.top}});
     return{top,left,width,height:bottom-top,thresholds};
   }
-  function processRevealProgress(g=geometry()){if(!g||!activeSession)return true;return StudyCore.processRevealThresholds(g.thresholds,revealY,activeSession.studiedIds,markStudied,gptSkipped.ids)}
+  function processRevealProgress(g=geometry()){if(!g||!activeSession)return true;return StudyCore.processRevealThresholds(g.thresholds,revealY,activeSession.studiedIds,(id,boundary)=>markStudied(id,boundary,false,g),gptSkipped.ids)}
+  function syncStudyFooterSpacer(){
+    if(!els.studyActions||!els.studyFooterSpacer)return;
+    if(els.studyScreen.hidden){els.studyFooterSpacer.style.height="0px";return}
+    const rows=els.words.querySelectorAll(".word-row"),last=rows[rows.length-1],footerTop=els.studyActions.getBoundingClientRect().top;
+    const currentHeight=parseFloat(els.studyFooterSpacer.style.height)||0,currentMax=Math.max(0,document.documentElement.scrollHeight-innerHeight);
+    if(last){
+      const lastDocumentBottom=last.getBoundingClientRect().bottom+window.scrollY,targetMax=Math.max(0,lastDocumentBottom-Math.max(0,footerTop-12));
+      els.studyFooterSpacer.style.height=`${Math.max(0,Math.ceil(currentHeight+targetMax-currentMax))}px`;
+    }else els.studyFooterSpacer.style.height=`${Math.ceil(els.studyActions.getBoundingClientRect().height+24)}px`;
+  }
+  function lockFeedback(message,description=""){
+    clearTimeout(lockFeedbackTimer);const title=els.curtainLockFeedback.querySelector("strong"),body=els.curtainLockFeedback.querySelector("span");
+    title.textContent=description?message:"ロックできません";body.textContent=description||message;els.curtainLockFeedback.hidden=false;
+    lockFeedbackTimer=setTimeout(()=>{els.curtainLockFeedback.hidden=true;title.textContent="";body.textContent=""},4500);
+  }
+  function setLockButtonState(g){
+    const button=els.curtainLockToggle;if(!g||pageSize===10){button.classList.add("hidden");return}
+    button.classList.remove("hidden");
+    if(curtainLocked){button.classList.add("is-curtain-locked");button.style.left=`${els.listWrap.getBoundingClientRect().left+g.left+Math.max(0,g.width-44)}px`;button.style.top=`${lockedY+20}px`}
+    else{button.classList.remove("is-curtain-locked");button.style.left=`${g.left+Math.max(0,g.width-44)}px`;button.style.top=`${g.top+revealY+20}px`}
+    button.setAttribute("aria-pressed",String(curtainLocked));
+    button.setAttribute("aria-label",curtainLocked?"カーテンのロックを解除":"カーテンをロック");
+    button.title=curtainLocked?"カーテンのロックを解除":"カーテンをロック";
+    button.innerHTML=curtainLocked
+      ?'<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v1"/><path d="M12 14v3"/></svg>'
+      :'<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.6-1.7"/><path d="M12 14v3"/></svg>';
+    const feedback=els.curtainLockFeedback;
+    feedback.style.left=`${Math.max(4,Math.min(g.left+g.width-220,innerWidth-256))}px`;feedback.style.top=`${g.top+revealY+58}px`;
+  }
+  function ensureLockBaseline(g,{reset=false}={}){
+    if(!g)return null;
+    if(lockBaselineViewportY===null||reset){
+      const first=els.words.querySelector(".meaning-cell");if(!first)return null;
+      // Project the first answer-cell top to scrollY=0; saved progress is deliberately excluded.
+      lockBaselineViewportY=first.getBoundingClientRect().top+window.scrollY;
+    }
+    return lockBaselineViewportY;
+  }
+  function releaseCurtainLock(preserveViewportBoundary=false){
+    const priorLockedY=lockedY;
+    if(lockScrollFrame){cancelAnimationFrame(lockScrollFrame);lockScrollFrame=0}
+    curtainLocked=false;lockedY=null;lockLastRevealY=revealY;
+    if(els.curtainLockToggle)els.curtainLockToggle.setAttribute("aria-pressed","false");
+    const g=geometry();
+    if(preserveViewportBoundary&&g&&Number.isFinite(priorLockedY)){
+      const first=els.words.querySelector(".meaning-cell");if(first)revealY=Math.max(0,Math.min(priorLockedY-first.getBoundingClientRect().top,g.height));
+    }
+    positionCurtain(g);
+  }
+  function beginCurtainLock(){
+    if(pageSize===10){releaseCurtainLock();return false}
+    const g=geometry();if(!g||!g.thresholds.length){lockFeedback("問題がないためロックできません。");return false}
+    syncStudyFooterSpacer();const baseline=ensureLockBaseline(g);
+    const boundary=els.curtainHandle.getBoundingClientRect().top+els.curtainHandle.getBoundingClientRect().height/2;
+    if(baseline===null||boundary<baseline-1){lockFeedback("ロックできません","解答カバーを少し下げてください。");return false}
+    const footerTop=els.studyActions.getBoundingClientRect().top,clearance=54;
+    if(boundary+clearance>footerTop-1){lockFeedback("鍵ボタンの下に操作スペースが残る位置でロックしてください。");return false}
+    clearTimeout(lockFeedbackTimer);lockFeedbackTimer=0;els.curtainLockFeedback.hidden=true;els.curtainLockFeedback.querySelector("strong").textContent="";els.curtainLockFeedback.querySelector("span").textContent="";
+    try{saveActiveSession(true,[],true)}catch(error){lockFeedback("保存できません",`ロックを開始できませんでした。${error.message||error}`);return false}
+    lockedY=boundary;lockLastRevealY=revealY;curtainLocked=true;
+    positionCurtain(g);return true;
+  }
+  function endCurtainLock(){
+    if(!curtainLocked)return true;
+    releaseCurtainLock(true);
+    try{saveActiveSession(true,[],true);return true}
+    catch(error){lockFeedback("保存できません",`ロック解除後の位置を保存できませんでした。${error.message||error}`);return false}
+  }
+  function toggleCurtainLock(){if(curtainLocked)endCurtainLock();else beginCurtainLock()}
+  function updateLockedCurtain(){
+    if(!curtainLocked||els.studyScreen.hidden)return;
+    const g=geometry();if(!g){positionCurtain(g);return}
+    const first=els.words.querySelector(".meaning-cell");if(!first)return;
+    const firstClientY=first.getBoundingClientRect().top,next=Math.max(0,Math.min(lockedY-firstClientY,g.height));
+    const advanced=next>lockLastRevealY+0.5;revealY=next;positionCurtain(g);
+    if(advanced&&!processRevealProgress(g)){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません","保存に失敗したためカーテンロックを解除しました。");return}
+    lockLastRevealY=revealY;
+    const rows=els.words.querySelectorAll(".word-row"),last=rows[rows.length-1],footerTop=els.studyActions.getBoundingClientRect().top;
+    const lastBottom=last?.getBoundingClientRect().bottom,naturalScrollMax=Math.max(0,document.documentElement.scrollHeight-innerHeight);
+    if(Number.isFinite(lastBottom)&&window.scrollY>=naturalScrollMax&&Math.abs(lastBottom-(footerTop-12))<=2){endCurtainLock();return}
+    try{saveActiveSession(true,[],true)}catch(error){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません",`保存に失敗したためロックを解除しました。${error.message||error}`)}
+  }
+  function scheduleLockedCurtainUpdate(){if(!curtainLocked||lockScrollFrame)return;lockScrollFrame=requestAnimationFrame(()=>{lockScrollFrame=0;updateLockedCurtain()})}
   function positionCurtain(g=geometry()){
-    if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");return}
-    const anchor=!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
+    if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");els.curtainLockToggle.classList.add("hidden");return}
+    ensureLockBaseline(g);
+    const anchor=!curtainLocked&&!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
     if(anchor)revealY=Number(anchor.bottom);
     revealY=Math.max(0,Math.min(revealY,g.height));
     els.meaningCurtain.classList.remove("hidden");els.curtainHandle.classList.remove("hidden");
-    els.meaningCurtain.style.left=`${g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${g.top+revealY}px`;els.meaningCurtain.style.height=`${Math.max(0,g.height-revealY)}px`;
-    els.curtainHandle.style.left=`${g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${g.top+revealY}px`;
+    if(curtainLocked){
+      const wrapLeft=els.listWrap.getBoundingClientRect().left,footerTop=els.studyActions.getBoundingClientRect().top;
+      els.meaningCurtain.classList.add("is-curtain-locked");els.curtainHandle.classList.add("is-curtain-locked");
+      els.meaningCurtain.style.left=`${wrapLeft+g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${lockedY}px`;els.meaningCurtain.style.height=`${Math.max(0,footerTop-lockedY)}px`;
+      els.curtainHandle.style.left=`${wrapLeft+g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${lockedY}px`;
+    }else{
+      els.meaningCurtain.classList.remove("is-curtain-locked");els.curtainHandle.classList.remove("is-curtain-locked");
+      els.meaningCurtain.style.left=`${g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${g.top+revealY}px`;els.meaningCurtain.style.height=`${Math.max(0,g.height-revealY)}px`;
+      els.curtainHandle.style.left=`${g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${g.top+revealY}px`;
+    }
+    setLockButtonState(g);
     for(const row of els.words.querySelectorAll(".word-row"))syncAnswerControl(row,row.dataset.id,g);
   }
   function repeatStudy(){
@@ -880,11 +998,19 @@
     const restoreCommittedPosition=()=>{cancelDrag();curtainUserDragging=false;revealY=Number(activeSession?.revealY||0);positionCurtain()};
     const persistDragPosition=()=>{try{saveActiveSession(true,[],true);return true}catch(error){alert(`学習位置を保存できなかったため、直前の保存位置へ戻しました。${error.message||error}`);restoreCommittedPosition();return false}};
     const correctAfterLayoutChange=()=>{
-      cancelDrag();const g=geometry();if(!g){positionCurtain(g);return}
+      cancelDrag();syncStudyFooterSpacer();const g=geometry();if(!g){positionCurtain(g);return}
+      ensureLockBaseline(g,{reset:true});
+      if(curtainLocked){
+        const first=els.words.querySelector(".meaning-cell");if(!first)return;
+        revealY=Math.max(0,Math.min(lockedY-first.getBoundingClientRect().top,g.height));positionCurtain(g);lockLastRevealY=revealY;
+        return;
+      }
       revealY=Math.max(0,Math.min(Number(activeSession?.revealY??revealY)||0,g.height));
       positionCurtain(g);
     };
     window.addEventListener("resize",correctAfterLayoutChange);
+    window.addEventListener("scroll",scheduleLockedCurtainUpdate,{passive:true});
+    els.curtainLockToggle.addEventListener("click",toggleCurtainLock);
     if(typeof ResizeObserver!=="undefined"){
       const sizes=new WeakMap();
       curtainLayoutObserver=new ResizeObserver(entries=>{
@@ -894,7 +1020,7 @@
       });
     }
     els.curtainHandle.addEventListener("pointerdown",e=>{
-      if(els.curtainHandle.classList.contains("hidden"))return;
+      if(els.curtainHandle.classList.contains("hidden")||curtainLocked)return;
       dragging=true;curtainUserDragging=true;pointerId=e.pointerId;startClientY=e.clientY;startRevealY=revealY;els.curtainHandle.setPointerCapture(e.pointerId);e.preventDefault();
     });
     els.curtainHandle.addEventListener("pointermove",e=>{
@@ -993,11 +1119,17 @@
           draft.activeSession.gptRevealTargetId=boundaryIndex>=0?g.thresholds[boundaryIndex].id:g.thresholds.at(-1).id;
         }
       }
+      if(curtainLocked&&draft.samePage&&draft.transition?.kind!=="jump"&&draft.activeSession?.gptRevealTargetId){
+        draft.activeSession.gptRevealTargetId=null;
+      }
       const writes=[];
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump)writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(nextView))});
       StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,studyProgress:draft.studyProgress,gptSkipped:draft.gptSkipped},writes);
+      const appliedJump=draft.transition?.kind==="jump"&&draft.jump?.canJump;
+      if(appliedJump&&curtainLocked){releaseCurtainLock();lockBaselineViewportY=null}
       state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;registeredGptSessionIds=draft.registeredGptSessionIds;studyProgress=draft.studyProgress;gptSkipped=draft.gptSkipped;
-      if(draft.transition?.kind==="jump"&&draft.jump?.canJump)applyView(nextView,pageSize,masteryThreshold,defaultAnswer);
+      if(appliedJump)lockBaselineViewportY=null;
+      if(appliedJump)applyView(nextView,pageSize,masteryThreshold,defaultAnswer);
       revealY=Number(activeSession?.revealY||0);render();
       els.resultStatus.textContent=`${draft.applied}件を反映しました。${draft.transition?.kind==="jump"&&draft.jump?.canJump?" GPT結果の続きへ移動しました。":""}`;els.resultStatus.className="status good";
     }catch(err){els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad"}
@@ -1013,7 +1145,11 @@
     const before=buildTarget(currentView(),state,words,randomIds,pageSize).ids;
     const after=buildTarget(view,state,words,randomIds,nextPageSize).ids;
     const targetChanged=!StudyCore.sameOrderedIds(before,after);
-    requestViewTransition(view,{nextPageSize,nextThreshold,nextDefaultAnswer,nextGptWordCount,writePreferences:true,finalize:targetChanged,resetCurtain:targetChanged});
+    if(!requestViewTransition(view,{nextPageSize,nextThreshold,nextDefaultAnswer,nextGptWordCount,writePreferences:true,finalize:targetChanged,resetCurtain:targetChanged})){
+      els.pageSize.value=String(pageSize);els.masteryThreshold.value=String(masteryThreshold);els.defaultAnswer.value=defaultAnswer;
+      return false;
+    }
+    return true;
   }
 
   els.openSettings.addEventListener("click",()=>{if(!els.settingsPanel.open)els.settingsPanel.showModal()});
@@ -1087,6 +1223,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("学習データと履歴をこの端末から削除しますか？"))return;
+    releaseCurtainLock();lockBaselineViewportY=null;
     words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];gptSkipped=StudyCore.normalizeGptSkippedState(null,[]);randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES,STORAGE_LIST_TITLE])localStorage.removeItem(key);
     updateHome();
