@@ -245,8 +245,9 @@
     out.orderPreserved=true;
     const resultById=new Map();if(!Array.isArray(results)){out.reason="invalid-results";return out}
     for(const result of results){if(!result||typeof result.id!=="string"||!ids.includes(result.id)||!['correct','wrong','uncertain','skipped'].includes(result.result)||resultById.has(result.id)){out.reason="invalid-results";return out}resultById.set(result.id,result.result)}
-    let lastIndex=-1;for(let i=0;i<ids.length;i++)if(resultById.has(ids[i]))lastIndex=i;
+    let firstIndex=-1,lastIndex=-1;for(let i=0;i<ids.length;i++)if(resultById.has(ids[i])){if(firstIndex<0)firstIndex=i;lastIndex=i}
     if(lastIndex<0){out.reason="no-practical-result";return out}
+    out.firstResultId=ids[firstIndex];out.firstResultPosition=context.targetPositions[firstIndex];
     const id=ids[lastIndex],position=context.targetPositions[lastIndex],size=Number(currentView?.pageSize);
     out.lastResultId=id;
     if(![10,20,50,100].includes(size)){out.reason="invalid-page-size";return out}
@@ -642,6 +643,22 @@
     const positionResults=checked.results.filter(r=>!pendingDisclosed.has(r.id));
     const jumpView=buildGptJumpView(currentView,pageSize,randomIds);
     let jump=evaluateGptJump(original,words,jumpView,positionResults,state);
+    if(jump.canJump){
+      const context=normalizeGptIssueContext(original?.context),mode=jump.issuedMode||currentView?.sortMode;
+      const identity=studyOrderIdentity(words,mode,randomIds);
+      const cursor=normalizeStudyProgress(studyProgress)[mode];
+      const cursorIsValid=!!(context&&identity&&cursor&&cursor.sortMode===identity.sortMode&&cursor.wordCount===identity.wordCount&&
+        cursor.orderFingerprint===identity.orderFingerprint&&cursor.csvOrderFingerprint===identity.csvOrderFingerprint&&cursor.contentFingerprint===identity.contentFingerprint&&
+        context.sortMode===identity.sortMode&&context.orderFingerprint===identity.orderFingerprint&&context.csvOrderFingerprint===identity.csvOrderFingerprint&&context.contentFingerprint===identity.contentFingerprint);
+      const ordered=identity?orderedWords(words,identity.sortMode,randomIds):null;
+      const cursorIndex=cursorIsValid?ordered.findIndex(word=>String(word.id)===cursor.id):-1;
+      const firstPosition=jump.firstResultPosition;
+      const requiredPosition=cursorIndex<0?0:cursorIndex+1;
+      if(!Number.isInteger(firstPosition)||firstPosition>requiredPosition){
+        jump={...jump,canJump:false,reason:"study-progress-gap",candidatePosition:null,
+          continuity:{cursorId:cursorIsValid?cursor.id:null,cursorPosition:cursorIndex,requiredPosition,firstResultPosition:firstPosition??null}};
+      }
+    }
     if(forceFormalOnly)jump={...jump,canJump:false,reason:forceFormalOnly===true?"study-progress-uncertain":String(forceFormalOnly),candidatePosition:null};
     let candidatePage=null,samePage=false;
     if(jump.canJump) {
