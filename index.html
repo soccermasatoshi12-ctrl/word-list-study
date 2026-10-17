@@ -1176,6 +1176,7 @@
       const writes=[];
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump)writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(nextView))});
       StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,studyProgress:draft.studyProgress,gptSkipped:draft.gptSkipped},writes);
+      removeGptResultParamFromUrl();
       const appliedJump=draft.transition?.kind==="jump"&&draft.jump?.canJump;
       if(appliedJump&&curtainLocked){releaseCurtainLock()}
       state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;registeredGptSessionIds=draft.registeredGptSessionIds;studyProgress=draft.studyProgress;gptSkipped=draft.gptSkipped;
@@ -1193,17 +1194,17 @@
     if(result===null)return false;
     els.resultJson.value=result;
     if(els.resultJson.value!==result)return false;
-    url.searchParams.delete("result");
-    try{
-      history.replaceState(history.state,"",`${url.pathname}${url.search}${url.hash}`);
-      els.resultStatus.textContent="URLから結果JSONを取り込みました。内容を確認してから登録してください。";
-      els.resultStatus.className="status good";
-    }catch(error){
-      els.resultStatus.textContent=`結果JSONは取り込みましたが、URLを履歴から除去できませんでした。再読み込みで再度表示される場合があります。${error.message||error}`;
-      els.resultStatus.className="status bad";
-    }
+    els.resultStatus.textContent="URLから結果JSONを取り込みました。内容を確認してから登録してください。";
+    els.resultStatus.className="status good";
     if(!els.gptPanel.open)els.gptPanel.showModal();
     return true;
+  }
+  function removeGptResultParamFromUrl(){
+    const url=new URL(window.location.href);
+    if(!url.searchParams.has("result"))return false;
+    url.searchParams.delete("result");
+    try{history.replaceState(history.state,"",`${url.pathname}${url.search}${url.hash}`);return true}
+    catch{return false}
   }
 
   function restartViewSession(nextView=currentView()){
@@ -1235,6 +1236,7 @@
   els.closeSettings.addEventListener("click",()=>els.settingsPanel.close());
   els.openGpt.addEventListener("click",()=>{if(!els.gptPanel.open)els.gptPanel.showModal()});
   els.closeGpt.addEventListener("click",()=>els.gptPanel.close());
+  els.gptPanel.addEventListener("close",removeGptResultParamFromUrl);
   els.excludeStreak.addEventListener("change",()=>{
     if(!pendingStudyTransitionNeedsConfirmation("現在の学習結果を確定して、習得済み除外の設定を切り替えますか？")){
       els.excludeStreak.checked=excludeStreak;els.excludeStreak.setAttribute("aria-checked",String(excludeStreak));return;

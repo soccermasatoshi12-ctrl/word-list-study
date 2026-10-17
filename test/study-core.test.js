@@ -1522,19 +1522,37 @@ test('GPT UI keeps legacy session URL copy and adds ChatGPT open and copy contro
   assert.match(html,/url\.searchParams\.set\("study",/);
 });
 
-test('result URL prefill uses the existing JSON field and removes only result without registering',()=>{
+test('result URL prefill retains the query until the registration dialog closes or persistence succeeds',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  const start=html.indexOf('function receiveGptResultFromUrl()'),end=html.indexOf('\n  function restartViewSession',start);
-  assert.notEqual(start,-1);assert.notEqual(end,-1);
-  const receiver=html.slice(start,end);
+  const start=html.indexOf('function receiveGptResultFromUrl()'),helperStart=html.indexOf('function removeGptResultParamFromUrl()'),end=html.indexOf('\n  function restartViewSession',start);
+  assert.notEqual(start,-1);assert.notEqual(helperStart,-1);assert.notEqual(end,-1);
+  const receiver=html.slice(start,helperStart),helper=html.slice(helperStart,end);
   assert.match(receiver,/url\.searchParams\.has\("result"\)/);
   assert.match(receiver,/url\.searchParams\.get\("result"\)/);
-  assert.doesNotMatch(receiver,/decodeURIComponent|applyGptResults|inspectGptResults|prepareGptIntegration/);
-  assert.ok(receiver.indexOf('els.resultJson.value=result')<receiver.indexOf('history.replaceState'));
-  assert.match(receiver,/url\.searchParams\.delete\("result"\)/);
-  assert.match(receiver,/url\.pathname\}\$\{url\.search\}\$\{url\.hash/);
+  assert.doesNotMatch(receiver,/decodeURIComponent|applyGptResults|inspectGptResults|prepareGptIntegration|searchParams\.delete|replaceState/);
+  assert.match(receiver,/els\.resultJson\.value=result/);
   assert.match(receiver,/els\.gptPanel\.showModal\(\)/);
+  assert.match(helper,/url\.searchParams\.has\("result"\)/);
+  assert.match(helper,/url\.searchParams\.delete\("result"\)/);
+  assert.match(helper,/history\.replaceState\(history\.state/);
+  assert.match(helper,/url\.pathname\}\$\{url\.search\}\$\{url\.hash/);
   assert.match(html,/receiveGptResultFromUrl\(\);/);
+  assert.match(html,/els\.gptPanel\.addEventListener\("close",removeGptResultParamFromUrl\)/);
+  const applyStart=html.indexOf('function applyGptResults()'),applyEnd=html.indexOf('\n  function receiveGptResultFromUrl()',applyStart),apply=html.slice(applyStart,applyEnd);
+  assert.ok(apply.indexOf('StudyCore.saveCoreTransition')<apply.indexOf('removeGptResultParamFromUrl()'));
+  assert.match(apply,/finally\{els\.resultJson\.value=""\}/);
+});
+
+test('result URL removal preserves unrelated query, hash, and existing history state',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8'),start=html.indexOf('function removeGptResultParamFromUrl()'),end=html.indexOf('\n  function restartViewSession',start);
+  const helper=html.slice(start,end),historyState={marker:'keep'},calls=[];
+  let href='https://example.test/study?keep=one&result=%7B%22x%22%3A1%7D&other=two#section';
+  const window={get location(){return{href}}},history={state:historyState,replaceState(state,title,next){calls.push({state,title,next});href=new URL(next,href).href}};
+  const remove=new Function('window','history',`${helper};return removeGptResultParamFromUrl`)(window,history);
+  assert.equal(remove(),true);assert.equal(new URL(href).searchParams.has('result'),false);
+  assert.equal(new URL(href).searchParams.get('keep'),'one');assert.equal(new URL(href).searchParams.get('other'),'two');assert.equal(new URL(href).hash,'#section');
+  assert.equal(calls.length,1);assert.equal(calls[0].state,historyState);
+  assert.equal(remove(),false);assert.equal(calls.length,1);
 });
 
 test('legacy pending and applied GPT records migrate without changing study history and persist on reload', () => {
