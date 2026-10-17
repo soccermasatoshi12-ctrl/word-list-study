@@ -328,6 +328,7 @@
   let studyProgress=StudyCore.normalizeStudyProgress(savedCore.studyProgress);
   let gptSessions=savedCore.gptSessions;
   let registeredGptSessionIds=savedCore.registeredGptSessionIds||[];
+  let gptIssueSequence=Number.isSafeInteger(savedCore.gptIssueSequence)&&savedCore.gptIssueSequence>=0?savedCore.gptIssueSequence:0;
   let gptSkipped=StudyCore.normalizeGptSkippedState(savedCore.gptSkipped,words);
   let randomIds=loadJson(STORAGE_RANDOM_ORDER,[]);
   const rawSavedView=loadJson(STORAGE_VIEW,{});
@@ -1102,9 +1103,17 @@
     let context;
     try{context=StudyCore.createGptIssueContext(words,{sortMode,randomIds,startId:start.startId,pageSize,excludeStreak,masteryThreshold,ids})}
     catch(err){alert(err.message||"GPT発行時の情報を準備できませんでした。");return}
-    const nextSessions={...gptSessions,[sessionId]:{createdAt:new Date().toISOString(),ids,context}};
-    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions:nextSessions,registeredGptSessionIds,studyProgress,gptSkipped});
+    const orderedSessions=Object.fromEntries(Object.entries(gptSessions).map(([id,record])=>[
+      id,Number.isSafeInteger(record?.issueSequence)&&record.issueSequence>0?record:{...record,issueSequence:0}
+    ]));
+    const recordedMax=Math.max(0,...Object.values(orderedSessions).map(record=>Number.isSafeInteger(record?.issueSequence)?record.issueSequence:0));
+    const currentIssueSequence=Math.max(gptIssueSequence,recordedMax);
+    if(currentIssueSequence>=Number.MAX_SAFE_INTEGER){alert("GPT連携の発行順を保存できません。");return}
+    const nextIssueSequence=currentIssueSequence+1;
+    const nextSessions={...orderedSessions,[sessionId]:{createdAt:new Date().toISOString(),issueSequence:nextIssueSequence,ids,context}};
+    StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions:nextSessions,registeredGptSessionIds,studyProgress,gptSkipped,gptIssueSequence:nextIssueSequence});
     gptSessions=nextSessions;
+    gptIssueSequence=nextIssueSequence;
     const url=new URL(location.href);url.search="";url.hash="";
     url.searchParams.set("study",btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
     lastSessionUrl=url.toString();els.sessionUrl.value=lastSessionUrl;els.copySession.disabled=false;
@@ -1123,35 +1132,19 @@
       if(checked.isReplay&&!confirm("学習結果を登録しますか？ この結果は過去に登録済みの可能性があります。重複して登録してもよろしいですか？")){
         els.resultStatus.textContent="登録をキャンセルしました。";return;
       }
-      const sessionId=String(obj.sessionId),record=gptSessions[sessionId];
-      const integrationArgs={sessions:gptSessions,registeredIds:registeredGptSessionIds,knownIds:words.map(w=>w.id),words,state,activeSession,currentView:currentView(),pageSize,randomIds,studyProgress,gptSkipped,now:Date.now()};
-      let forceFormalOnly=false;
-      if(!checked.isReplay&&record){
-        const disclosed=new Set((activeSession?.studiedIds||[]).map(String));
-        const resultById=new Map(checked.results.filter(result=>!disclosed.has(result.id)).map(result=>[result.id,result.result]));
-        let lastResultId=null;for(const id of record.ids||[])if(resultById.has(String(id)))lastResultId=String(id);
-        if(!lastResultId)forceFormalOnly="no-practical-result";
-        else {
-          let progress=studyProgress;
-          if(!progress?.[record.context?.sortMode]&&activeSession?.viewState?.sortMode===record.context?.sortMode&&activeSession.studiedIds?.length){
-            const lastDisclosed=activeSession.studiedIds.at(-1);progress=StudyCore.recordStudyDisclosure(progress,words,record.context.sortMode,randomIds,lastDisclosed);
-          }
-          const comparison=StudyCore.compareStudyProgress(progress,words,record.context?.sortMode,randomIds,record,lastResultId);
-          const anyPriorLearning=Object.values(state).some(value=>Number(value?.studyCount||0)>0)||!!activeSession?.studiedIds?.length;
-          if(comparison.relation==="ahead")forceFormalOnly="study-already-ahead";
-          else if(comparison.relation==="unknown"&&anyPriorLearning)forceFormalOnly="study-progress-uncertain";
-        }
-      }
+      const sessionId=String(obj.sessionId);
+      const integrationArgs={sessions:gptSessions,registeredIds:registeredGptSessionIds,knownIds:words.map(w=>w.id),words,state,activeSession,currentView:currentView(),pageSize,randomIds,studyProgress,gptSkipped,latestIssueSequence:gptIssueSequence,now:Date.now()};
       const prepare=options=>StudyCore.prepareGptIntegration(obj,{...integrationArgs,...options});
-      let draft=prepare({forceFormalOnly});
-      const shouldJump=draft.transition?.kind==="jump"&&draft.jump?.canJump;
-      const modeChange=shouldJump&&draft.transition.requiresModeRestore;
+      let draft=prepare({forceFormalOnly:false});
+      const shouldJump=!!draft.jump?.canJump;
+      const shouldMovePage=draft.transition?.kind==="jump"&&draft.jump?.canJump;
+      const modeChange=shouldMovePage&&draft.transition.requiresModeRestore;
       const pendingIds=(activeSession?.studiedIds||[]).map(String).filter(id=>!(activeSession?.finalizedIds||[]).map(String).includes(id));
-      const leaving=shouldJump&&!draft.samePage;
-      const confirmMove=shouldJump&&(modeChange||(leaving&&pendingIds.length>0));
+      const leaving=shouldMovePage&&!draft.samePage;
+      const confirmMove=shouldJump&&(draft.jump.needsStartConfirmation||modeChange||(leaving&&pendingIds.length>0));
       if(confirmMove){
-        const impacts=[];if(modeChange)impacts.push(`${draft.jump.issuedMode==="random"?"ランダム順":"通常順"}へ切り替えます`);if(leaving&&pendingIds.length)impacts.push("現在の学習結果は確定されます");
-        const prompt=`GPT結果の続きへ移動しますか？ ${impacts.join("。")}${impacts.length?"。":""}`;
+        const impacts=[];if(draft.jump.needsStartConfirmation)impacts.push("GPT結果の先頭はまだ開示されていません");if(modeChange)impacts.push(`${draft.jump.issuedMode==="random"?"ランダム順":"通常順"}へ切り替えます`);if(leaving&&pendingIds.length)impacts.push("現在の学習結果は確定されます");
+        const prompt=`GPT結果の末尾まで解答カバーを移動しますか？ ${impacts.join("。")}${impacts.length?"。":""}`;
         if(!confirm(prompt))draft=prepare({forceFormalOnly:"user-declined-jump"});
         else draft=prepare({forceFormalOnly:false});
       }
@@ -1170,19 +1163,23 @@
           draft.activeSession.gptRevealTargetId=boundaryIndex>=0?g.thresholds[boundaryIndex].id:g.thresholds.at(-1).id;
         }
       }
-      if(curtainLocked&&draft.samePage&&draft.transition?.kind!=="jump"&&draft.activeSession?.gptRevealTargetId){
+      if(curtainLocked&&draft.samePage&&!draft.jump?.canJump&&draft.activeSession?.gptRevealTargetId){
         draft.activeSession.gptRevealTargetId=null;
       }
       const writes=[];
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump)writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(nextView))});
       StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,studyProgress:draft.studyProgress,gptSkipped:draft.gptSkipped},writes);
       removeGptResultParamFromUrl();
-      const appliedJump=draft.transition?.kind==="jump"&&draft.jump?.canJump;
-      if(appliedJump&&curtainLocked){releaseCurtainLock()}
+      const didJump=!!draft.jump?.canJump;
+      const changedPage=draft.transition?.kind==="jump"&&didJump;
+      if(didJump&&curtainLocked){releaseCurtainLock()}
       state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;registeredGptSessionIds=draft.registeredGptSessionIds;studyProgress=draft.studyProgress;gptSkipped=draft.gptSkipped;
-      if(appliedJump)applyView(nextView,pageSize,masteryThreshold,defaultAnswer);
+      if(changedPage)applyView(nextView,pageSize,masteryThreshold,defaultAnswer);
       revealY=Number(activeSession?.revealY||0);render();
-      els.resultStatus.textContent=`${draft.applied}件を反映しました。${draft.transition?.kind==="jump"&&draft.jump?.canJump?" GPT結果の続きへ移動しました。":""}`;els.resultStatus.className="status good";
+      const notice=StudyCore.gptIntegrationNotice(draft);
+      els.resultStatus.dataset.reasonCode=notice.reasonCode;
+      els.resultStatus.textContent=notice.text;
+      els.resultStatus.className="status good";
     }catch(err){els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad"}
     finally{els.resultJson.value=""}
   }

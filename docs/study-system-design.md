@@ -39,7 +39,7 @@ CSV / localStorage
                     │             → payload + 発行時contextを保存
                     │
                     └─ GPT結果登録: JSON/ID検証 → 重複・開示保護
-                                  → ジャンプ連続性 → 確認要否
+                                  → 最新発行・現在ページ位置 → 確認要否
                                   → 結果の正式履歴または現在ページの暫定状態
                                   → gptSkipped / studyProgress / view/session保存
 ```
@@ -55,7 +55,7 @@ CSV / localStorage
 | カーテン・行表示 | `index.html`: `geometry`, `positionCurtain`, `processRevealProgress`, `syncMeaningDisclosure`, `syncAnswerControl` |
 | GPT発行・結果登録UI | `index.html`: `makeGptSession`, `applyGptResults` |
 | 進捗可視化 | `study-core.js`: `buildProgressSummary`; `index.html`: `renderProgressSummary` |
-| 仕様回帰テスト | `test/study-core.test.js`: GPT integration、jump continuity、session persistence、reveal threshold関連の各テスト |
+| 仕様回帰テスト | `test/study-core.test.js`: GPT integration、issue sequence、page-position jump、session persistence、reveal threshold関連の各テスト |
 
 以下では行番号を固定参照にせず、関数名・状態名を主な参照単位とする。
 
@@ -102,7 +102,7 @@ CSV / localStorage
 
 ### 3.4 GPT状態・順序identity
 
-- `gptSessions[sessionId]`は未登録の発行記録。`ids`は実際に発行した問題IDの順序、`context`は発行時のモード・開始位置・ページサイズ・除外条件・閾値・位置列・fingerprintを保持する。
+- `gptSessions[sessionId]`は未登録の発行記録。`ids`は実際に発行した問題IDの順序、`context`は発行時のモード・開始位置・ページサイズ・除外条件・閾値・位置列・fingerprintを保持し、`issueSequence`は発行順を表す。ledgerの`gptIssueSequence`は発行済みの最大連番を保持し、登録済み記録を削除した後も最新発行を識別できる。
 - 登録済みsession IDは`registeredGptSessionIds`で追跡され、再登録は確認フローへ進む。
 - `gptSkipped`は`{contentFingerprint, ids}`。明示的なskippedだけを記録し、`setGptSkippedState()`でID単位に追加・解除する。
 - `studyOrderIdentity()`は順序fingerprint、CSV ID順fingerprint、ID/問題/解答のcontent fingerprint、件数を算出する。`gptSkipped`用content fingerprintは問題の表示順・解説・タイトルを含まないが、問題ID・問題文・解答の変更を検出する。
@@ -118,7 +118,7 @@ CSV / localStorage
 | `wordlist.state.v2` | 旧形式移行用の問題状態。現行snapshotではstateはledgerにも含まれる。 |
 | `wordlist.gptSessions.v2` | 旧形式移行用のGPT発行記録。 |
 | `wordlist.activeStudySession.v2` | 旧形式移行用のactive session。 |
-| `wordlist.studyLedger.v1` | 現行snapshot。state、GPT session records、registered IDs、activeSession、`gptSkipped`、存在する場合の`studyProgress`を格納する。 |
+| `wordlist.studyLedger.v1` | 現行snapshot。state、GPT session records、registered IDs、activeSession、`gptSkipped`、存在する場合の`studyProgress`、GPT発行順の`gptIssueSequence`を格納する。 |
 | `wordlist.randomOrder.v1` | 保存されたランダムID順。 |
 | `wordlist.view.v1` | 表示モード・ページ・除外などのview。 |
 | `wordlist.preferences.v1` | ページサイズ、習得閾値、初期評価、GPT出題数。 |
@@ -176,7 +176,7 @@ CSV / localStorage
 
 従来の`?study=` payloadに含む`outputInstructions`は、JSONのみを返す既存契約（`version`・`sessionId`・`results`、IDと許容result値）を維持する。ChatGPT向けpromptは同じpayloadの`version`・`sessionId`・`mode`・出題単語を順序を保ったCSV形式で示し、CSVのカンマ・引用符・改行はCSV規則でエスケープする。ChatGPT固有の学習進行指示と、全問題の学習後にJSONを直接URLエンコードした結果リンクを作る指示はprompt側で別途構成し、従来の`outputInstructions`には混ぜない。結果値は`correct`、`wrong`、`uncertain`、`skipped`とする。起動時に`receiveGptResultFromUrl()`が`?result=`を`URLSearchParams.get()`で取得し、既存の`resultJson`欄へそのまま設定して結果ダイアログを開く。この時点ではURLを変更しない。ダイアログの`close`イベントまたは`applyGptResults()`の保存成功後に`removeGptResultParamFromUrl()`が`result`だけを除き、他のquery・hash・history stateを保つ。検証エラー・登録確認キャンセル・保存失敗ではパラメータを保持する。URL受信では自動登録せず、利用者が既存の登録ボタンを押した後に通常の`applyGptResults()`検証・確認・保存経路へ進む。異なるブラウザのlocalStorage共有は前提とせず、発行セッションがない場合も通常のセッション照合に委ねる。
 
-発行contextはモード、開始位置、ページサイズ、習得除外条件・閾値、問題件数、CSV ID順・出題順・内容fingerprint、発行IDごとの位置を持つ。JSONの結果配列順やIDの辞書順ではなく、この発行ID順で位置を比較できる。
+発行contextはモード、開始位置、ページサイズ、習得除外条件・閾値、問題件数、CSV ID順・出題順・内容fingerprint、発行IDごとの位置を持つ。JSONの結果配列順やIDの辞書順ではなく、この発行ID順で位置を比較できる。`issueSequence`とledgerの`gptIssueSequence`で発行順を保持する。ジャンプ対象は、発行履歴全体で最後に発行されたセッションであり、未登録であることも必要とする。登録済み記録を除いた後に残る古い未登録記録を、最新として繰り上げてはならない。登録済みセッションの再取り込みは既存の再登録経路に進み、ジャンプしない。まだ連番のない旧pending記録は、新しい発行を行う際に`issueSequence: 0`として区別し、旧記録自体はジャンプ対象外とする。最新判定に必要な情報が不整合な場合は、安全のため結果登録のみとする。登録済み発行記録を削除してもledgerの`gptIssueSequence`は保持され、最後に発行された連番を示す。
 
 ## 6. GPT結果登録（中心処理）
 
@@ -222,51 +222,57 @@ CSV / localStorage
 `prepareGptIntegration()`の未登録session経路は、概ね次の順で処理する。
 
 1. 結果を検証し、入力state/sessionをコピーしてdraftを作る。
-2. active sessionの未確定開示IDを求め、正誤結果の重複をeligible集合から除く。位置判定用結果からも未確定開示IDを除く。
-3. 発行contextと結果を`evaluateGptJump()`へ渡し、発行順で最前・最遠の実結果位置を得る。
-4. `studyProgress`のモード・順序・内容identityを検証し、最前結果からの連続性を確認する。UIから渡されたformal-only理由があればjumpを無効化する。
-5. jump可能なら候補ページ・samePageを計算し、そのページで暫定保持できる結果IDを決める。候補ページに入らない結果はformal結果になる。
-6. formal結果をstateへ適用する。別ページを離れる場合は現在のactive sessionを確定し、その結果を反映したstateで候補ページを再計算する。再計算後に見えなくなった結果はformal側へ移す。
-7. jump可能な結果のうち候補ページに表示されるものだけを結果ページのactive sessionへ登録する。studyCountは対象IDにだけ加算し、correctだけcheckedIdsに追加する。skippedはこの経路に入らない。
+2. active sessionの未確定開示IDを求め、正誤結果の重複をeligible集合から除く。位置判定では、結果が返された全ID（skippedを含む）を使い、開示済みIDを結果順の端点から除外しない。
+3. 結果が未登録であること、発行記録の連番がledgerの`gptIssueSequence`と一致すること、かつその連番を持つpending記録が一意であることを確認する。発行履歴全体でより新しいセッションが存在する場合、そのセッションが登録済みで発行記録から削除済みでも、古い結果はjump対象外とする。最新判定情報が不整合な場合も結果登録のみとする。登録済み結果の再取り込みは既存の再登録確認へ進み、jumpは行わない。
+4. 発行contextと現在表示順・ページ・active sessionの開示IDから、実結果の先頭と末尾を評価する。order/content fingerprintや現在のページ位置を確認し、整合しない場合はjumpを抑止する。`studyProgress`の連続性だけを理由に、ページ位置ルールで許可されたjumpを抑止しない。
+5. 先頭が現在ページ内で未開示なら確認を求める。承認後は末尾位置に進む。先頭・末尾のページ位置と開示状況からjump候補を決め、候補ページに入らない結果はformal結果になる。
+6. formal結果をstateへ適用する。別ページを離れる場合は、現在ページの未確定結果を保護する既存確認を行う。確認拒否なら結果のみ登録するformal-only draftに作り直す。
+7. jump可能な結果のうち候補ページに表示されるものだけをactive sessionへ登録する。studyCountは対象IDにだけ加算し、correctだけcheckedIdsに追加する。skippedはこの経路に入らない。
 8. 発行sessionを登録済みにし、`gptSkipped`を明示結果だけで更新する。jump成立時だけ`studyProgress`を最遠実結果IDへ進め、`advanceStudyProgress()`が後退を防ぐ。
-9. UIは必要なページ移動確認を行う。拒否時にはformal-only draftを作り直す。最終draftを`saveCoreTransition()`で保存してから、画面state・view・カーテンを更新する。
+9. 最終draftを`saveCoreTransition()`で保存してから、画面state・view・解答カバーを更新する。結果登録件数と移動結果は分けて通知し、`resultStatus.dataset.reasonCode`に内部理由コードを設定する。
 
 この順序により「GPT結果を履歴に記録すること」「active pageで暫定的に表示すること」「学習位置を移すこと」は別々の判定になる。
 
-### 6.5 最前・最遠結果位置と連続性
+### 6.5 発行順・現在ページと結果位置
 
 `evaluateGptJump()`は、発行時の`record.ids`順に沿って結果IDの有無を走査する。JSON配列の順序やIDの数値大小を使用しない。実結果の最初を`firstResultPosition`、最後を`lastResultId`・候補位置とする。skippedも実際の結果なので両端判定に含まれ、結果なしは含まれない。
 
-次に`prepareGptIntegration()`が、発行モードのidentityに一致する`studyProgress`カーソルを検証し、最初の結果がカーソルの次位置を飛び越えるか調べる。カーソルが有効なら必要位置は`cursorIndex + 1`、無効・未設定なら連続性の起点を先頭位置(index 0)とする。`firstResultPosition`が必要位置より後ろなら`reason: "study-progress-gap"`でjumpを抑止する。連続性を満たせば、実結果の最遠IDまで既存jump候補を作る。
+`gptIssueSequence`はセッション発行ごとに増え、登録済みセッションの発行記録が消えた後も発行順を保持する。発行履歴全体で最後に発行された正の連番を持つ、未登録かつ一意な記録だけがジャンプ判定の対象になる。したがってA発行→B発行→B登録（B記録削除）→A登録の順でも、Aは古い発行として結果登録のみとなる。登録済みセッション自体の再取り込みもjumpしない。連番のない旧pending記録は次の発行時に0へ移行し、結果登録のみとなる。0の旧記録が残っていても、その後に発行された正の連番を妨げない。ID文字列や`createdAt`の大小比較はしない。
 
-UI側の`applyGptResults()`はさらに`compareStudyProgress()`で既存カーソルが結果より先行するかを調べる。カーソル先行ならformal-only、identity不明で既存学習がある場合も安全側にformal-onlyを指定する。既存位置が結果より先でも、20〜60のように結果の発行列が既存位置以前から始まる場合は連続性判定を通る余地があり、`advanceStudyProgress()`がカーソルを後退させない。
+`evaluateGptJump()`は現在表示中の同じ順序を検証し、現在ページの位置範囲を現在のページサイズから求める。通常順では`pageIndex * pageSize`、ランダム順では`randomStart`が範囲の起点となる。フィルター・習得除外で表示行が減ってもページの固定範囲を保ち、結果IDの位置は発行時contextから照合する。ページサイズ変更後も現在のページ範囲を使う。順序・単語内容・ページ位置が確かめられない場合はjumpしない。
 
-| 現在カーソル（例） | 発行順で結果がある位置 | 判定 |
+判定は次のとおり。位置は現在の表示順における0始まりindexで比較する。
+
+| 先頭結果 | 末尾結果 | 判定 |
 |---|---|---|
-| 35 | 36〜50 | 直後から開始。jump可能（他のjump条件・確認を満たす場合）。 |
-| 35 | 40〜50 | 先頭結果が直後を飛び越す。jump抑止、結果はformal反映。 |
-| 35 | 41〜60 | 同様にjump抑止。ページ・画面位置は維持。 |
-| 35 | 20〜60 | 結果開始は現在位置以前。連続性条件を満たし得る。既存到達位置は後退しない。 |
-| 35 | 36, 38, 40 | 発行順で最前36・最遠40。穴の37・39は到達結果にも履歴にも自動追加しない。 |
-| 35 | 37〜40 | 先頭が直後より後ろ。jump抑止、受理可能な結果だけformal反映。 |
-| 35 | 返却結果なし | 実結果なしでjumpしない。 |
+| 現在ページ内・開示済み | 現在ページ内・開示済み | jumpしない。`last-already-disclosed`。 |
+| 現在ページ内・未開示 | 任意の結果末尾 | 確認する。承認なら末尾へjump、拒否なら位置維持。 |
+| 現在ページより前 | 現在ページより前 | jumpしない。`last-before-current-page`。 |
+| 現在ページより前 | 現在ページ内・未開示 | 末尾へjump。 |
+| 現在ページより前 | 現在ページ内・開示済み | jumpしない。`last-already-disclosed`。 |
+| 現在ページより前 | 現在ページより後ろ | 末尾へjump。 |
+| 現在ページより後ろ | 任意 | jumpしない。`first-after-current-page`。 |
 
-カーソル未設定・無効時は、位置0の結果から始まる連続性だけをjump候補とする。ランダム順も発行contextに保存した順序位置で比較する。ページ境界候補はその位置から通常ページまたはランダム固定範囲を算出する。
+端点は発行ID順で返却された結果から求める。skippedは位置判定に含み、結果配列にないIDは含めない。途中の欠番は開示済みにならず、既存の個別マスクを維持する。`studyProgress`はjump成立時の最遠位置を保存し、既存カーソルより後退させないが、jump候補の連続性ゲートには使わない。
 
 ### 6.6 ページ確認、jumpなし、履歴反映の分岐
 
 これらは別理由であり、同じ処理とみなさない。
 
-- **連続性不足**：`prepareGptIntegration()`がjump不可にする。`eligible`なcorrect/wrong/uncertainはformal履歴へ反映し、skippedは`gptSkipped`へ記録。active session・revealY・view・studyProgressは通常のjump更新を受けない。formal履歴が現在対象に影響し得るときは対象ID保持用情報が付く。
-- **既存カーソルが結果より先**：UIで`forceFormalOnly`を与える。履歴のみ反映し、現在ページへ移動しない。
+- **古い発行・発行順不明**：`older-issue`または`missing-issue-order`でjumpしない。履歴登録は続ける。
+- **現在ページより後ろから始まる結果**：`first-after-current-page`でjumpしない。
+- **現在ページより前で終わる結果**：`last-before-current-page`でjumpしない。
+- **末尾がすでに開示済み**：`last-already-disclosed`で移動せず、結果登録を続ける。
+- **順序・内容の不一致**：`order-mismatch`、`csv-order-changed`、`content-changed`などの理由コードでjumpしない。
 - **ページ移動・モード復元の確認拒否**：最初のdraftがjumpを提案しても、ユーザーが拒否した後に`prepareGptIntegration(...forceFormalOnly:"user-declined-jump")`を再実行する。結果登録は続け、画面遷移を取り消す。
+- **先頭未開示の確認拒否**：同じ`user-declined-jump`理由で、結果登録のみを行い現在位置を保つ。
 - **現在ページの未確定開示との重複**：該当correct/wrong/uncertainを`ignoredOverlapIds`へ入れ、active暫定状態を維持し、GPT重複分を加算しない。
 - **発行済み結果の再登録**：登録済みsession IDには重複確認。拒否すれば登録せず終了。承認後はreplay formal経路を使うが、未確定active IDとの正誤重複は除外する。
 - **現在ページ内でjump先が同一**：対象ページに入るeligible結果をactiveSessionへ暫定反映する。別ページへ移動する場合は、現在active sessionを確定し、候補ページを再計算してから新しいセッションを作る。
 
 formal-only時、active sessionの`studiedIds`、`checkedIds`、`revealY`と`studyProgress`をjump結果で書き換えない。ただしformal結果が表示対象の構成を変える可能性があるとき、復元用の`preserveTargetIds`情報が付加されることがある。これは既存セッションの暫定評価を置き換える操作ではない。
 
-別ページ移動確認は、モード切替が必要な場合、または現在ページを離れることで未確定結果を確定する必要がある場合に表示される。確認拒否は結果JSONを破棄する意味ではなく、結果のみ登録して現画面に留まる経路である。
+移動確認は、現在ページの未開示先頭から始まる結果の場合、または別ページへ移り未確定学習結果に影響する場合に表示される。両方必要なら一つの確認文にまとめる。拒否は結果JSONを破棄する意味ではなく、結果のみ登録して現画面に留まる経路である。登録件数は従来どおり`applied`（skippedと未確定開示との重複を除く）であり、通知は移動成否・理由を別に示す。
 
 ### 6.7 到達位置・カーテン・保存
 
@@ -311,18 +317,18 @@ GPTによる到達位置移動のみでは、中間の結果なし問題を`stud
 2. GPTのskippedと結果なしは別。skippedだけが`gptSkipped`へ入り、どちらもGPT import自体ではstudyCountを増やさない。
 3. GPTの発行順・内容identityが現行wordsと合わない場合、jumpを許可しない。
 4. `advanceStudyProgress()`は有効な同モードcursorを後退させない。
-5. GPTの結果位置が連続性の許容位置より先なら、画面jumpを抑止する。formalizableな結果登録と画面遷移の可否は別である。
+5. GPT結果登録と画面jumpは別判定である。ジャンプ対象は最新かつ未登録の発行セッションに限り、現在表示ページに対する結果先頭・末尾の位置で移動を決める。抑止時も適格な結果は履歴へ登録する。
 6. 未確定active disclosed IDへのGPT正誤重複を無視し、暫定状態を守る。既に確定した履歴があることだけでは現在session開示を意味しない。
 7. GPTの結果範囲・カーテン位置は、すべての間のIDを学習済みにする根拠ではない。
 8. `gptSkipped`と`studyProgress`は別データであり、前者はID mask、後者はモード別到達カーソル。
 9. データ保存が成功する前に画面側のdraftを本状態へ置き換えない。`saveCoreTransition()`は関連キー書き込みに失敗した場合のrollbackを試みる。
 
-主要テスト名は`test/study-core.test.js`の`GPT jump blocks outcomes beyond the cursor successor...`、`GPT gap check uses returned issue positions...`、`GPT jump with absent or invalid cursor...`、`GPT integration keeps active session on no-jump...`、`GPT result for an already disclosed active row...`、`processRevealThresholds does not auto-disclose explicitly GPT-skipped rows`、`last disclosure progress survives core persistence...`等を参照する。
+主要テスト名は`test/study-core.test.js`の`GPT jump uses displayed page positions rather than study-progress continuity`、`GPT result positions include skipped outcomes and gaps without disclosing missing IDs`、`GPT integration keeps active session on no-jump...`、`GPT result for an already disclosed active row...`、`GPT issue sequence persists independently of pending records...`、`GPT result page-position classifier covers first and last position rules`等を参照する。
 
 ## 11. 設計意図の根拠と限界
 
-- **コード・テストで確認できる根拠**：`study-core.js`の冒頭コメントはこのモジュールを学習履歴・GPT結果の純粋処理と位置付ける。ガード条件は重複開示を抑え、コメントは旧フィルターからの安全な移行を説明する。テストはskippedと結果なし、カーソル連続性、jump抑止、履歴不変を明示的に検証する。
-- **過去の合意として確認できる意図**：GPT結果は発行順の連続性を守り、結果のない中間問題を学習済みにしない。到達カーソルは後退させず、未確定の通常学習結果はGPT結果から保護する。
+- **コード・テストで確認できる根拠**：`study-core.js`の冒頭コメントはこのモジュールを学習履歴・GPT結果の純粋処理と位置付ける。テストはskippedと結果なし、最新issue順、表示ページ位置によるjump抑止、履歴不変、未確定結果の保護を検証する。
+- **今回の合意として確認できる意図**：ジャンプは最新・未登録の発行結果に限り、発行順と現在ページの位置関係で判断する。結果のない中間問題を開示済みにしない。未確定の通常学習結果はGPT結果から保護する。
 - **断定しないこと**：履歴出所を保存しない理由や、どの理由で現在の仕様差が選ばれたかはコードだけから確定できない。本書ではその理由を推定しない。
 
 ## 12. 変更候補・未解決事項
@@ -378,6 +384,4 @@ GPTによる到達位置移動のみでは、中間の結果なし問題を`stud
 
 - `study-core.js`: `normalizeGptSessionRecords`, `normalizeStudyProgress`, `studyContentFingerprint`, `normalizeGptSkippedState`, `saveCore`, `saveCoreTransition`, `resolveGptContinuationStart`, `selectGptWords`, `studyOrderIdentity`, `recordStudyDisclosure`, `advanceStudyProgress`, `compareStudyProgress`, `createGptIssueContext`, `evaluateGptJump`, `processRevealThresholds`, `tryRestoreSession`, `normalizeState`, `recordStudy`, `setSessionAnswer`, `finalizeStudySession`, `inspectGptResults`, `prepareGptIntegration`, `buildProgressSummary`.
 - `index.html`: storage constants and initialization; `writeCoreSnapshot`, `saveActiveSession`, `tryRestoreSession`, `transitionView`, `markStudied`, `canIndividuallyDisclose`, `syncAnswerControl`, `syncMeaningDisclosure`, `toggleAnswer`, `renderProgressSummary`, `geometry`, `processRevealProgress`, `positionCurtain`, `attachCurtainDrag`, `makeGptSession`, `applyGptResults`.
-- `test/study-core.test.js`: pure logic contracts, snapshot migration/rollback, GPT issue context and result validation, jump/continuity/formal-only branches, skipped/missing distinction, active-session overlap protection, disclosure and restoration contracts.
-
-本書の基準コードは`e06bf6414f7c30f0dee2b7fd63fadfa9ea33e6d9`。後続commitで契約が変わった場合は、基準を更新して本書も改訂する。
+- `test/study-core.test.js`: pure logic contracts, snapshot migration/rollback, GPT issue context and result validation, issue-order/page-position jump and formal-only branches, skipped/missing distinction, active-session overlap protection, disclosure and restoration contracts.

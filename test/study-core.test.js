@@ -46,6 +46,19 @@ function jumpView(view={},pageSize=10,randomIds=[]) {
   return C.buildGptJumpView(currentView,pageSize,randomIds);
 }
 
+function prepareIntegration(obj,args={}) {
+  const sessions=JSON.parse(JSON.stringify(args.sessions||{}));
+  let seq=0;
+  if(!Object.hasOwn(args,'latestIssueSequence'))for(const record of Object.values(sessions)) {
+    if(!Number.isSafeInteger(record.issueSequence))record.issueSequence=++seq;
+    else seq=Math.max(seq,record.issueSequence);
+  } else {
+    for(const record of Object.values(sessions))if(Number.isSafeInteger(record.issueSequence))seq=Math.max(seq,record.issueSequence);
+  }
+  const latestIssueSequence=Object.hasOwn(args,'latestIssueSequence')?args.latestIssueSequence:seq;
+  return C.prepareGptIntegration(obj,{...args,sessions,latestIssueSequence});
+}
+
 test('legacy hasMiss view is removed from the page UI and migrates safely to all words', () => {
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.doesNotMatch(html,/data-filter="|querySelectorAll\("\[data-filter\]"\)/);
@@ -641,8 +654,8 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/\.meaning-curtain\.is-curtain-locked,\.curtain-handle\.is-curtain-locked,\.curtain-lock-button\.is-curtain-locked\{position:fixed\}/);
   assert.match(html,/\.curtain-lock-button\{position:absolute;[\s\S]*?background:var\(--cover\)/);
   assert.match(html,/function releaseCurtainLock\(preserveViewportBoundary=false\)[\s\S]*?curtainLocked=false;lockedY=null/);
-  assert.match(html,/const appliedJump=draft\.transition\?\.kind==="jump"&&draft\.jump\?\.canJump;\s*if\(appliedJump&&curtainLocked\)\{releaseCurtainLock\(\)\}/);
-  assert.match(html,/if\(curtainLocked&&draft\.samePage&&draft\.transition\?\.kind!=="jump"&&draft\.activeSession\?\.gptRevealTargetId\)\{\s*draft\.activeSession\.gptRevealTargetId=null/);
+  assert.match(html,/const didJump=!!draft\.jump\?\.canJump;\s*const changedPage=draft\.transition\?\.kind==="jump"&&didJump;\s*if\(didJump&&curtainLocked\)\{releaseCurtainLock\(\)\}/);
+  assert.match(html,/if\(curtainLocked&&draft\.samePage&&!draft\.jump\?\.canJump&&draft\.activeSession\?\.gptRevealTargetId\)\{\s*draft\.activeSession\.gptRevealTargetId=null/);
   assert.match(html,/if\(curtainLocked\)endCurtainLock\(\);else beginCurtainLock\(\)/);
   assert.match(html,/window\.addEventListener\("scroll",scheduleLockedCurtainUpdate,\{passive:true\}\)/);
   assert.match(html,/els\.curtainHandle\.addEventListener\("pointerdown"/);
@@ -1625,22 +1638,20 @@ test('GPT jump uses the furthest returned result including skipped and computes 
   assert.deepEqual(Object.keys(jumpView()).sort(),['excludeStreak','excludeStreakN','filter','masteryThreshold','pageIndex','pageSize','randomIds','randomStart','sortMode'].sort());
 });
 
-test('GPT jump preserves issuance order across a display mode switch and reports mode restore requirement',()=>{
+test('GPT jump refuses a changed display order while retaining result order metadata',()=>{
   const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const randomIds=['4','2','1',...words.map(w=>w.id).filter(id=>!['4','2','1'].includes(id))];
   const ids=['2','1','5'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'2',pageSize:10,ids});
   const result=C.evaluateGptJump({ids,context},words,jumpView({filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0},10,randomIds),[
     {id:'5',result:'wrong'},{id:'1',result:'correct'}
   ]);
-  assert.equal(result.canJump,true);assert.equal(result.issuedMode,'random');assert.equal(result.currentMode,'normal');
-  assert.equal(result.orderPreserved,true);assert.equal(result.requiresModeRestore,true);assert.equal(result.lastResultId,'5');
-  assert.deepEqual(result.candidatePosition,{sortMode:'random',randomStart:0,pageIndex:null,wordIndex:4});
+  assert.equal(result.canJump,false);assert.equal(result.reason,'order-mismatch');assert.equal(result.issuedMode,'random');assert.equal(result.currentMode,'normal');
+  assert.equal(result.orderPreserved,true);assert.equal(result.lastResultId,'5');
   const returnedToRandom=C.evaluateGptJump({ids,context},words,jumpView({sortMode:'random'},10,randomIds),[{id:'5',result:'wrong'}]);
   assert.equal(returnedToRandom.canJump,true);assert.equal(returnedToRandom.requiresModeRestore,false);
   const normalIds=['11','12'],normalContext=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids:normalIds});
   const normalResult=C.evaluateGptJump({ids:normalIds,context:normalContext},words,jumpView({filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0},10,randomIds),[{id:'12',result:'correct'}]);
-  assert.equal(normalResult.canJump,true);assert.equal(normalResult.orderPreserved,true);assert.equal(normalResult.requiresModeRestore,true);
-  assert.deepEqual(normalResult.candidatePosition,{sortMode:'normal',pageIndex:1,randomStart:null,wordIndex:11});
+  assert.equal(normalResult.canJump,false);assert.equal(normalResult.reason,'order-mismatch');assert.equal(normalResult.orderPreserved,true);
 });
 
 test('GPT jump suppresses changed CSV, content, random order, and missing legacy context',()=>{
@@ -1665,7 +1676,7 @@ test('GPT jump rejects filtered targets and recalculates candidate for current p
   const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const ids=['11'],context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={ids,context},results=[{id:'11',result:'correct'}];
   assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all'},20,[]),results).candidatePosition.pageIndex,0);
-  assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',excludeStreak:true,masteryThreshold:3},10,[]),results,{'11':{currentStreak:3}}).reason,'target-filtered');
+  assert.equal(C.evaluateGptJump(record,words,jumpView({sortMode:'normal',filter:'all',excludeStreak:true,masteryThreshold:3,pageIndex:1},10,[]),results,{'11':{currentStreak:3}}).reason,'target-filtered');
 });
 
 test('GPT integration finalizes the departed normal page, keeps destination results provisional, and uses issue order',()=>{
@@ -1677,7 +1688,7 @@ test('GPT integration finalizes the departed normal page, keeps destination resu
   const active={sessionId:'old',key:C.studySessionKey(view,10),updatedAt:123,revealY:40,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2','9','10'],checkedIds:['2'],finalizedIds:[],pendingId:null};
   const obj={version:1,sessionId:'s',results:[{id:'17',result:'correct'},{id:'16',result:'skipped'},{id:'13',result:'uncertain'},{id:'10',result:'wrong'},{id:'9',result:'correct'},{id:'8',result:'correct'},{id:'12',result:'wrong'}]};
   const progress=C.recordStudyDisclosure({},words,'normal',[],'10');
-  const result=C.prepareGptIntegration(obj,{sessions,registeredIds:registered,knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
+  const result=prepareIntegration(obj,{sessions,registeredIds:registered,knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.jump.canJump,true);assert.equal(result.jump.lastResultId,'17');assert.equal(result.transition.kind,'jump');assert.equal(result.samePage,false);
   assert.deepEqual(result.ignoredOverlapIds,['9','10']);assert.deepEqual(result.provisionalIds,['12','13','17']);assert.equal(result.formalApplied,1);assert.equal(result.applied,4);
   assert.equal(result.activeSession.sessionId,'gpt-s');assert.deepEqual(result.activeSession.targetIds,words.slice(10,20).map(w=>w.id));
@@ -1693,23 +1704,24 @@ test('GPT integration finalizes the departed normal page, keeps destination resu
 
 test('GPT landing targetIds reflect mastery exclusions created while finalizing the departed session',()=>{
   const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
-  const randomIds=['11','12','13','14','15','16','17','18','19','20','1','22',...words.map(w=>w.id).filter(id=>!['11','12','13','14','15','16','17','18','19','20','1','22'].includes(id))];
+  const randomIds=['11','12','13','14','15','16','17','18','19','1','22','20',...words.map(w=>w.id).filter(id=>!['11','12','13','14','15','16','17','18','19','1','22','20'].includes(id))];
   const ids=['1','22'],context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:'1',pageSize:10,excludeStreak:true,masteryThreshold:2,ids});
-  const record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:true,masteryThreshold:2,pageIndex:0,randomStart:0};
-  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1000,revealY:33,targetIds:words.slice(0,10).map(w=>w.id),
+  const record={createdAt:'t',ids,context},view={filter:'all',sortMode:'random',excludeStreak:true,masteryThreshold:2,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1000,revealY:33,targetIds:randomIds.slice(0,10),
     viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:['1'],finalizedIds:[],pendingId:null};
   const state={'1':{...C.defaultState(),studyCount:2,correctCount:1,recentResults:[true],currentStreak:1}};
   const progress=C.recordStudyDisclosure({},words,'random',randomIds,'1');
-  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'22',result:'correct'},{id:'1',result:'wrong'}]},
+  const result=prepareIntegration({version:1,sessionId:'s',results:[{id:'22',result:'correct'},{id:'1',result:'wrong'}]},
     {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds,studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.jump.canJump,true);assert.equal(result.samePage,false);assert.deepEqual(result.ignoredOverlapIds,['1']);
   assert.deepEqual(result.provisionalIds,['22']);assert.equal(result.formalApplied,0);
   assert.deepEqual(result.state['1'].recentResults,[true,true]);assert.equal(result.state['1'].studyCount,2);
   assert.equal(result.state['1'].correctCount,2);assert.equal(result.state['1'].currentStreak,2);
-  const beforeFinalize=C.buildRandomFixedPage(words,state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:2,startIndex:10}).entries.map(w=>w.id);
+  const beforeFinalize=C.buildRandomFixedPage(words,state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:2,startIndex:0}).entries.map(w=>w.id);
   assert.ok(beforeFinalize.includes('1'));
   const visible=C.buildRandomFixedPage(words,result.state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:2,startIndex:10}).entries.map(w=>w.id);
-  assert.ok(!visible.includes('1'));assert.notDeepEqual(beforeFinalize,visible);assert.deepEqual(result.activeSession.targetIds,visible);
+  const departedVisible=C.buildRandomFixedPage(words,result.state,{pageSize:10,randomIds,excludeStreak:true,masteryThreshold:2,startIndex:0}).entries.map(w=>w.id);
+  assert.ok(beforeFinalize.includes('1'));assert.ok(!departedVisible.includes('1'));assert.deepEqual(result.activeSession.targetIds,visible);
   const restored=C.tryRestoreSession(result.activeSession,{
     currentKey:C.studySessionKey(result.activeSession.viewState,10),filter:'all',sortMode:'random',excludeStreak:true,masteryThreshold:2,
     words,state:result.state,randomIds,currentPageIds:visible});
@@ -1732,7 +1744,7 @@ test('GPT integration merges destination results into the same active page witho
   const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['1','2','3','4','5'];
   const context=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids}),record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const state={'2':{...C.defaultState(),studyCount:1}},active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:123,revealY:77,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:[],pendingId:'2'};
-  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'5',result:'correct'},{id:'2',result:'wrong'},{id:'3',result:'uncertain'}]},
+  const result=prepareIntegration({version:1,sessionId:'s',results:[{id:'5',result:'correct'},{id:'2',result:'wrong'},{id:'3',result:'uncertain'}]},
     {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],studyProgress:C.recordStudyDisclosure({},words,'normal',[],'2'),now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.jump.canJump,true);assert.equal(result.samePage,true);assert.equal(result.transition.kind,'stay');
   assert.deepEqual(result.ignoredOverlapIds,['2']);assert.deepEqual(result.provisionalIds,['3','5']);assert.equal(result.formalApplied,0);
@@ -1752,7 +1764,7 @@ test('GPT integration keeps finalized active-session overlaps on the formal hist
   const context=C.createGptIssueContext(words,{startId:'2',pageSize:10,ids}),record={createdAt:'t',ids,context},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:['2'],pendingId:null};
   const state={'2':{...C.defaultState(),studyCount:1,correctCount:1,recentResults:[true],currentStreak:1}};
-  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'2',result:'wrong'}]},
+  const result=prepareIntegration({version:1,sessionId:'s',results:[{id:'2',result:'wrong'}]},
     {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
   assert.deepEqual(result.ignoredOverlapIds,[]);assert.deepEqual(result.provisionalIds,[]);assert.equal(result.formalApplied,1);
   assert.equal(result.state['2'].studyCount,2);assert.deepEqual(result.state['2'].recentResults,[true,false]);assert.equal(result.state['2'].currentStreak,0);
@@ -1763,7 +1775,7 @@ test('random GPT integration crosses fixed page boundaries and preserves skipped
   const randomIds=['4','2','1',...words.map(w=>w.id).filter(id=>!['4','2','1'].includes(id))],ids=randomIds.slice(8,16);
   const context=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:ids[0],pageSize:10,ids}),record={createdAt:'t',ids,context};
   const view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
-  const result=C.prepareGptIntegration({version:1,sessionId:'r',results:[{id:ids[7],result:'wrong'},{id:ids[2],result:'skipped'},{id:ids[0],result:'correct'}]},
+  const result=prepareIntegration({version:1,sessionId:'r',results:[{id:ids[7],result:'wrong'},{id:ids[2],result:'skipped'},{id:ids[0],result:'correct'}]},
     {sessions:{r:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds,
       studyProgress:C.recordStudyDisclosure({},words,'random',randomIds,randomIds[7]),now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.transition.kind,'jump');assert.equal(result.transition.view.sortMode,'random');assert.equal(result.transition.view.randomStart,10);
@@ -1773,13 +1785,13 @@ test('random GPT integration crosses fixed page boundaries and preserves skipped
   assert.equal(result.state[ids[2]],undefined);
 });
 
-test('GPT jump blocks outcomes beyond the cursor successor while preserving earlier-range behavior',()=>{
+test('GPT jump uses displayed page positions rather than study-progress continuity',()=>{
   const words=Array.from({length:70},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const progress=C.recordStudyDisclosure({},words,'normal',[],'35');
   const ids=words.slice(35,50).map(word=>word.id),context=C.createGptIssueContext(words,{startId:ids[0],pageSize:50,ids});
   const record={createdAt:'t',ids,context},results=[...ids].reverse().map(id=>({id,result:id==='50'?'skipped':'wrong'}));
-  const contiguous=C.prepareGptIntegration({version:1,sessionId:'contiguous',results},
+  const contiguous=prepareIntegration({version:1,sessionId:'contiguous',results},
     {sessions:{contiguous:record},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:50,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(contiguous.jump.canJump,true);assert.equal(contiguous.jump.firstResultId,'36');assert.equal(contiguous.jump.lastResultId,'50');
   assert.equal(contiguous.activeSession.gptRevealTargetId,'50');assert.equal(contiguous.studyProgress.normal.id,'50');
@@ -1789,79 +1801,79 @@ test('GPT jump blocks outcomes beyond the cursor successor while preserving earl
   const gapRecord={createdAt:'t',ids:gapIds,context:gapContext},gapResults=gapIds.map(id=>({id,result:'wrong'}));
   const active={sessionId:'app',key:C.studySessionKey(view,50),updatedAt:9,revealY:321,targetIds:words.slice(0,50).map(word=>word.id),
     viewState:{...view,pageSize:50},studiedIds:['35'],checkedIds:[],finalizedIds:[],pendingId:null};
-  const suppressed=C.prepareGptIntegration({version:1,sessionId:'gap',results:gapResults},
+  const suppressed=prepareIntegration({version:1,sessionId:'gap',results:gapResults},
     {sessions:{gap:gapRecord},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:50,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
-  assert.equal(suppressed.jump.canJump,false);assert.equal(suppressed.jump.reason,'study-progress-gap');
-  assert.equal(suppressed.jump.firstResultPosition,39);assert.equal(suppressed.jump.continuity.requiredPosition,35);
-  assert.equal(suppressed.transition.kind,'stay');assert.deepEqual(suppressed.studyProgress,progress);
-  assert.equal(suppressed.activeSession.revealY,321);assert.deepEqual(suppressed.activeSession.studiedIds,['35']);
-  assert.equal(C.sessionFurthestProgressId(suppressed.activeSession),'35');
+  assert.equal(suppressed.jump.canJump,true);assert.equal(suppressed.jump.reason,'start-undisclosed-confirmation-required');
+  assert.equal(suppressed.jump.firstResultPosition,39);assert.equal(suppressed.jump.needsStartConfirmation,true);
+  assert.equal(suppressed.transition.kind,'stay');assert.equal(suppressed.studyProgress.normal.id,'50');
+  assert.equal(suppressed.activeSession.revealY,321);assert.deepEqual(suppressed.activeSession.studiedIds,['35','40','41','42','43','44','45','46','47','48','49','50']);
+  assert.equal(C.sessionFurthestProgressId(suppressed.activeSession),'50');
   const suppressedStore=memoryStorage();
   C.saveCore(suppressedStore,'ledger',suppressed);
   const restoredSuppressedSession=C.loadCore(suppressedStore,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}).activeSession;
-  assert.equal(C.sessionFurthestProgressId(restoredSuppressedSession),'35');
-  assert.equal(restoredSuppressedSession.gptRevealTargetId,undefined);
-  assert.equal(suppressed.formalApplied,11);assert.deepEqual(suppressed.provisionalIds,[]);assert.equal(suppressed.state['40'].studyCount,1);
+  assert.equal(C.sessionFurthestProgressId(restoredSuppressedSession),'50');
+  assert.equal(restoredSuppressedSession.gptRevealTargetId,'50');
+  assert.equal(suppressed.formalApplied,0);assert.equal(suppressed.provisionalIds.length,11);assert.equal(suppressed.state['40'].studyCount,1);
 
   const earlierIds=words.slice(19,40).map(word=>word.id),earlierContext=C.createGptIssueContext(words,{startId:earlierIds[0],pageSize:50,ids:earlierIds});
-  const earlier=C.prepareGptIntegration({version:1,sessionId:'overlap',results:[...earlierIds].reverse().map(id=>({id,result:'wrong'}))},
+  const earlier=prepareIntegration({version:1,sessionId:'overlap',results:[...earlierIds].reverse().map(id=>({id,result:'wrong'}))},
     {sessions:{overlap:{ids:earlierIds,context:earlierContext}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,
       currentView:view,pageSize:50,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(earlier.jump.canJump,true);assert.equal(earlier.jump.firstResultId,'20');assert.equal(earlier.jump.lastResultId,'40');
   assert.equal(earlier.studyProgress.normal.id,'40');
 
-  const skippedOnly=C.prepareGptIntegration({version:1,sessionId:'gap-skipped',results:[{id:'40',result:'skipped'}]},
+  const skippedOnly=prepareIntegration({version:1,sessionId:'gap-skipped',results:[{id:'40',result:'skipped'}]},
     {sessions:{'gap-skipped':{ids:gapIds,context:gapContext}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,
       currentView:view,pageSize:50,randomIds:[],studyProgress:progress,gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
-  assert.equal(skippedOnly.jump.canJump,false);assert.equal(skippedOnly.jump.reason,'study-progress-gap');
-  assert.deepEqual(skippedOnly.gptSkipped.ids,['40']);assert.equal(skippedOnly.state['40'],undefined);assert.deepEqual(skippedOnly.studyProgress,progress);
+  assert.equal(skippedOnly.jump.canJump,true);assert.equal(skippedOnly.jump.needsStartConfirmation,true);
+  assert.deepEqual(skippedOnly.gptSkipped.ids,['40']);assert.equal(skippedOnly.state['40'],undefined);assert.equal(skippedOnly.studyProgress.normal.id,'40');
 });
 
-test('GPT gap check uses returned issue positions, allows holes after a contiguous start, and handles page boundaries',()=>{
+test('GPT result positions include skipped outcomes and gaps without disclosing missing IDs',()=>{
   const words=Array.from({length:70},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const progress=C.recordStudyDisclosure({},words,'normal',[],'35');
   const ids=['36','37','38','39','40'],context=C.createGptIssueContext(words,{startId:'36',pageSize:50,ids});
-  const partial=C.prepareGptIntegration({version:1,sessionId:'partial',results:[{id:'40',result:'wrong'},{id:'38',result:'skipped'},{id:'36',result:'correct'}]},
+  const partial=prepareIntegration({version:1,sessionId:'partial',results:[{id:'40',result:'wrong'},{id:'38',result:'skipped'},{id:'36',result:'correct'}]},
     {sessions:{partial:{ids,context}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:50,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(partial.jump.canJump,true);assert.equal(partial.jump.firstResultId,'36');assert.equal(partial.jump.lastResultId,'40');
   assert.deepEqual(partial.gptSkipped.ids,['38']);assert.equal(partial.state['37'],undefined);assert.equal(partial.state['39'],undefined);
 
   const spanningIds=words.slice(35,60).map(word=>word.id),spanningContext=C.createGptIssueContext(words,{startId:spanningIds[0],pageSize:50,ids:spanningIds});
-  const spanning=C.prepareGptIntegration({version:1,sessionId:'spanning',results:spanningIds.map(id=>({id,result:'wrong'}))},
+  const spanning=prepareIntegration({version:1,sessionId:'spanning',results:spanningIds.map(id=>({id,result:'wrong'}))},
     {sessions:{spanning:{ids:spanningIds,context:spanningContext}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:50,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(spanning.jump.canJump,true);assert.equal(spanning.jump.lastResultId,'60');assert.equal(spanning.transition.view.pageIndex,1);
 
   const gapSpanIds=words.slice(40,60).map(word=>word.id),gapSpanContext=C.createGptIssueContext(words,{startId:gapSpanIds[0],pageSize:50,ids:gapSpanIds});
-  const gapSpan=C.prepareGptIntegration({version:1,sessionId:'gap-span',results:gapSpanIds.map(id=>({id,result:'wrong'}))},
+  const gapSpan=prepareIntegration({version:1,sessionId:'gap-span',results:gapSpanIds.map(id=>({id,result:'wrong'}))},
     {sessions:{'gap-span':{ids:gapSpanIds,context:gapSpanContext}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,
       currentView:view,pageSize:50,randomIds:[],studyProgress:progress,now:'2026-10-12T00:00:00.000Z'});
-  assert.equal(gapSpan.jump.canJump,false);assert.equal(gapSpan.jump.reason,'study-progress-gap');assert.equal(gapSpan.transition.kind,'stay');
-  assert.deepEqual(gapSpan.studyProgress,progress);
+  assert.equal(gapSpan.jump.canJump,true);assert.equal(gapSpan.jump.reason,'start-undisclosed-confirmation-required');assert.equal(gapSpan.transition.kind,'jump');
+  assert.equal(gapSpan.studyProgress.normal.id,'60');assert.equal(gapSpan.state['41'].studyCount,1);
 });
 
-test('GPT jump with absent or invalid cursor requires continuity from the first issue position and handles random order',()=>{
+test('GPT jump handles absent or invalid progress from the displayed page and actual random order',()=>{
   const words=Array.from({length:25},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   const ids=['2','3'],context=C.createGptIssueContext(words,{startId:'2',pageSize:10,ids});
   const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
-  const missingCursor=C.prepareGptIntegration({version:1,sessionId:'late-start',results:[{id:'2',result:'wrong'}]},
+  const missingCursor=prepareIntegration({version:1,sessionId:'late-start',results:[{id:'2',result:'wrong'}]},
     {sessions:{'late-start':{ids,context}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],studyProgress:{},now:'2026-10-12T00:00:00.000Z'});
-  assert.equal(missingCursor.jump.canJump,false);assert.equal(missingCursor.jump.reason,'study-progress-gap');
-  assert.equal(missingCursor.jump.continuity.requiredPosition,0);assert.equal(missingCursor.state['2'].recentResults[0],false);
+  assert.equal(missingCursor.jump.canJump,true);assert.equal(missingCursor.jump.needsStartConfirmation,true);
+  assert.equal(missingCursor.state['2'].studyCount,1);assert.deepEqual(missingCursor.state['2'].recentResults,[]);
 
   const randomIds=['9','3','20',...words.map(word=>word.id).filter(id=>!['9','3','20'].includes(id))],randomWords=randomIds.slice(5,8);
   const randomContext=C.createGptIssueContext(words,{sortMode:'random',randomIds,startId:randomWords[0],pageSize:10,ids:randomWords});
   const randomView={...view,sortMode:'random'},randomProgress=C.recordStudyDisclosure({},words,'random',randomIds,randomIds[4]);
-  const random=C.prepareGptIntegration({version:1,sessionId:'random-gap',results:[{id:randomWords[2],result:'skipped'},{id:randomWords[0],result:'wrong'}]},
+  const random=prepareIntegration({version:1,sessionId:'random-gap',results:[{id:randomWords[2],result:'skipped'},{id:randomWords[0],result:'wrong'}]},
     {sessions:{'random-gap':{ids:randomWords,context:randomContext}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,
       currentView:randomView,pageSize:10,randomIds,studyProgress:randomProgress,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(random.jump.canJump,true);assert.equal(random.jump.firstResultId,randomWords[0]);assert.equal(random.jump.lastResultId,randomWords[2]);
   assert.equal(random.studyProgress.random.id,randomWords[2]);assert.equal(random.studyProgress.normal,null);
   const invalidProgress={normal:{...C.recordStudyDisclosure({},words,'normal',[],'1').normal,id:'999'}};
-  const invalidCursor=C.prepareGptIntegration({version:1,sessionId:'invalid-cursor',results:[{id:'2',result:'wrong'}]},
+  const invalidCursor=prepareIntegration({version:1,sessionId:'invalid-cursor',results:[{id:'2',result:'wrong'}]},
     {sessions:{'invalid-cursor':{ids,context}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,
       currentView:view,pageSize:10,randomIds:[],studyProgress:invalidProgress,now:'2026-10-12T00:00:00.000Z'});
-  assert.equal(invalidCursor.jump.canJump,false);assert.equal(invalidCursor.jump.reason,'study-progress-gap');
+  assert.equal(invalidCursor.jump.canJump,true);assert.equal(invalidCursor.jump.needsStartConfirmation,true);
 });
 
 test('GPT integration formally records results when a reshuffle makes the saved jump position unsafe',()=>{
@@ -1870,7 +1882,7 @@ test('GPT integration formally records results when a reshuffle makes the saved 
   const currentOrder=[...issuedOrder].reverse(),view={filter:'all',sortMode:'random',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:9,targetIds:currentOrder.slice(0,10),viewState:{...view,pageSize:10},studiedIds:['20'],checkedIds:['20'],finalizedIds:[],pendingId:null};
   const state={'20':{...C.defaultState(),studyCount:1}};
-  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'11',result:'wrong'}]},
+  const result=prepareIntegration({version:1,sessionId:'s',results:[{id:'11',result:'wrong'}]},
     {sessions:{s:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:currentOrder,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.jump.canJump,false);assert.equal(result.jump.reason,'order-changed');assert.equal(result.transition.kind,'stay');
   assert.equal(result.formalApplied,1);assert.deepEqual(result.provisionalIds,[]);assert.deepEqual(result.state['11'].recentResults,[false]);
@@ -1890,7 +1902,7 @@ test('GPT integration keeps active session on no-jump, legacy, zero, skipped-onl
   ];
   for(let i=0;i<cases.length;i++) {
     const {record,results,expectedApplied,reason}=cases[i],sessionId=`s${i}`,sessions={[sessionId]:record};
-    const result=C.prepareGptIntegration({version:1,sessionId,results},{sessions,registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+    const result=prepareIntegration({version:1,sessionId,results},{sessions,registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
     assert.equal(result.applied,expectedApplied);assert.equal(result.jump.reason,reason);assert.equal(result.transition.kind,'stay');
     assert.deepEqual(result.activeSession,expectedApplied?{...active,preserveTargetIds:true}:active);assert.deepEqual(result.registeredGptSessionIds,[sessionId]);
   }
@@ -1899,7 +1911,7 @@ test('GPT integration keeps active session on no-jump, legacy, zero, skipped-onl
 test('GPT replay is formal-only and preserves the current unconfirmed study session',()=>{
   const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:[],finalizedIds:[],pendingId:null};
-  const result=C.prepareGptIntegration({version:1,sessionId:'done',results:[{id:'2',result:'correct'}]},
+  const result=prepareIntegration({version:1,sessionId:'done',results:[{id:'2',result:'correct'}]},
     {sessions:{},registeredIds:['done'],knownIds:words.map(w=>w.id),words,state:{'1':{...C.defaultState(),studyCount:1}},activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.isReplay,true);assert.equal(result.mode,'formal-replay');assert.equal(result.jump.canJump,false);assert.deepEqual(result.provisionalIds,[]);
   assert.equal(result.state['2'].recentResults.at(-1),true);assert.deepEqual(result.activeSession.studiedIds,['1']);assert.deepEqual(result.activeSession.finalizedIds,[]);
@@ -1911,7 +1923,7 @@ test('GPT integration draft is immutable and failed persistence leaves stored st
   const context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context},sessions={s:record},state={},view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:0,targetIds:words.slice(0,10).map(w=>w.id),viewState:{...view,pageSize:10},studiedIds:['1'],checkedIds:[],finalizedIds:[],pendingId:null};
   const before=JSON.stringify({sessions,state,active});
-  const draft=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'11',result:'correct'}]},
+  const draft=prepareIntegration({version:1,sessionId:'s',results:[{id:'11',result:'correct'}]},
     {sessions,registeredIds:[],knownIds:words.map(w=>w.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
   assert.equal(JSON.stringify({sessions,state,active}),before);
   const store=memoryStorage({ledger:JSON.stringify({state,gptSessions:sessions,registeredGptSessionIds:[],activeSession:active})}),broken={...store,setItem(){throw new Error('quota/write failure')}};
@@ -1948,7 +1960,7 @@ test('GPT integration advances to furthest returned skipped result while masking
   const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['1','2','3','4','5','6'];
   const context=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids}),record={createdAt:'t',ids,context};
   const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
-  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'1',result:'correct'},{id:'4',result:'skipped'},{id:'5',result:'wrong'}]},
+  const result=prepareIntegration({version:1,sessionId:'s',results:[{id:'1',result:'correct'},{id:'4',result:'skipped'},{id:'5',result:'wrong'}]},
     {sessions:{s:record},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],studyProgress:{},gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.jump.lastResultId,'5');assert.equal(result.activeSession.gptRevealTargetId,'5');
   assert.deepEqual(result.activeSession.studiedIds,['1','5']);assert.deepEqual(result.gptSkipped.ids,['4']);
@@ -1958,17 +1970,16 @@ test('GPT integration advances to furthest returned skipped result while masking
   assert.equal(result.studyProgress.normal.id,'5');
 });
 
-test('GPT skipped-only result advances contiguously without recording study history',()=>{
+test('GPT result beginning after the displayed page registers without moving the cover',()=>{
   const words=Array.from({length:20},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['11','12'];
   const context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context};
   const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
-  const result=C.prepareGptIntegration({version:1,sessionId:'skip-only',results:[{id:'11',result:'skipped'}]},
+  const result=prepareIntegration({version:1,sessionId:'skip-only',results:[{id:'11',result:'skipped'}]},
     {sessions:{'skip-only':record},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],
       studyProgress:C.recordStudyDisclosure({},words,'normal',[],'10'),gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
-  assert.equal(result.transition.kind,'jump');assert.equal(result.transition.view.pageIndex,1);
-  assert.equal(result.activeSession.gptRevealTargetId,'11');assert.deepEqual(result.activeSession.studiedIds,[]);
-  assert.equal(result.activeSession.furthestProgressId,'11');
-  assert.equal(result.state['11'],undefined);assert.deepEqual(result.gptSkipped.ids,['11']);assert.equal(result.studyProgress.normal.id,'11');
+  assert.equal(result.transition.kind,'stay');assert.equal(result.jump.reason,'first-after-current-page');
+  assert.equal(result.activeSession,null);
+  assert.equal(result.state['11'],undefined);assert.deepEqual(result.gptSkipped.ids,['11']);assert.equal(result.studyProgress.normal.id,'10');
 });
 
 test('GPT result for an already disclosed active row preserves its session state and does not overwrite it',()=>{
@@ -1977,7 +1988,7 @@ test('GPT result for an already disclosed active row preserves its session state
   const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:1,revealY:34,targetIds:words.map(word=>word.id),viewState:{...view,pageSize:10},studiedIds:['2'],checkedIds:['2'],finalizedIds:[],pendingId:'2'};
   const state={'2':{...C.defaultState(),studyCount:1}};
-  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'2',result:'skipped'}]},
+  const result=prepareIntegration({version:1,sessionId:'s',results:[{id:'2',result:'skipped'}]},
     {sessions:{s:record},registeredIds:[],knownIds:words.map(word=>word.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],gptSkipped:C.setGptSkippedState(null,words,'2'),studyProgress:{},now:'2026-10-12T00:00:00.000Z'});
   assert.deepEqual(result.activeSession.studiedIds,['2']);assert.deepEqual(result.activeSession.checkedIds,['2']);
   assert.deepEqual(result.gptSkipped.ids,[]);assert.equal(result.state['2'].studyCount,1);
@@ -2033,7 +2044,7 @@ test('formal-only GPT import preserves pending answers and pins the current page
   const view={filter:'all',sortMode:'normal',excludeStreak:true,masteryThreshold:2,pageIndex:1,randomStart:0};
   const active={sessionId:'app',key:C.studySessionKey(view,10),updatedAt:10,revealY:32,targetIds:words.slice(10,20).map(word=>word.id),viewState:{...view,pageSize:10},studiedIds:['12'],checkedIds:[],finalizedIds:[],pendingId:'12'};
   const state={'12':{...C.defaultState(),studyCount:1},'13':{...C.defaultState(),studyCount:1,correctCount:1,currentStreak:1,recentResults:[true]}};
-  const result=C.prepareGptIntegration({version:1,sessionId:'s',results:[{id:'12',result:'correct'},{id:'13',result:'correct'}]},
+  const result=prepareIntegration({version:1,sessionId:'s',results:[{id:'12',result:'correct'},{id:'13',result:'correct'}]},
     {sessions:{s:record},registeredIds:[],knownIds:words.map(word=>word.id),words,state,activeSession:active,currentView:view,pageSize:10,randomIds:[],forceFormalOnly:'study-already-ahead',now:'2026-10-12T00:00:00.000Z'});
   assert.deepEqual(result.ignoredOverlapIds,['12']);assert.deepEqual(result.activeSession.checkedIds,[]);assert.deepEqual(result.activeSession.studiedIds,['12']);
   assert.equal(result.state['12'].studyCount,1);assert.equal(result.state['13'].currentStreak,2);assert.deepEqual(result.activeSession.targetIds,words.slice(10,20).map(word=>word.id));
@@ -2047,8 +2058,114 @@ test('formal-only GPT import preserves pending answers and pins the current page
 test('GPT registration UI uses the integration draft and commits view only after approved jump',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/StudyCore\.prepareGptIntegration\(obj/);
-  assert.match(html,/StudyCore\.compareStudyProgress\(/);
+  assert.match(html,/latestIssueSequence:gptIssueSequence/);
+  assert.doesNotMatch(html,/StudyCore\.compareStudyProgress\(/);
   assert.match(html,/saveCoreTransition\(localStorage,STORAGE_LEDGER,\{state:draft\.state/);
   assert.doesNotMatch(html,/prepareGptImport\(obj,gptSessions/);
   assert.match(html,/if\(!confirm\(prompt\)\)draft=prepare\(\{forceFormalOnly:"user-declined-jump"\}\)/);
+  assert.match(html,/GPT結果の末尾まで解答カバーを移動しますか/);
+  assert.match(html,/if\(didJump&&curtainLocked\)\{releaseCurtainLock\(\)\}/);
+  assert.match(html,/curtainLocked&&draft\.samePage&&!draft\.jump\?\.canJump&&draft\.activeSession\?\.gptRevealTargetId/);
+  assert.match(html,/resultStatus\.dataset\.reasonCode=notice\.reasonCode/);
+});
+
+test('GPT issue sequence persists independently of pending records and rejects older or legacy sessions for jumps',()=>{
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const oldIds=['1','2'],latestIds=['1','2'],oldContext=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids:oldIds}),latestContext=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids:latestIds});
+  const storage=memoryStorage();
+  C.saveCore(storage,'ledger',{state:{},activeSession:null,gptSessions:{old:{ids:oldIds,context:oldContext,issueSequence:1},latest:{ids:latestIds,context:latestContext,issueSequence:3}},registeredGptSessionIds:['between'],gptIssueSequence:3});
+  const loaded=C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.equal(loaded.gptIssueSequence,3);assert.equal(loaded.gptSessions.old.issueSequence,1);assert.deepEqual(loaded.registeredGptSessionIds,['between']);
+  const result=(sessionId,record,otherRecords={})=>C.prepareGptIntegration({version:1,sessionId,results:[{id:'1',result:'correct'}]},
+    {sessions:{...otherRecords,[sessionId]:record},registeredIds:[],knownIds:words.map(w=>w.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],latestIssueSequence:3,now:'2026-10-12T00:00:00.000Z'});
+  const older=result('old',loaded.gptSessions.old,{latest:loaded.gptSessions.latest});assert.equal(older.jump.reason,'older-issue');assert.equal(older.jump.canJump,false);assert.equal(older.formalApplied,1);
+  assert.equal(result('latest',loaded.gptSessions.latest,{old:loaded.gptSessions.old}).jump.canJump,true);
+  C.saveCore(storage,'ledger',{...loaded,gptSessions:{old:loaded.gptSessions.old},gptIssueSequence:3});
+  const afterRegisteredRemoval=C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.equal(afterRegisteredRemoval.gptIssueSequence,3);
+  const onlyPendingAfterLatestRegistration=result('old',afterRegisteredRemoval.gptSessions.old);
+  assert.equal(onlyPendingAfterLatestRegistration.jump.canJump,false);
+  assert.equal(onlyPendingAfterLatestRegistration.jump.reason,'older-issue');
+  const duplicateSequence=C.prepareGptIntegration({version:1,sessionId:'latest',results:[{id:'1',result:'correct'}]},
+    {sessions:{latest:{ids:latestIds,context:latestContext,issueSequence:3},duplicate:{ids:latestIds,context:latestContext,issueSequence:3}},registeredIds:[],knownIds:words.map(w=>w.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],latestIssueSequence:3,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(duplicateSequence.jump.reason,'ambiguous-issue-order');assert.equal(duplicateSequence.formalApplied,1);
+  const legacy=C.prepareGptIntegration({version:1,sessionId:'legacy',results:[{id:'1',result:'correct'}]},
+    {sessions:{legacy:{ids:oldIds,context:oldContext}},registeredIds:[],knownIds:words.map(w=>w.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(legacy.jump.reason,'missing-issue-order');assert.equal(legacy.applied,1);
+  const upgradedLegacy=C.prepareGptIntegration({version:1,sessionId:'new',results:[{id:'1',result:'correct'}]},
+    {sessions:{old:{ids:oldIds,context:oldContext,issueSequence:0},new:{ids:latestIds,context:latestContext,issueSequence:1}},registeredIds:[],knownIds:words.map(w=>w.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],latestIssueSequence:1,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(upgradedLegacy.jump.canJump,true,'a newly issued, sequenced session is newer than migrated legacy pending records');
+});
+
+test('only the last issued GPT session can jump after a newer session has been registered and removed',()=>{
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const ids=['1','2'],context=C.createGptIssueContext(words,{startId:'1',pageSize:10,ids});
+  const A={ids,context,issueSequence:1},B={ids,context,issueSequence:2};
+  const storage=memoryStorage();
+  C.saveCore(storage,'ledger',{state:{},activeSession:null,gptSessions:{A,B},registeredGptSessionIds:[],gptIssueSequence:2});
+  const args={knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],studyProgress:{},gptSkipped:null,latestIssueSequence:2,now:'2026-10-12T00:00:00.000Z'};
+  const Bdraft=C.prepareGptIntegration({version:1,sessionId:'B',results:[{id:'1',result:'correct'}]},
+    {...args,sessions:{A,B},registeredIds:[]});
+  assert.equal(Bdraft.jump.canJump,true,'B is the last issued session and remains eligible to jump');
+  assert.equal(Bdraft.formalApplied+Bdraft.provisionalIds.length,1);
+  C.saveCore(storage,'ledger',{state:Bdraft.state,activeSession:Bdraft.activeSession,gptSessions:Bdraft.gptSessions,
+    registeredGptSessionIds:Bdraft.registeredGptSessionIds,gptSkipped:Bdraft.gptSkipped,studyProgress:Bdraft.studyProgress});
+
+  const afterB=C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  assert.equal(afterB.gptIssueSequence,2,'the global issuance high-water mark survives B record removal');
+  assert.deepEqual(Object.keys(afterB.gptSessions),['A']);
+  assert.deepEqual(afterB.registeredGptSessionIds,['B']);
+  const Adraft=C.prepareGptIntegration({version:1,sessionId:'A',results:[{id:'2',result:'wrong'}]},
+    {...args,sessions:afterB.gptSessions,registeredIds:afterB.registeredGptSessionIds,latestIssueSequence:afterB.gptIssueSequence});
+  assert.equal(Adraft.formalApplied,1,'A result is still registered');
+  assert.equal(Adraft.jump.canJump,false);
+  assert.equal(Adraft.jump.reason,'older-issue');
+  assert.deepEqual(Adraft.registeredGptSessionIds,['B','A']);
+  assert.equal(Adraft.activeSession?.gptRevealTargetId,undefined,'A does not move the active reveal target');
+});
+
+test('GPT result page-position classifier covers first and last position rules',()=>{
+  const words=Array.from({length:100},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const view={...jumpView({sortMode:'normal',pageIndex:1},20,[]),disclosedIds:['25','26','27','28','29','30','31','32','33','34','35','36','37','38','39','40']};
+  const run=(ids,disclosed=view.disclosedIds)=>{
+    const context=C.createGptIssueContext(words,{startId:ids[0],pageSize:20,ids}),record={ids,context};
+    return C.evaluateGptJump(record,words,{...view,disclosedIds:disclosed},ids.map(id=>({id,result:'correct'})),{});
+  };
+  assert.equal(run(['25','26','61']).canJump,true); // First is current and disclosed; end is after.
+  const undisclosed=run(['26','27','61'],[]);assert.equal(undisclosed.canJump,true);assert.equal(undisclosed.needsStartConfirmation,true);
+  assert.equal(run(['10','25','61']).canJump,true); // First is before the page.
+  assert.equal(run(['41','61']).reason,'first-after-current-page');
+  assert.equal(run(['10','20']).reason,'last-before-current-page');
+  assert.equal(run(['10','25']).reason,'last-already-disclosed');
+  assert.equal(run(['10','40'],[]).canJump,true); // End is current page, undisclosed.
+});
+
+test('21–25 disclosed, finalization resets the cover, and latest GPT results 26–70 can reach 70',()=>{
+  const words=Array.from({length:120},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const ids=words.slice(25,70).map(word=>word.id),context=C.createGptIssueContext(words,{startId:'26',pageSize:20,ids});
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:1,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,20),updatedAt:4,revealY:0,targetIds:words.slice(20,40).map(word=>word.id),viewState:{...view,pageSize:20},studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+  const results=ids.map(id=>({id,result:['30','44','59'].includes(id)?'skipped':'correct'}));
+  const draft=C.prepareGptIntegration({version:1,sessionId:'issue',results},{sessions:{issue:{ids,context,issueSequence:4}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:20,randomIds:[],studyProgress:C.recordStudyDisclosure({},words,'normal',[],'25'),gptSkipped:null,latestIssueSequence:4,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(draft.applied,42);assert.equal(draft.jump.canJump,true);assert.equal(draft.jump.reason,'start-undisclosed-confirmation-required');
+  assert.equal(draft.jump.needsStartConfirmation,true);assert.equal(draft.jump.firstResultId,'26');assert.equal(draft.jump.lastResultId,'70');
+  assert.equal(draft.transition.kind,'jump');assert.equal(draft.transition.view.pageIndex,3);assert.equal(draft.activeSession.gptRevealTargetId,'70');
+  assert.deepEqual(draft.gptSkipped.ids,['30','44','59']);assert.equal(draft.state['26'].studyCount,1);assert.equal(draft.state['70'].studyCount,1);
+  assert.equal(C.gptIntegrationNotice(draft).text,'GPT結果を42件登録しました。解答カバーを70番まで移動しました。');
+  const declined=C.prepareGptIntegration({version:1,sessionId:'issue',results},{sessions:{issue:{ids,context,issueSequence:4}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:20,randomIds:[],studyProgress:C.recordStudyDisclosure({},words,'normal',[],'25'),gptSkipped:null,latestIssueSequence:4,forceFormalOnly:'user-declined-jump',now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(declined.applied,42);assert.equal(declined.jump.reason,'user-declined-jump');assert.equal(declined.transition.kind,'stay');
+  assert.equal(declined.activeSession.revealY,0);assert.deepEqual(declined.activeSession.studiedIds,[]);assert.equal(declined.studyProgress.normal.id,'25');
+  assert.equal(C.gptIntegrationNotice(declined).text,'GPT結果を42件登録しました。現在の学習位置を維持しました。');
+});
+
+test('GPT import reasons are visible and distinguish stale, replay, position, and declined movement',()=>{
+  assert.equal(C.gptIntegrationNotice({applied:42,jump:{canJump:false,reason:'older-issue'}}).reasonCode,'older-issue');
+  assert.match(C.gptIntegrationNotice({applied:42,jump:{canJump:false,reason:'older-issue'}}).text,/以前に発行したGPT連携結果/);
+  assert.equal(C.gptIntegrationNotice({isReplay:true}).reasonCode,'replay');
+  assert.match(C.gptIntegrationNotice({applied:42,jump:{canJump:false,reason:'first-after-current-page'}}).text,/開始位置が現在のページより後ろ/);
+  assert.match(C.gptIntegrationNotice({applied:42,jump:{canJump:false,reason:'last-already-disclosed'}}).text,/末尾はすでに開示/);
+  assert.match(C.gptIntegrationNotice({applied:42,jump:{canJump:false,reason:'user-declined-jump'}}).text,/現在の学習位置を維持/);
+  assert.doesNotMatch(C.gptIntegrationNotice({applied:1,jump:{canJump:false,reason:'unknown'}}).text,/カーテン/);
 });

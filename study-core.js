@@ -15,6 +15,7 @@
       if(record?.applied===true) registered.add(id);
       else if(record&&typeof record==="object") {
         pending[id]={createdAt:record.createdAt||null,ids:Array.isArray(record.ids)?record.ids.map(String):[]};
+        if(Number.isSafeInteger(record.issueSequence)&&record.issueSequence>=0)pending[id].issueSequence=record.issueSequence;
         if(Object.prototype.hasOwnProperty.call(record,"context"))pending[id].context=normalizeGptIssueContext(record.context);
       }
     }
@@ -66,6 +67,7 @@
     const migrationNeeded=!has("registeredGptSessionIds")||JSON.stringify(normalized.gptSessions)!==JSON.stringify(snapshot.gptSessions)||
       JSON.stringify(normalized.registeredGptSessionIds)!==JSON.stringify(snapshot.registeredGptSessionIds);
     const result={state:snapshot.state,...normalized,activeSession:snapshot.activeSession,gptSkipped:normalizeGptSkippedState(snapshot.gptSkipped)};
+    if(Number.isSafeInteger(snapshot.gptIssueSequence)&&snapshot.gptIssueSequence>=0)result.gptIssueSequence=snapshot.gptIssueSequence;
     if(has("studyProgress"))result.studyProgress=normalizeStudyProgress(snapshot.studyProgress);
     Object.defineProperty(result,"gptSessionMigrationNeeded",{value:migrationNeeded});return result;
   }
@@ -76,6 +78,8 @@
       registeredGptSessionIds:normalized.registeredGptSessionIds,activeSession:snapshot.activeSession,
       gptSkipped:normalizeGptSkippedState(Object.prototype.hasOwnProperty.call(snapshot,"gptSkipped")?snapshot.gptSkipped:previous?.gptSkipped)};
     if(Object.prototype.hasOwnProperty.call(snapshot,"studyProgress"))value.studyProgress=normalizeStudyProgress(snapshot.studyProgress);
+    const issueSequence=Number.isSafeInteger(snapshot.gptIssueSequence)&&snapshot.gptIssueSequence>=0?snapshot.gptIssueSequence:previous?.gptIssueSequence;
+    if(Number.isSafeInteger(issueSequence)&&issueSequence>=0)value.gptIssueSequence=issueSequence;
     storage.setItem(snapshotKey,JSON.stringify(value));
   }
   function saveCoreTransition(storage,snapshotKey,snapshot,writes=[]) {
@@ -264,14 +268,28 @@
     if(lastIndex<0){out.reason="no-practical-result";return out}
     out.firstResultId=ids[firstIndex];out.firstResultPosition=context.targetPositions[firstIndex];
     const id=ids[lastIndex],position=context.targetPositions[lastIndex],size=Number(currentView?.pageSize);
-    out.lastResultId=id;
+    out.lastResultId=id;out.lastResultPosition=position;
     if(![10,20,50,100].includes(size)){out.reason="invalid-page-size";return out}
+    if(currentView.sortMode!==context.sortMode){out.reason="order-mismatch";return out}
+    const currentOrder=orderedWords(currentWords,currentView.sortMode,currentView.randomIds||[]);
+    if(!currentOrder||fingerprint(currentOrder.map(word=>String(word.id)))!==context.orderFingerprint){out.reason="order-mismatch";return out}
+    const pageStart=currentView.sortMode==="random"?normalizeRandomStart(currentView.randomStart,currentOrder.length):Math.max(0,Math.floor(Number(currentView.pageIndex)||0)*size);
+    const pageEnd=Math.min(pageStart+size,currentOrder.length);
+    if(pageEnd<=pageStart){out.reason="current-page-unavailable";return out}
+    const firstPosition=out.firstResultPosition,lastPosition=position;
+    const relation=target=>target<pageStart?"before":target>=pageEnd?"after":"current";
+    out.firstPageRelation=relation(firstPosition);out.lastPageRelation=relation(lastPosition);
+    if(out.firstPageRelation==="after"){out.reason="first-after-current-page";return out}
+    if(out.lastPageRelation==="before"){out.reason="last-before-current-page";return out}
+    const disclosed=new Set((currentView.disclosedIds||[]).map(String));
+    out.firstDisclosed=disclosed.has(out.firstResultId);out.lastDisclosed=disclosed.has(id);
+    out.needsStartConfirmation=out.firstPageRelation==="current"&&!out.firstDisclosed;
+    if(out.lastPageRelation==="current"&&out.lastDisclosed&&!out.needsStartConfirmation){out.reason="last-already-disclosed";return out}
     const candidate=context.sortMode==="random"?{sortMode:"random",randomStart:Math.floor(position/size)*size,wordIndex:position,pageIndex:null}:
       {sortMode:"normal",pageIndex:Math.floor(position/size),randomStart:null,wordIndex:position};
     const st=currentState?.[id]||defaultState();
-    if(currentView?.filter&&currentView.filter!=="all") {out.reason="filtered-view";return out}
     if(currentView?.excludeStreak&&(st.currentStreak||0)>=Number(currentView.masteryThreshold||3)){out.reason="target-filtered";return out}
-    out.canJump=true;out.reason="ok";out.candidatePosition=candidate;return out;
+    out.canJump=true;out.reason=out.needsStartConfirmation?"start-undisclosed-confirmation-required":"jump-ready";out.candidatePosition=candidate;return out;
   }
   function buildPageModel(words,state,{pageSize=50,sortMode="normal",randomIds=[],filter="all",excludeStreak=false,masteryThreshold=3}={}) {
     const passes=word=>{
@@ -630,7 +648,7 @@
     }
     return skipped;
   }
-  function prepareGptIntegration(obj,{sessions={},registeredIds=[],knownIds=[],words=[],state={},activeSession=null,currentView=null,pageSize,randomIds=[],studyProgress={},gptSkipped=null,forceFormalOnly=false,now=new Date().toISOString()}={}) {
+  function prepareGptIntegration(obj,{sessions={},registeredIds=[],knownIds=[],words=[],state={},activeSession=null,currentView=null,pageSize,randomIds=[],studyProgress={},gptSkipped=null,forceFormalOnly=false,latestIssueSequence,now=new Date().toISOString()}={}) {
     const checked=inspectGptResults(obj,sessions,registeredIds,knownIds),sessionId=String(obj.sessionId);
     if(checked.isReplay) {
       const finalizedIds=new Set((activeSession?.finalizedIds||[]).map(String));
@@ -644,7 +662,7 @@
       const nextSkipped=updateGptSkippedResults(gptSkipped,words,checked.results,activeSession?.studiedIds||[]);
       return{state:nextState,gptSessions:JSON.parse(JSON.stringify(sessions||{})),registeredGptSessionIds:[...registeredIds],activeSession:replaySession,gptSkipped:nextSkipped,studyProgress:normalizeStudyProgress(studyProgress),
         applied:results.length,isReplay:true,mode:"formal-replay",jump:{canJump:false,reason:"replay",lastResultId:null,candidatePosition:null},samePage:false,
-        transition:{kind:"stay",view:currentView},formalApplied:results.length,provisionalIds:[],ignoredOverlapIds};
+        transition:{kind:"stay",view:currentView},formalApplied:results.length,provisionalIds:[],ignoredOverlapIds,skippedCount:checked.results.filter(result=>result.result==="skipped").length};
     }
     const original=sessions?.[sessionId],nextState=JSON.parse(JSON.stringify(state||{})),nextSessions=JSON.parse(JSON.stringify(sessions||{}));
     const nextRegistered=[...registeredIds],nextSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
@@ -655,25 +673,27 @@
     const overlapping=new Set(checked.results.filter(r=>r.result!=="skipped"&&pendingDisclosed.has(r.id)).map(r=>r.id));
     const ignoredOverlapIds=(original?.ids||[]).map(String).filter(id=>overlapping.has(id));
     const ignored=new Set(ignoredOverlapIds),eligible=checked.results.filter(r=>r.result!=="skipped"&&!ignored.has(r.id));
-    const positionResults=checked.results.filter(r=>!pendingDisclosed.has(r.id));
-    const jumpView=buildGptJumpView(currentView,pageSize,randomIds);
-    let jump=evaluateGptJump(original,words,jumpView,positionResults,state);
-    if(jump.canJump){
-      const context=normalizeGptIssueContext(original?.context),mode=jump.issuedMode||currentView?.sortMode;
-      const identity=studyOrderIdentity(words,mode,randomIds);
-      const cursor=normalizeStudyProgress(studyProgress)[mode];
-      const cursorIsValid=!!(context&&identity&&cursor&&cursor.sortMode===identity.sortMode&&cursor.wordCount===identity.wordCount&&
-        cursor.orderFingerprint===identity.orderFingerprint&&cursor.csvOrderFingerprint===identity.csvOrderFingerprint&&cursor.contentFingerprint===identity.contentFingerprint&&
-        context.sortMode===identity.sortMode&&context.orderFingerprint===identity.orderFingerprint&&context.csvOrderFingerprint===identity.csvOrderFingerprint&&context.contentFingerprint===identity.contentFingerprint);
-      const ordered=identity?orderedWords(words,identity.sortMode,randomIds):null;
-      const cursorIndex=cursorIsValid?ordered.findIndex(word=>String(word.id)===cursor.id):-1;
-      const firstPosition=jump.firstResultPosition;
-      const requiredPosition=cursorIndex<0?0:cursorIndex+1;
-      if(!Number.isInteger(firstPosition)||firstPosition>requiredPosition){
-        jump={...jump,canJump:false,reason:"study-progress-gap",candidatePosition:null,
-          continuity:{cursorId:cursorIsValid?cursor.id:null,cursorPosition:cursorIndex,requiredPosition,firstResultPosition:firstPosition??null}};
-      }
-    }
+    const positionResults=checked.results;
+    const currentOffset=currentView?.sortMode==="random"?currentView.randomStart:currentView?.pageIndex;
+    const displayedPage=currentView&&Number.isInteger(Number(currentOffset))
+      ?pageForGptPosition(words,state,currentView,pageSize,randomIds,currentOffset||0):null;
+    const activeMatchesDisplayedPage=!!(nextSession&&displayedPage&&nextSession.key===studySessionKey(currentView,pageSize)&&
+      sameOrderedIds(nextSession.targetIds,displayedPage.ids));
+    const jumpView={...buildGptJumpView(currentView,pageSize,randomIds),disclosedIds:activeMatchesDisplayedPage?[...currentDisclosed]:[]};
+    let jump;
+    const pendingRecords=Object.values(sessions||{});
+    const hasUnsequencedPending=pendingRecords.some(record=>!Number.isSafeInteger(record?.issueSequence)||record.issueSequence<0);
+    // The ledger counter records the last issued session, even after that
+    // session's pending record is removed on registration. Never promote an
+    // older pending record to the jump target when the latest was registered.
+    const latestIssuedSequence=latestIssueSequence;
+    if(!Number.isSafeInteger(latestIssueSequence)||latestIssueSequence<1||!Number.isSafeInteger(original?.issueSequence)||original.issueSequence<1||original.issueSequence>latestIssueSequence||hasUnsequencedPending)
+      jump={canJump:false,reason:"missing-issue-order",lastResultId:null,candidatePosition:null,issuedMode:original?.context?.sortMode||null,currentMode:currentView?.sortMode||null,orderPreserved:false};
+    else if(original.issueSequence<latestIssuedSequence)
+      jump={canJump:false,reason:"older-issue",lastResultId:null,candidatePosition:null,issuedMode:original?.context?.sortMode||null,currentMode:currentView?.sortMode||null,orderPreserved:false};
+    else if(original.issueSequence!==latestIssuedSequence||pendingRecords.filter(record=>record.issueSequence===latestIssuedSequence).length!==1)
+      jump={canJump:false,reason:"ambiguous-issue-order",lastResultId:null,candidatePosition:null,issuedMode:original?.context?.sortMode||null,currentMode:currentView?.sortMode||null,orderPreserved:false};
+    else jump=evaluateGptJump(original,words,jumpView,positionResults,state);
     if(forceFormalOnly)jump={...jump,canJump:false,reason:forceFormalOnly===true?"study-progress-uncertain":String(forceFormalOnly),candidatePosition:null};
     let candidatePage=null,samePage=false;
     if(jump.canJump) {
@@ -754,7 +774,37 @@
       formalApplied,provisionalIds,ignoredOverlapIds,isReplay:false,jump,samePage,
       transition:jump.canJump?{kind:differentPage?"jump":"stay",view:differentPage?candidatePage.view:currentView,position:jump.candidatePosition,
         requiresModeRestore:jump.requiresModeRestore}:
-        {kind:"stay",view:currentView,requiresModeRestore:false}};
+        {kind:"stay",view:currentView,requiresModeRestore:false},
+      skippedCount:checked.results.filter(result=>result.result==="skipped").length,
+      issueSequence:original?.issueSequence??null};
+  }
+  function gptIntegrationNotice(draft) {
+    const reason=draft?.jump?.reason||"no-practical-result",count=Number(draft?.applied)||0;
+    if(draft?.isReplay)return{reasonCode:"replay",text:"GPT結果は登録済みです。解答カバーは移動していません。"};
+    if(draft?.jump?.canJump){
+      const number=Number(draft.jump.lastResultPosition)+1;
+      return{reasonCode:"jumped",text:`GPT結果を${count}件登録しました。解答カバーを${Number.isFinite(number)&&number>0?`${number}番`:"結果の末尾"}まで移動しました。`};
+    }
+    const messages={
+      "older-issue":"以前に発行したGPT連携結果のため、解答カバーは移動していません。",
+      "missing-issue-order":"発行順を確認できないGPT連携結果のため、解答カバーは移動していません。",
+      "ambiguous-issue-order":"GPT連携の発行順を特定できないため、解答カバーは移動していません。",
+      "first-after-current-page":"結果の開始位置が現在のページより後ろのため、解答カバーは移動していません。",
+      "last-before-current-page":"結果が現在のページより前にあるため、解答カバーは移動していません。",
+      "last-already-disclosed":"結果の末尾はすでに開示されています。",
+      "user-declined-jump":"現在の学習位置を維持しました。",
+      "order-mismatch":"学習順が変更されているため、解答カバーは移動していません。",
+      "csv-order-changed":"単語の並びが変更されているため、解答カバーは移動していません。",
+      "order-changed":"学習順が変更されているため、解答カバーは移動していません。",
+      "content-changed":"単語リストが変更されているため、解答カバーは移動していません。",
+      "dataset-changed":"単語リストが変更されているため、解答カバーは移動していません。",
+      "target-filtered":"表示対象外の問題を含むため、解答カバーは移動していません。",
+      "target-not-visible":"結果の末尾が現在の表示対象にないため、解答カバーは移動していません。",
+      "target-not-visible-after-finalize":"結果の末尾が現在の表示対象にないため、解答カバーは移動していません。",
+      "no-practical-result":"移動できる結果がありません。解答カバーは移動していません。"
+    };
+    const detail=messages[reason]||"解答カバーは移動していません。";
+    return{reasonCode:reason,text:`GPT結果を${count}件登録しました。${detail}`};
   }
   function makeGptPayload(sessionId,words) {
     const outputInstructions=[
@@ -795,7 +845,7 @@
   function makeChatGptUrl(payload) {
     return `https://chatgpt.com/?prompt=${encodeURIComponent(makeGptPrompt(payload))}`;
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,gptIntegrationNotice,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
