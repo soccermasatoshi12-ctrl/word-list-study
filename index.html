@@ -1186,6 +1186,26 @@
     finally{els.resultJson.value=""}
   }
 
+  function receiveGptResultFromUrl(){
+    const url=new URL(window.location.href);
+    if(!url.searchParams.has("result"))return false;
+    const result=url.searchParams.get("result");
+    if(result===null)return false;
+    els.resultJson.value=result;
+    if(els.resultJson.value!==result)return false;
+    url.searchParams.delete("result");
+    try{
+      history.replaceState(history.state,"",`${url.pathname}${url.search}${url.hash}`);
+      els.resultStatus.textContent="URLから結果JSONを取り込みました。内容を確認してから登録してください。";
+      els.resultStatus.className="status good";
+    }catch(error){
+      els.resultStatus.textContent=`結果JSONは取り込みましたが、URLを履歴から除去できませんでした。再読み込みで再度表示される場合があります。${error.message||error}`;
+      els.resultStatus.className="status bad";
+    }
+    if(!els.gptPanel.open)els.gptPanel.showModal();
+    return true;
+  }
+
   function restartViewSession(nextView=currentView()){
     if(nextView.sortMode==="normal")nextView={...nextView,pageIndex:0};
     return requestViewTransition(nextView);
@@ -1288,6 +1308,8 @@
   els.closeProgressDetails.addEventListener("click",()=>{if(els.progressDialog.open)els.progressDialog.close()});
   els.distributionAll.addEventListener("click",()=>{if(distributionMode==="all")return;distributionMode="all";renderProgressSummary()});
   els.distributionUnmastered.addEventListener("click",()=>{if(distributionMode==="unmastered")return;distributionMode="unmastered";renderProgressSummary()});
+
+  receiveGptResultFromUrl();
 
   let screenStorage,screenState;
   try{screenStorage=window.localStorage;screenState=StudyCore.inspectInitialScreen(screenStorage,STORAGE_SCREEN,words.length>0)}

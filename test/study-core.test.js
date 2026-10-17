@@ -1522,6 +1522,21 @@ test('GPT UI keeps legacy session URL copy and adds ChatGPT open and copy contro
   assert.match(html,/url\.searchParams\.set\("study",/);
 });
 
+test('result URL prefill uses the existing JSON field and removes only result without registering',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const start=html.indexOf('function receiveGptResultFromUrl()'),end=html.indexOf('\n  function restartViewSession',start);
+  assert.notEqual(start,-1);assert.notEqual(end,-1);
+  const receiver=html.slice(start,end);
+  assert.match(receiver,/url\.searchParams\.has\("result"\)/);
+  assert.match(receiver,/url\.searchParams\.get\("result"\)/);
+  assert.doesNotMatch(receiver,/decodeURIComponent|applyGptResults|inspectGptResults|prepareGptIntegration/);
+  assert.ok(receiver.indexOf('els.resultJson.value=result')<receiver.indexOf('history.replaceState'));
+  assert.match(receiver,/url\.searchParams\.delete\("result"\)/);
+  assert.match(receiver,/url\.pathname\}\$\{url\.search\}\$\{url\.hash/);
+  assert.match(receiver,/els\.gptPanel\.showModal\(\)/);
+  assert.match(html,/receiveGptResultFromUrl\(\);/);
+});
+
 test('legacy pending and applied GPT records migrate without changing study history and persist on reload', () => {
   const state={a:{...C.defaultState(),studyCount:4,correctCount:2,recentResults:[true,false],currentStreak:0}};
   const oldRecords={pending:{createdAt:'issued-time',applied:false,ids:['a','b']},done:{createdAt:'old-time',applied:true,ids:['a']}};

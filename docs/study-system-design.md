@@ -174,7 +174,7 @@ CSV / localStorage
 
 `makeGptPayload()`は文字列IDを含む結果JSON契約を作る。`createGptIssueContext()`は発行時の順序で各IDの位置を保存する。発行記録を`gptSessions[sessionId]`として保存した後、既存のアプリ内セッションURL（`?study=`）を生成し、新たに`makeGptPrompt()`・`makeChatGptUrl()`でChatGPT向けの`https://chatgpt.com/?prompt=...`も作る。GPT画面には両方のURLと、それぞれのコピー操作を表示し、ChatGPTを開く操作を提供する。既存のセッションURL生成・コピーは互換用に維持する。
 
-従来の`?study=` payloadに含む`outputInstructions`は、JSONのみを返す既存契約（`version`・`sessionId`・`results`、IDと許容result値）を維持する。ChatGPT向けpromptは同じpayloadの`version`・`sessionId`・`mode`・出題単語を順序を保ったCSV形式で示し、CSVのカンマ・引用符・改行はCSV規則でエスケープする。ChatGPT固有の学習進行指示と、全問題の学習後にJSONを直接URLエンコードした結果リンクを作る指示はprompt側で別途構成し、従来の`outputInstructions`には混ぜない。結果値は`correct`、`wrong`、`uncertain`、`skipped`とする。`?result=`の受信・自動入力・自動登録はこのStepでは実装しない。受信側は引き続き既存の手動JSON登録UIを使う。
+従来の`?study=` payloadに含む`outputInstructions`は、JSONのみを返す既存契約（`version`・`sessionId`・`results`、IDと許容result値）を維持する。ChatGPT向けpromptは同じpayloadの`version`・`sessionId`・`mode`・出題単語を順序を保ったCSV形式で示し、CSVのカンマ・引用符・改行はCSV規則でエスケープする。ChatGPT固有の学習進行指示と、全問題の学習後にJSONを直接URLエンコードした結果リンクを作る指示はprompt側で別途構成し、従来の`outputInstructions`には混ぜない。結果値は`correct`、`wrong`、`uncertain`、`skipped`とする。起動時に`receiveGptResultFromUrl()`が`?result=`を`URLSearchParams.get()`で取得し、既存の`resultJson`欄へそのまま設定する。設定後は`history.replaceState()`で`result`だけを除き、他のqueryとhashを保つ。結果ダイアログを開くが自動登録はせず、利用者が既存の登録ボタンを押した後に通常の`applyGptResults()`検証・確認・保存経路へ進む。異なるブラウザのlocalStorage共有は前提とせず、発行セッションがない場合も通常のセッション照合に委ねる。
 
 発行contextはモード、開始位置、ページサイズ、習得除外条件・閾値、問題件数、CSV ID順・出題順・内容fingerprint、発行IDごとの位置を持つ。JSONの結果配列順やIDの辞書順ではなく、この発行ID順で位置を比較できる。
 
