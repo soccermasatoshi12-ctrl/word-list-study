@@ -169,7 +169,7 @@ test('home and study screens share circular mastery rings and a modal progress d
   assert.match(html,/text\.textContent=value===null\?"—":`\$\{Math\.round\(value\)\}%`/);
   assert.match(html,/segment\.style\.width=`\$\{bucket\.ratio\*100\}%`/);
   assert.match(html,/label\.textContent=`\$\{bucket\.label\}：\$\{bucket\.questionCount\}問`/);
-  assert.match(html,/state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure\(id,measuredGeometry\);renderProgressSummary\(\)/);
+  assert.match(html,/state=draftState;activeSession=progressedSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure\(id,measuredGeometry\);renderProgressSummary\(\)/);
   assert.match(html,/els\.distributionEmpty\.textContent=empty\?"対象問題なし"/);
   assert.match(html,/els\.openProgressDetails\.addEventListener\("click",\(\)=>\{if\(!els\.progressDialog\.open\)els\.progressDialog\.showModal\(\)\}\)/);
   assert.match(html,/els\.closeProgressDetails\.addEventListener\("click",\(\)=>\{if\(els\.progressDialog\.open\)els\.progressDialog\.close\(\)\}\)/);
@@ -312,7 +312,7 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/\.history-slot\{color:#9299a3\}\.history-slot\.provisional\{color:#1f2328;text-decoration:underline;text-decoration-color:#1f2328/);
   assert.match(html,/if\(row\)\{syncAnswerControl\(row,id\);renderRecent\(row\.querySelector\('\.recent'\),id,getState\(id\)\)\}\}/);
   assert.match(html,/recordStudyDisclosure\(studyProgress,words,sortMode,randomIds,id\)/);
-  assert.match(html,/saveCore\(localStorage,STORAGE_LEDGER,\{state:draftState,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped\}\)/);
+  assert.match(html,/saveCore\(localStorage,STORAGE_LEDGER,\{state:draftState,activeSession:progressedSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped\}\)/);
   assert.match(html,/renderAnswerControlFor\(id\);saveActiveSession\(true\)/);
   assert.match(html,/const recent=document\.createElement\("span"\);recent\.className="recent";renderRecent\(recent,w\.id,st\)/);
   assert.match(html,/\.word-meta\{grid-column:1 \/ -1;grid-row:2/);
@@ -326,6 +326,22 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/window\.addEventListener\("resize",correctAfterLayoutChange\)/);
   assert.match(html,/new ResizeObserver\(entries=>/);
   assert.doesNotMatch(html,/recentThree|className="streak"|\.streak\{/);
+});
+test('session frontier is the farthest reached ID in this session order and advances monotonically',()=>{
+  const session={targetIds:['r','b','x','a'],studiedIds:['r','x'],gptRevealTargetId:'b'};
+  assert.equal(C.sessionFurthestProgressId(session),'x');
+  assert.equal(C.advanceSessionFrontier(session,'b').furthestProgressId,'x');
+  assert.equal(C.advanceSessionFrontier(session,'a').furthestProgressId,'a');
+  assert.equal(C.advanceSessionFrontier({...session,furthestProgressId:'a'},'r').furthestProgressId,'a');
+  assert.equal(C.advanceSessionFrontier(session,'outside'),session);
+  assert.equal(C.sessionFurthestProgressId({targetIds:['1','2'],studiedIds:[]}),null);
+});
+test('tip-return UI uses the session frontier without invoking reveal learning',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/<button id="curtainReturnToggle" class="curtain-return-button hidden"[^>]*aria-label="続きに戻る"[^>]*disabled><svg/);
+  assert.match(html,/function returnToSessionFrontier\(\)[\s\S]*?sessionFurthestProgressId\(activeSession\)[\s\S]*?saveActiveSession\(true,\[\],true\)[\s\S]*?updateLockedCurtain\(\{suppressRevealProcessing:true\}\)/);
+  assert.match(html,/const updateResult=updateLockedCurtain\(\{suppressRevealProcessing:true\}\);[\s\S]*?if\(!curtainLocked&&updateResult!=="natural-end"\)return false;[\s\S]*?if\(!curtainLocked&&updateResult==="natural-end"\)[\s\S]*?const unlockedGeometry=geometry\(\)[\s\S]*?revealY=Number\(unlockedTarget\.bottom\)[\s\S]*?saveActiveSession/);
+  assert.match(html,/function updateLockedCurtain\(\{suppressRevealProcessing=false\}=\{\}\)[\s\S]*?advanced&&!suppressRevealProcessing&&!processRevealProgress\(g\)/);
 });
 test('normal order keeps fixed ranges and original numbering with filtered gaps', () => {
   const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:''}));
@@ -591,7 +607,7 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/通常順ではCSV登録順の固定範囲をタブに分け/);
   assert.match(html,/page\.start\}–\$\{page\.end\} · 残\$\{page\.entries\.length\}/);
   assert.match(html,/id="curtainLockToggle" class="curtain-lock-button hidden"[^>]*aria-label="カーテンをロック"/);
-  assert.match(html,/function updateLockedCurtain\(\)[\s\S]*?lockedY-firstClientY[\s\S]*?processRevealProgress\(g\)[\s\S]*?querySelectorAll\("\.word-row"\)[\s\S]*?window\.scrollY>=naturalScrollMax&&Math\.abs\(lastBottom-\(footerTop-12\)\)<=2/);
+  assert.match(html,/function updateLockedCurtain\(\{suppressRevealProcessing=false\}=\{\}\)[\s\S]*?lockedY-firstClientY[\s\S]*?advanced&&!suppressRevealProcessing&&!processRevealProgress\(g\)[\s\S]*?querySelectorAll\("\.word-row"\)[\s\S]*?window\.scrollY>=naturalScrollMax&&Math\.abs\(lastBottom-\(footerTop-12\)\)<=2/);
   assert.match(html,/const rows=els\.words\.querySelectorAll\("\.word-row"\),last=rows\[rows\.length-1\],footerTop=els\.studyActions\.getBoundingClientRect\(\)\.top/);
   const baseline=html.match(/function ensureLockBaseline\(g,\{reset=false\}=\{\}\)\{([\s\S]*?)\n  \}/)?.[1];
   assert.match(baseline,/first\.getBoundingClientRect\(\)\.top\+window\.scrollY/);
@@ -1538,6 +1554,7 @@ test('GPT integration finalizes the departed normal page, keeps destination resu
   assert.deepEqual(result.ignoredOverlapIds,['9','10']);assert.deepEqual(result.provisionalIds,['12','13','17']);assert.equal(result.formalApplied,1);assert.equal(result.applied,4);
   assert.equal(result.activeSession.sessionId,'gpt-s');assert.deepEqual(result.activeSession.targetIds,words.slice(10,20).map(w=>w.id));
   assert.deepEqual(result.activeSession.studiedIds,['12','13','17']);assert.deepEqual(result.activeSession.checkedIds,['17']);assert.deepEqual(result.activeSession.finalizedIds,[]);
+  assert.equal(result.activeSession.furthestProgressId,'17');
   assert.deepEqual(result.state['8'].recentResults,[true]);assert.equal(result.state['8'].studyCount,1);
   assert.deepEqual(result.state['2'].recentResults,[true]);assert.deepEqual(result.state['9'].recentResults,[false]);assert.deepEqual(result.state['10'].recentResults,[false]);
   assert.equal(result.state['17'].studyCount,1);assert.equal(result.state['17'].correctCount,0);assert.deepEqual(result.state['17'].recentResults,[]);
@@ -1650,6 +1667,12 @@ test('GPT jump blocks outcomes beyond the cursor successor while preserving earl
   assert.equal(suppressed.jump.firstResultPosition,39);assert.equal(suppressed.jump.continuity.requiredPosition,35);
   assert.equal(suppressed.transition.kind,'stay');assert.deepEqual(suppressed.studyProgress,progress);
   assert.equal(suppressed.activeSession.revealY,321);assert.deepEqual(suppressed.activeSession.studiedIds,['35']);
+  assert.equal(C.sessionFurthestProgressId(suppressed.activeSession),'35');
+  const suppressedStore=memoryStorage();
+  C.saveCore(suppressedStore,'ledger',suppressed);
+  const restoredSuppressedSession=C.loadCore(suppressedStore,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'}).activeSession;
+  assert.equal(C.sessionFurthestProgressId(restoredSuppressedSession),'35');
+  assert.equal(restoredSuppressedSession.gptRevealTargetId,undefined);
   assert.equal(suppressed.formalApplied,11);assert.deepEqual(suppressed.provisionalIds,[]);assert.equal(suppressed.state['40'].studyCount,1);
 
   const earlierIds=words.slice(19,40).map(word=>word.id),earlierContext=C.createGptIssueContext(words,{startId:earlierIds[0],pageSize:50,ids:earlierIds});
@@ -1816,6 +1839,7 @@ test('GPT skipped-only result advances contiguously without recording study hist
       studyProgress:C.recordStudyDisclosure({},words,'normal',[],'10'),gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.transition.kind,'jump');assert.equal(result.transition.view.pageIndex,1);
   assert.equal(result.activeSession.gptRevealTargetId,'11');assert.deepEqual(result.activeSession.studiedIds,[]);
+  assert.equal(result.activeSession.furthestProgressId,'11');
   assert.equal(result.state['11'],undefined);assert.deepEqual(result.gptSkipped.ids,['11']);assert.equal(result.studyProgress.normal.id,'11');
 });
 

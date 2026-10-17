@@ -151,6 +151,21 @@
     if(!words.some(word=>String(word.id)===String(id)))return next;
     next[sortMode]={...identity,id:String(id)};return next;
   }
+  function sessionFurthestProgressId(session) {
+    const order=Array.isArray(session?.targetIds)?session.targetIds.map(String):[];
+    if(!order.length)return null;
+    const candidates=[session.furthestProgressId,session.gptRevealTargetId,...(Array.isArray(session.studiedIds)?session.studiedIds:[])].filter(value=>value!==null&&value!==undefined).map(String);
+    let furthest=-1;
+    for(const id of candidates){const index=order.indexOf(id);if(index>furthest)furthest=index}
+    return furthest<0?null:order[furthest];
+  }
+  function advanceSessionFrontier(session,id) {
+    if(!session||!Array.isArray(session.targetIds))return session;
+    const order=session.targetIds.map(String),target=String(id??""),targetIndex=order.indexOf(target);
+    if(targetIndex<0)return session;
+    const current=sessionFurthestProgressId(session),currentIndex=current===null?-1:order.indexOf(String(current));
+    return{...session,furthestProgressId:targetIndex>currentIndex?target:current};
+  }
   function advanceStudyProgress(progress,words,sortMode,randomIds,id) {
     const next=normalizeStudyProgress(progress),identity=studyOrderIdentity(words,sortMode,randomIds),key=String(id??"");
     if(!identity||!key)return next;
@@ -716,6 +731,7 @@
       if(isNew)resultingSession={sessionId:`gpt-${sessionId}`,key:studySessionKey(candidatePage.view,pageSize),updatedAt,
         revealY:0,targetIds:[...candidatePage.ids],viewState:{...candidatePage.view,pageSize},studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
       resultingSession.gptRevealTargetId=jump.lastResultId;
+      resultingSession=advanceSessionFrontier(resultingSession,jump.lastResultId);
       const byId=new Map(eligible.map(r=>[r.id,r.result]));
       for(const id of candidatePage.ids)if(provisionalSet.has(id)) {
         if(!resultingSession.studiedIds.includes(id))resultingSession.studiedIds.push(id);
@@ -750,7 +766,7 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,question,answer})=>({id:String(id),word:question??"",meaning:answer??""})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

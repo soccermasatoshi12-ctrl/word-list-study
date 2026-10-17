@@ -117,6 +117,7 @@
     .curtain-lock-button{position:absolute;z-index:22;display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation}.curtain-lock-button.hidden{display:none}
     .curtain-lock-button[aria-pressed="true"]{border-color:#2563eb;background:var(--cover);color:#1d4ed8}
     .curtain-lock-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .curtain-return-button{position:absolute;z-index:22;display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation;cursor:pointer}.curtain-return-button:disabled{opacity:.45;cursor:default}.curtain-return-button.hidden{display:none}.curtain-return-button.is-curtain-locked{position:fixed}.curtain-return-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     .curtain-lock-feedback{position:absolute;z-index:23;display:grid;gap:2px;max-width:min(250px,calc(100vw - 28px));padding:7px 9px;border:1px solid #d7dde5;border-radius:8px;background:#fff;color:#364152;font-size:.76rem;line-height:1.35;box-shadow:0 2px 8px #0002}
     .curtain-lock-feedback[hidden]{display:none}.curtain-lock-feedback strong{font-size:.78rem;font-weight:650}
     textarea{width:100%;min-height:120px;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;resize:vertical}#sessionUrl{width:100%;margin-top:8px}
@@ -266,6 +267,7 @@
       <div id="meaningCurtain" class="meaning-curtain hidden" aria-hidden="true"></div>
       <div id="curtainHandle" class="curtain-handle hidden" aria-label="意味カバーを上下に動かす"></div>
       <button id="curtainLockToggle" class="curtain-lock-button hidden" type="button" aria-label="カーテンをロック" aria-pressed="false" title="カーテンをロック"></button>
+      <button id="curtainReturnToggle" class="curtain-return-button hidden" type="button" aria-label="続きに戻る" title="続きに戻る" disabled><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h14m-6-6 6 6-6 6M21 5v14"/></svg></button>
       <div id="curtainLockFeedback" class="curtain-lock-feedback" role="status" aria-live="polite" hidden><strong></strong><span></span></div>
       <div id="explanationPopup" class="explanation-popup" role="tooltip" aria-hidden="true" hidden></div>
     </div>
@@ -358,7 +360,7 @@
     count:document.getElementById("count"),pagePositionRow:document.getElementById("pagePositionRow"),pagePosition:document.getElementById("pagePosition"),tabs:document.getElementById("tabs"),normalNext:document.getElementById("normalNext"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),gptWordCountSummary:document.getElementById("gptWordCountSummary"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
-    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),curtainLockToggle:document.getElementById("curtainLockToggle"),curtainLockFeedback:document.getElementById("curtainLockFeedback"),studyActions:document.querySelector(".study-actions"),studyFooterSpacer:document.getElementById("studyFooterSpacer"),explanationPopup:document.getElementById("explanationPopup"),
+    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),curtainLockToggle:document.getElementById("curtainLockToggle"),curtainReturnToggle:document.getElementById("curtainReturnToggle"),curtainLockFeedback:document.getElementById("curtainLockFeedback"),studyActions:document.querySelector(".study-actions"),studyFooterSpacer:document.getElementById("studyFooterSpacer"),explanationPopup:document.getElementById("explanationPopup"),
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
     makeSession:document.getElementById("makeSession"),copySession:document.getElementById("copySession"),sessionUrl:document.getElementById("sessionUrl"),
@@ -600,6 +602,7 @@
       studiedIds:Array.isArray(restored.studiedIds)?restored.studiedIds:[],
       checkedIds:Array.isArray(restored.checkedIds)?restored.checkedIds:[],
       finalizedIds:Array.isArray(restored.finalizedIds)?restored.finalizedIds:[],
+      furthestProgressId:StudyCore.sessionFurthestProgressId(restored),
       pendingId:restored.pendingId||null,
       ...(typeof restored.gptRevealTargetId==="string"?{gptRevealTargetId:restored.gptRevealTargetId}:{}),
       ...(restored.preserveTargetIds?{preserveTargetIds:true,preservedTargetIdentity:restored.preservedTargetIdentity}: {})
@@ -616,7 +619,7 @@
     if(!words.length){activeSession=null;revealY=0;StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:null,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped},[
       {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
     ]);return}
-    const nextSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+    const nextSession={sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],furthestProgressId:null,pendingId:null};
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped},[
       {key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(target.view))},...extraWrites
     ]);
@@ -644,7 +647,7 @@
     let view={...nextView,masteryThreshold:nextThreshold,randomStart:StudyCore.normalizeRandomStart(nextView.randomStart,nextRandomIds.length)};
     const target=buildTarget(view,draftState,nextWords,nextRandomIds,nextPageSize);view=target.view;
     const nextSession=!nextWords.length?null:finalize||!priorSession
-      ?{sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(view,nextPageSize),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null}
+      ?{sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(view,nextPageSize),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),studiedIds:[],checkedIds:[],finalizedIds:[],furthestProgressId:null,pendingId:null}
       :{...priorSession,key:sessionKey(view,nextPageSize),targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),updatedAt:Date.now()};
     if(nextSession){delete nextSession.preserveTargetIds;delete nextSession.preservedTargetIdentity}
     const draftSkipped=StudyCore.normalizeGptSkippedState(gptSkipped,nextWords);
@@ -670,15 +673,16 @@
     const draftState=JSON.parse(JSON.stringify(state)),draftSession=JSON.parse(JSON.stringify(activeSession));
     const st=draftState[id]=normalizeState(draftState[id]||defaultState());if(!StudyCore.recordStudy(draftSession,id,st,undefined,defaultAnswer))return true;
     draftSession.pendingId=id;draftSession.updatedAt=Date.now();draftSession.revealY=Number(committedRevealY)||0;
+    const progressedSession=StudyCore.advanceSessionFrontier(draftSession,id);
     const draftProgress=clearSkipped
       ?StudyCore.advanceStudyProgress(studyProgress,words,sortMode,randomIds,id)
       :StudyCore.recordStudyDisclosure(studyProgress,words,sortMode,randomIds,id);
     const draftSkipped=clearSkipped?StudyCore.setGptSkippedState(gptSkipped,words,id,false):gptSkipped;
-    try{StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:draftSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped})}
+    try{StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:progressedSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped})}
     catch(error){
       alert(`学習状態を保存できなかったため、開示を記録できませんでした。${error.message||error}`);return false
     }
-    state=draftState;activeSession=draftSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure(id,measuredGeometry);renderProgressSummary();return true;
+    state=draftState;activeSession=progressedSession;studyProgress=draftProgress;gptSkipped=draftSkipped;renderAnswerControlForExposure(id,measuredGeometry);renderProgressSummary();return true;
   }
   function markAnswer(id,checked){
     if(!activeSession)return;
@@ -878,6 +882,17 @@
     const feedback=els.curtainLockFeedback;
     feedback.style.left=`${Math.max(4,Math.min(g.left+g.width-220,innerWidth-256))}px`;feedback.style.top=`${g.top+revealY+58}px`;
   }
+  function setReturnButtonState(g){
+    const button=els.curtainReturnToggle;if(!g){button.classList.add("hidden");button.disabled=true;return}
+    button.classList.remove("hidden");button.classList.toggle("is-curtain-locked",curtainLocked);
+    const id=StudyCore.sessionFurthestProgressId(activeSession),target=id?g.thresholds.find(item=>String(item.id)===String(id)):null;
+    const first=els.words.querySelector(".meaning-cell"),currentBoundary=curtainLocked&&first?lockedY-first.getBoundingClientRect().top:revealY;
+    button.disabled=!target||Number(target.bottom)<=currentBoundary+1;
+    button.setAttribute("aria-label","続きに戻る");button.title="続きに戻る";
+    const coverTop=curtainLocked?lockedY:g.top+revealY,buttonOffset=pageSize===10?20:58;
+    button.style.left=`${curtainLocked?els.listWrap.getBoundingClientRect().left+g.left+Math.max(0,g.width-44):g.left+Math.max(0,g.width-44)}px`;
+    button.style.top=`${coverTop+buttonOffset}px`;
+  }
   function ensureLockBaseline(g,{reset=false}={}){
     if(!g)return null;
     if(lockBaselineViewportY===null||reset){
@@ -918,22 +933,23 @@
     catch(error){lockFeedback("保存できません",`ロック解除後の位置を保存できませんでした。${error.message||error}`);return false}
   }
   function toggleCurtainLock(){if(curtainLocked)endCurtainLock();else beginCurtainLock()}
-  function updateLockedCurtain(){
-    if(!curtainLocked||els.studyScreen.hidden)return;
-    const g=geometry();if(!g){positionCurtain(g);return}
-    const first=els.words.querySelector(".meaning-cell");if(!first)return;
+  function updateLockedCurtain({suppressRevealProcessing=false}={}){
+    if(!curtainLocked||els.studyScreen.hidden)return "inactive";
+    const g=geometry();if(!g){positionCurtain(g);return "updated"}
+    const first=els.words.querySelector(".meaning-cell");if(!first)return "updated";
     const firstClientY=first.getBoundingClientRect().top,next=Math.max(0,Math.min(lockedY-firstClientY,g.height));
     const advanced=next>lockLastRevealY+0.5;revealY=next;positionCurtain(g);
-    if(advanced&&!processRevealProgress(g)){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません","保存に失敗したためカーテンロックを解除しました。");return}
+    if(advanced&&!suppressRevealProcessing&&!processRevealProgress(g)){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません","保存に失敗したためカーテンロックを解除しました。");return "save-failed"}
     lockLastRevealY=revealY;
     const rows=els.words.querySelectorAll(".word-row"),last=rows[rows.length-1],footerTop=els.studyActions.getBoundingClientRect().top;
     const lastBottom=last?.getBoundingClientRect().bottom,naturalScrollMax=Math.max(0,document.documentElement.scrollHeight-innerHeight);
-    if(Number.isFinite(lastBottom)&&window.scrollY>=naturalScrollMax&&Math.abs(lastBottom-(footerTop-12))<=2){endCurtainLock();return}
-    try{saveActiveSession(true,[],true)}catch(error){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません",`保存に失敗したためロックを解除しました。${error.message||error}`)}
+    if(Number.isFinite(lastBottom)&&window.scrollY>=naturalScrollMax&&Math.abs(lastBottom-(footerTop-12))<=2)return endCurtainLock()?"natural-end":"save-failed";
+    try{saveActiveSession(true,[],true)}catch(error){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません",`保存に失敗したためロックを解除しました。${error.message||error}`);return "save-failed"}
+    return "updated";
   }
   function scheduleLockedCurtainUpdate(){if(!curtainLocked||lockScrollFrame)return;lockScrollFrame=requestAnimationFrame(()=>{lockScrollFrame=0;updateLockedCurtain()})}
   function positionCurtain(g=geometry()){
-    if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");els.curtainLockToggle.classList.add("hidden");return}
+    if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");els.curtainLockToggle.classList.add("hidden");els.curtainReturnToggle.classList.add("hidden");els.curtainReturnToggle.disabled=true;return}
     ensureLockBaseline(g);
     const anchor=!curtainLocked&&!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
     if(anchor)revealY=Number(anchor.bottom);
@@ -950,7 +966,41 @@
       els.curtainHandle.style.left=`${g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${g.top+revealY}px`;
     }
     setLockButtonState(g);
+    setReturnButtonState(g);
     for(const row of els.words.querySelectorAll(".word-row"))syncAnswerControl(row,row.dataset.id,g);
+  }
+  function returnToSessionFrontier(){
+    if(curtainLocked&&lockScrollFrame){cancelAnimationFrame(lockScrollFrame);lockScrollFrame=0;const updateResult=updateLockedCurtain();if(!curtainLocked&&updateResult!=="natural-end")return false}
+    const g=geometry(),id=StudyCore.sessionFurthestProgressId(activeSession),target=id&&g?.thresholds.find(item=>String(item.id)===String(id));
+    if(!g||!target)return false;
+    if(!curtainLocked){
+      if(Number(target.bottom)<=revealY+1)return false;
+      const previousRevealY=revealY;revealY=Number(target.bottom);
+      try{saveActiveSession(true,[],true)}catch(error){revealY=previousRevealY;positionCurtain();alert(`続きの位置を保存できなかったため、直前の位置を維持しました。${error.message||error}`);return false}
+      positionCurtain(geometry());return true;
+    }
+    const first=els.words.querySelector(".meaning-cell");if(!first)return false;
+    const targetClientY=first.getBoundingClientRect().top+Number(target.bottom),delta=targetClientY-lockedY;
+    if(delta<=1)return false;
+    const maxScroll=Math.max(0,document.documentElement.scrollHeight-innerHeight),nextScroll=Math.max(0,Math.min(maxScroll,window.scrollY+delta));
+    window.scrollTo(0,nextScroll);
+    const updateResult=updateLockedCurtain({suppressRevealProcessing:true});
+    if(!curtainLocked&&updateResult!=="natural-end")return false;
+    if(!curtainLocked&&updateResult==="natural-end"){
+      const unlockedGeometry=geometry();
+      const unlockedTarget=unlockedGeometry?.thresholds.find(item=>String(item.id)===String(id));
+      if(!unlockedTarget)return false;
+      const previousRevealY=revealY;
+      revealY=Number(unlockedTarget.bottom);
+      try{saveActiveSession(true,[],true)}catch(error){
+        revealY=Number(activeSession?.revealY??previousRevealY);
+        positionCurtain(geometry());
+        alert(`続きの位置を保存できなかったため、直前の保存位置を維持しました。${error.message||error}`);
+        return false;
+      }
+      positionCurtain(geometry());
+    }
+    return true;
   }
   function repeatStudy(){
     const visibleIds=[...els.words.querySelectorAll(".word-row")].map(row=>row.dataset.id);
@@ -1011,6 +1061,7 @@
     window.addEventListener("resize",correctAfterLayoutChange);
     window.addEventListener("scroll",scheduleLockedCurtainUpdate,{passive:true});
     els.curtainLockToggle.addEventListener("click",toggleCurtainLock);
+    els.curtainReturnToggle.addEventListener("click",returnToSessionFrontier);
     if(typeof ResizeObserver!=="undefined"){
       const sizes=new WeakMap();
       curtainLayoutObserver=new ResizeObserver(entries=>{
@@ -1109,7 +1160,7 @@
       if(draft.activeSession)draft.activeSession.updatedAt=Date.now();
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump&&!draft.activeSession){
         const target=buildTarget(nextView,draft.state,words,randomIds,pageSize);
-        draft.activeSession={sessionId:`gpt-${sessionId}-view`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null};
+        draft.activeSession={sessionId:`gpt-${sessionId}-view`,key:sessionKey(target.view),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(target.view),studiedIds:[],checkedIds:[],finalizedIds:[],furthestProgressId:null,pendingId:null};
         draft.activeSession.gptRevealTargetId=draft.jump.lastResultId;
       }
       if(draft.activeSession?.gptRevealTargetId&&draft.samePage){
