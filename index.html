@@ -74,8 +74,8 @@
     .word-main{grid-column:2;grid-row:1;align-self:baseline;min-width:0;font-weight:650;overflow-wrap:anywhere;word-break:break-word}
     .word-index{grid-column:1;grid-row:1;align-self:baseline;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
     .word-meta{grid-column:1 / -1;grid-row:2;min-width:0;display:flex;gap:6px;align-items:center;font-size:.75rem;color:var(--muted)}
-    .word-meta .recent{display:inline-flex;align-items:center;gap:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .history-slot{color:#9299a3}.history-slot.provisional{color:#1f2328;text-decoration:underline;text-decoration-color:#1f2328;text-underline-offset:3px;font-weight:600}
+    .word-meta .recent{display:inline-grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;flex:0 0 5em;width:5em;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .history-slot{display:block;min-width:0;text-align:center;color:#9299a3}.history-slot.provisional{color:#1f2328;text-decoration:underline;text-decoration-color:#1f2328;text-underline-offset:3px;font-weight:600}
     .word-medal{width:15px;height:17px;margin-left:1px;vertical-align:middle}
     .row-actions{display:grid;grid-template-rows:28px 20px;align-items:center;justify-items:center;align-self:center;gap:0;width:28px;height:48px;min-width:0}
     .row-actions button{display:grid;place-items:center;box-sizing:border-box;width:28px;min-height:0;padding:0;border:1px solid #cbd3dd;border-radius:8px;background:#f7f8fa;color:#354052;font-size:1rem;font-weight:700;line-height:1;touch-action:manipulation;user-select:none;-webkit-user-select:none}
@@ -348,7 +348,7 @@
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
   let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
-  let curtainLocked=false,lockedY=null,lockScrollFrame=0,lockLastRevealY=0,lockBaselineViewportY=null,lockFeedbackTimer=0;
+  let curtainLocked=false,lockedY=null,lockScrollFrame=0,lockLastRevealY=0,lockFeedbackTimer=0;
   let distributionMode="all";
 
   const els={
@@ -658,7 +658,7 @@
     if(writeListTitle)writes.push({key:STORAGE_LIST_TITLE,value:JSON.stringify(nextListTitle)});
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped},writes);
-    releaseCurtainLock();lockBaselineViewportY=null;
+    releaseCurtainLock();
     state=draftState;studyProgress=draftProgress;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;gptSkipped=draftSkipped;if(writeListTitle)listTitle=nextListTitle;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
     if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
@@ -871,7 +871,7 @@
   function setLockButtonState(g){
     const button=els.curtainLockToggle;if(!g||pageSize===10){button.classList.add("hidden");return}
     button.classList.remove("hidden");
-    if(curtainLocked){button.classList.add("is-curtain-locked");button.style.left=`${els.listWrap.getBoundingClientRect().left+g.left+Math.max(0,g.width-44)}px`;button.style.top=`${lockedY+20}px`}
+    if(curtainLocked){button.classList.add("is-curtain-locked");button.style.left=`${els.listWrap.getBoundingClientRect().left+g.left+Math.max(0,g.width-44)}px`;button.style.top=`${effectiveLockedY()+20}px`}
     else{button.classList.remove("is-curtain-locked");button.style.left=`${g.left+Math.max(0,g.width-44)}px`;button.style.top=`${g.top+revealY+20}px`}
     button.setAttribute("aria-pressed",String(curtainLocked));
     button.setAttribute("aria-label",curtainLocked?"カーテンのロックを解除":"カーテンをロック");
@@ -886,39 +886,33 @@
     const button=els.curtainReturnToggle;if(!g){button.classList.add("hidden");button.disabled=true;return}
     button.classList.remove("hidden");button.classList.toggle("is-curtain-locked",curtainLocked);
     const id=StudyCore.sessionFurthestProgressId(activeSession),target=id?g.thresholds.find(item=>String(item.id)===String(id)):null;
-    const first=els.words.querySelector(".meaning-cell"),currentBoundary=curtainLocked&&first?lockedY-first.getBoundingClientRect().top:revealY;
+    const first=els.words.querySelector(".meaning-cell"),effectiveY=curtainLocked?effectiveLockedY(first):null,currentBoundary=curtainLocked&&first?effectiveY-first.getBoundingClientRect().top:revealY;
     button.disabled=!target||Number(target.bottom)<=currentBoundary+1;
     button.setAttribute("aria-label","続きに戻る");button.title="続きに戻る";
-    const coverTop=curtainLocked?lockedY:g.top+revealY,buttonOffset=pageSize===10?20:58;
+    const coverTop=curtainLocked?effectiveY:g.top+revealY,buttonOffset=pageSize===10?20:58;
     button.style.left=`${curtainLocked?els.listWrap.getBoundingClientRect().left+g.left+Math.max(0,g.width-44):g.left+Math.max(0,g.width-44)}px`;
     button.style.top=`${coverTop+buttonOffset}px`;
   }
-  function ensureLockBaseline(g,{reset=false}={}){
-    if(!g)return null;
-    if(lockBaselineViewportY===null||reset){
-      const first=els.words.querySelector(".meaning-cell");if(!first)return null;
-      // Project the first answer-cell top to scrollY=0; saved progress is deliberately excluded.
-      lockBaselineViewportY=first.getBoundingClientRect().top+window.scrollY;
-    }
-    return lockBaselineViewportY;
+  function effectiveLockedY(first=els.words.querySelector(".meaning-cell")){
+    if(!curtainLocked||!Number.isFinite(lockedY)||!first)return lockedY;
+    return Math.max(lockedY,first.getBoundingClientRect().top);
   }
   function releaseCurtainLock(preserveViewportBoundary=false){
-    const priorLockedY=lockedY;
+    const first=els.words.querySelector(".meaning-cell"),priorEffectiveY=effectiveLockedY(first);
     if(lockScrollFrame){cancelAnimationFrame(lockScrollFrame);lockScrollFrame=0}
     curtainLocked=false;lockedY=null;lockLastRevealY=revealY;
     if(els.curtainLockToggle)els.curtainLockToggle.setAttribute("aria-pressed","false");
     const g=geometry();
-    if(preserveViewportBoundary&&g&&Number.isFinite(priorLockedY)){
-      const first=els.words.querySelector(".meaning-cell");if(first)revealY=Math.max(0,Math.min(priorLockedY-first.getBoundingClientRect().top,g.height));
+    if(preserveViewportBoundary&&g&&Number.isFinite(priorEffectiveY)){
+      const currentFirst=els.words.querySelector(".meaning-cell");if(currentFirst)revealY=Math.max(0,Math.min(priorEffectiveY-currentFirst.getBoundingClientRect().top,g.height));
     }
     positionCurtain(g);
   }
   function beginCurtainLock(){
     if(pageSize===10){releaseCurtainLock();return false}
     const g=geometry();if(!g||!g.thresholds.length){lockFeedback("問題がないためロックできません。");return false}
-    syncStudyFooterSpacer();const baseline=ensureLockBaseline(g);
+    syncStudyFooterSpacer();
     const boundary=els.curtainHandle.getBoundingClientRect().top+els.curtainHandle.getBoundingClientRect().height/2;
-    if(baseline===null||boundary<baseline-1){lockFeedback("ロックできません","解答カバーを少し下げてください。");return false}
     const footerTop=els.studyActions.getBoundingClientRect().top,clearance=54;
     if(boundary+clearance>footerTop-1){lockFeedback("鍵ボタンの下に操作スペースが残る位置でロックしてください。");return false}
     clearTimeout(lockFeedbackTimer);lockFeedbackTimer=0;els.curtainLockFeedback.hidden=true;els.curtainLockFeedback.querySelector("strong").textContent="";els.curtainLockFeedback.querySelector("span").textContent="";
@@ -937,7 +931,7 @@
     if(!curtainLocked||els.studyScreen.hidden)return "inactive";
     const g=geometry();if(!g){positionCurtain(g);return "updated"}
     const first=els.words.querySelector(".meaning-cell");if(!first)return "updated";
-    const firstClientY=first.getBoundingClientRect().top,next=Math.max(0,Math.min(lockedY-firstClientY,g.height));
+    const firstClientY=first.getBoundingClientRect().top,effectiveY=Math.max(lockedY,firstClientY),next=Math.max(0,Math.min(effectiveY-firstClientY,g.height));
     const advanced=next>lockLastRevealY+0.5;revealY=next;positionCurtain(g);
     if(advanced&&!suppressRevealProcessing&&!processRevealProgress(g)){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません","保存に失敗したためカーテンロックを解除しました。");return "save-failed"}
     lockLastRevealY=revealY;
@@ -950,16 +944,15 @@
   function scheduleLockedCurtainUpdate(){if(!curtainLocked||lockScrollFrame)return;lockScrollFrame=requestAnimationFrame(()=>{lockScrollFrame=0;updateLockedCurtain()})}
   function positionCurtain(g=geometry()){
     if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");els.curtainLockToggle.classList.add("hidden");els.curtainReturnToggle.classList.add("hidden");els.curtainReturnToggle.disabled=true;return}
-    ensureLockBaseline(g);
     const anchor=!curtainLocked&&!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
     if(anchor)revealY=Number(anchor.bottom);
     revealY=Math.max(0,Math.min(revealY,g.height));
     els.meaningCurtain.classList.remove("hidden");els.curtainHandle.classList.remove("hidden");
     if(curtainLocked){
-      const wrapLeft=els.listWrap.getBoundingClientRect().left,footerTop=els.studyActions.getBoundingClientRect().top;
+      const wrapLeft=els.listWrap.getBoundingClientRect().left,footerTop=els.studyActions.getBoundingClientRect().top,effectiveY=effectiveLockedY();
       els.meaningCurtain.classList.add("is-curtain-locked");els.curtainHandle.classList.add("is-curtain-locked");
-      els.meaningCurtain.style.left=`${wrapLeft+g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${lockedY}px`;els.meaningCurtain.style.height=`${Math.max(0,footerTop-lockedY)}px`;
-      els.curtainHandle.style.left=`${wrapLeft+g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${lockedY}px`;
+      els.meaningCurtain.style.left=`${wrapLeft+g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${effectiveY}px`;els.meaningCurtain.style.height=`${Math.max(0,footerTop-effectiveY)}px`;
+      els.curtainHandle.style.left=`${wrapLeft+g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${effectiveY}px`;
     }else{
       els.meaningCurtain.classList.remove("is-curtain-locked");els.curtainHandle.classList.remove("is-curtain-locked");
       els.meaningCurtain.style.left=`${g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${g.top+revealY}px`;els.meaningCurtain.style.height=`${Math.max(0,g.height-revealY)}px`;
@@ -1049,10 +1042,10 @@
     const persistDragPosition=()=>{try{saveActiveSession(true,[],true);return true}catch(error){alert(`学習位置を保存できなかったため、直前の保存位置へ戻しました。${error.message||error}`);restoreCommittedPosition();return false}};
     const correctAfterLayoutChange=()=>{
       cancelDrag();syncStudyFooterSpacer();const g=geometry();if(!g){positionCurtain(g);return}
-      ensureLockBaseline(g,{reset:true});
       if(curtainLocked){
         const first=els.words.querySelector(".meaning-cell");if(!first)return;
-        revealY=Math.max(0,Math.min(lockedY-first.getBoundingClientRect().top,g.height));positionCurtain(g);lockLastRevealY=revealY;
+        const firstClientY=first.getBoundingClientRect().top,effectiveY=Math.max(lockedY,firstClientY);
+        revealY=Math.max(0,Math.min(effectiveY-firstClientY,g.height));positionCurtain(g);lockLastRevealY=revealY;
         return;
       }
       revealY=Math.max(0,Math.min(Number(activeSession?.revealY??revealY)||0,g.height));
@@ -1177,9 +1170,8 @@
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump)writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(nextView))});
       StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,studyProgress:draft.studyProgress,gptSkipped:draft.gptSkipped},writes);
       const appliedJump=draft.transition?.kind==="jump"&&draft.jump?.canJump;
-      if(appliedJump&&curtainLocked){releaseCurtainLock();lockBaselineViewportY=null}
+      if(appliedJump&&curtainLocked){releaseCurtainLock()}
       state=draft.state;activeSession=draft.activeSession;gptSessions=draft.gptSessions;registeredGptSessionIds=draft.registeredGptSessionIds;studyProgress=draft.studyProgress;gptSkipped=draft.gptSkipped;
-      if(appliedJump)lockBaselineViewportY=null;
       if(appliedJump)applyView(nextView,pageSize,masteryThreshold,defaultAnswer);
       revealY=Number(activeSession?.revealY||0);render();
       els.resultStatus.textContent=`${draft.applied}件を反映しました。${draft.transition?.kind==="jump"&&draft.jump?.canJump?" GPT結果の続きへ移動しました。":""}`;els.resultStatus.className="status good";
@@ -1274,7 +1266,7 @@
   els.repeatStudy.addEventListener("click",repeatStudy);
   els.clearData.addEventListener("click",()=>{
     if(!confirm("学習データと履歴をこの端末から削除しますか？"))return;
-    releaseCurtainLock();lockBaselineViewportY=null;
+    releaseCurtainLock();
     words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];gptSkipped=StudyCore.normalizeGptSkippedState(null,[]);randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
     for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES,STORAGE_LIST_TITLE])localStorage.removeItem(key);
     updateHome();
