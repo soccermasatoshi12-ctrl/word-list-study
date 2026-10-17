@@ -766,7 +766,36 @@
     ].join(" ");
     return {version:1,sessionId,mode:"en-to-ja",words:words.map(({id,question,answer})=>({id:String(id),word:question??"",meaning:answer??""})),outputInstructions};
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload};
+  function makeGptPrompt(payload) {
+    const csvField=value=>{
+      const text=String(value??"");
+      return /[",\r\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
+    };
+    const wordRows=payload.words.map(word=>[word.id,word.word,word.meaning].map(csvField).join(","));
+    return [
+      "Word List Study 学習データ",
+      `version: ${payload.version}`,
+      `sessionId: ${payload.sessionId}`,
+      `mode: ${payload.mode}`,
+      "",
+      "id,word,meaning",
+      ...wordRows,
+      "",
+      "学習指示：",
+      "問題を一問ずつ提示し、学習者の回答を待ってから正誤と意味を説明し、次へ進んでください。",
+      "全問題の学習が終わるまで結果JSONや結果リンクを出さないでください。",
+      "",
+      "結果返却指示：",
+      "全問題の学習完了後に、発行された全問題の結果を次のJSON形式で作成してください。",
+      "形式: {\"version\":1,\"sessionId\":\"発行されたsessionId\",\"results\":[{\"id\":\"単語ID\",\"result\":\"correct|wrong|uncertain|skipped\"}]}",
+      "versionは数値1、sessionIdは変更せず、各出題IDを文字列のまま一度ずつ含めてください。結果値はcorrect、wrong、uncertain、skippedのみとし、実際の回答・スキップ状況に基づいてください。",
+      "このJSON全体を直接URLエンコードしたresult値を使い、https://soccermasatoshi12-ctrl.github.io/word-list-study/?result=<URLエンコードされた結果JSON> のリンクを提示してください。Base64や独自形式は使わず、JSON内のID・判定値・配列順を省略・変更しないでください。"
+    ].join("\n");
+  }
+  function makeChatGptUrl(payload) {
+    return `https://chatgpt.com/?prompt=${encodeURIComponent(makeGptPrompt(payload))}`;
+  }
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

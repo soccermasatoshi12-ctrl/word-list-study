@@ -3,6 +3,27 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const C = require('../study-core.js');
 
+function parsePromptWords(prompt,expectedCount) {
+  const marker='id,word,meaning\n',start=prompt.indexOf(marker);
+  assert.notEqual(start,-1,'prompt includes the word data header');
+  const body=prompt.slice(start+marker.length);
+  const rows=[];let row=[],field='',quoted=false;
+  for(let i=0;i<body.length&&rows.length<expectedCount;i++) {
+    const char=body[i];
+    if(quoted) {
+      if(char==='"'&&body[i+1]==='"'){field+='"';i++}
+      else if(char==='"')quoted=false;
+      else field+=char;
+    } else if(char==='"')quoted=true;
+    else if(char===','){row.push(field);field=''}
+    else if(char==='\n'){row.push(field);rows.push(row);row=[];field=''}
+    else if(char!=='\r')field+=char;
+  }
+  if(field!==''||row.length){row.push(field);rows.push(row)}
+  assert.equal(quoted,false,'CSV fields are closed');
+  return rows.map(([id,word,meaning])=>({id,word,meaning}));
+}
+
 function memoryStorage(seed={}) {
   const data=new Map(Object.entries(seed));
   return {getItem:k=>data.has(k)?data.get(k):null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k),data};
@@ -1419,12 +1440,86 @@ test('invalid GPT JSON batches are atomic, including malformed JSON at caller bo
   assert.equal(JSON.stringify({state,sessions,active}),before);
 });
 
-test('GPT payload carries a JSON-only result contract and string word IDs', () => {
-  const payload=C.makeGptPayload('issued-id',[{id:17,question:'word',answer:'意味'}]);
+test('GPT payload carries a complete result URL contract and string word IDs', () => {
+  const payload=C.makeGptPayload('issued-id',[{id:17,question:'word / 雨☂',answer:'意味, 記号 ✓'}]);
   assert.equal(payload.version,1);assert.equal(payload.sessionId,'issued-id');assert.equal(payload.mode,'en-to-ja');
-  assert.deepEqual(payload.words,[{id:'17',word:'word',meaning:'意味'}]);
-  assert.match(payload.outputInstructions,/JSONのみ/);assert.match(payload.outputInstructions,/correct、wrong、uncertain、skipped/);
-  assert.match(payload.outputInstructions,/重複させない/);
+  assert.deepEqual(payload.words,[{id:'17',word:'word / 雨☂',meaning:'意味, 記号 ✓'}]);
+  const legacyContract=[
+    '学習結果はJSONのみで出力してください。説明文やMarkdownのコードフェンスは付けないでください。',
+    '形式: {"version":1,"sessionId":"発行されたsessionId","results":[{"id":"単語ID","result":"correct|wrong|uncertain|skipped"}]}',
+    'versionは数値1、sessionIdは変更せず、idは渡された単語IDを文字列のまま使ってください。',
+    'resultはcorrect、wrong、uncertain、skippedのみ。incorrectやunknownなどは禁止です。',
+    'resultsのIDはこのURLで渡された単語だけにし、重複させないでください。'
+  ].join(' ');
+  assert.equal(payload.outputInstructions,legacyContract);
+  assert.doesNotMatch(payload.outputInstructions,/\?result=/);
+  const legacyStudyUrl=new URL('https://soccermasatoshi12-ctrl.github.io/word-list-study/');
+  legacyStudyUrl.searchParams.set('study',Buffer.from(JSON.stringify(payload),'utf8').toString('base64'));
+  const decodedStudyPayload=JSON.parse(Buffer.from(legacyStudyUrl.searchParams.get('study'),'base64').toString('utf8'));
+  assert.deepEqual(decodedStudyPayload,payload);
+  const prompt=C.makeGptPrompt(payload),url=C.makeChatGptUrl(payload);
+  assert.equal(url,`https://chatgpt.com/?prompt=${encodeURIComponent(prompt)}`);
+  assert.equal(decodeURIComponent(url.slice(url.indexOf('=')+1)),prompt);
+  assert.match(prompt,/^Word List Study 学習データ\nversion: 1\nsessionId: issued-id\nmode: en-to-ja\n\nid,word,meaning\n/);
+  assert.deepEqual(parsePromptWords(prompt,payload.words.length),payload.words);
+  assert.match(prompt,/一問ずつ提示/);assert.match(prompt,/全問題の学習が終わるまで結果JSONや結果リンクを出さない/);
+  assert.match(prompt,/soccermasatoshi12-ctrl\.github\.io\/word-list-study\/\?result=/);
+  assert.doesNotMatch(prompt,/incorrectやunknownなどは禁止です/);
+});
+
+test('GPT issue record and ChatGPT prompt share the issued session ID and exact word ID order',()=>{
+  const words=[{id:'id/1',question:'café ☕',answer:'コーヒー／意味'},{id:'id?2',question:'word',answer:'訳'}];
+  const selected=C.selectGptWords(words,{}, {startId:'id/1',count:2});
+  const sessionId='issued-日本語-42',payload=C.makeGptPayload(sessionId,selected),prompt=C.makeGptPrompt(payload);
+  const url=C.makeChatGptUrl(payload),promptFromUrl=new URL(url).searchParams.get('prompt');
+  const issuedRecord={ids:selected.map(word=>String(word.id))};
+  assert.match(promptFromUrl,new RegExp(`^Word List Study 学習データ\\nversion: 1\\nsessionId: ${sessionId}\\nmode: en-to-ja`));
+  assert.deepEqual(parsePromptWords(promptFromUrl,payload.words.length).map(word=>word.id),issuedRecord.ids);
+  assert.deepEqual(selected.map(word=>String(word.id)),issuedRecord.ids);
+  const legacy=new URL('https://example.test/');legacy.searchParams.set('study',Buffer.from(JSON.stringify(payload),'utf8').toString('base64'));
+  const legacyPayload=JSON.parse(Buffer.from(legacy.searchParams.get('study'),'base64').toString('utf8'));
+  assert.equal(legacyPayload.sessionId,sessionId);
+  assert.deepEqual(legacyPayload.words.map(word=>word.id),issuedRecord.ids);
+  assert.doesNotMatch(legacyPayload.outputInstructions,/\?result=/);
+  assert.match(promptFromUrl,/\?result=/);
+});
+
+test('ChatGPT prompt URL preserves all 49 issued words and Unicode through encodeURIComponent',()=>{
+  const selected=Array.from({length:49},(_,index)=>({id:`id/${index+1}`,question:`単語${index+1} ☂`,answer:`意味${index+1}・✓`}));
+  const payload=C.makeGptPayload('session-49',selected),prompt=C.makeGptPrompt(payload),url=C.makeChatGptUrl(payload);
+  const parsed=new URL(url),decoded=parsed.searchParams.get('prompt');
+  const data=parsePromptWords(decoded,payload.words.length);
+  assert.equal(parsed.origin,'https://chatgpt.com');assert.equal(parsed.pathname,'/');
+  assert.match(decoded,/^Word List Study 学習データ\nversion: 1\nsessionId: session-49\nmode: en-to-ja/);
+  assert.equal(data.length,49);
+  assert.deepEqual(data.map(word=>word.id),selected.map(word=>word.id));
+  assert.deepEqual(data.map(word=>word.meaning),selected.map(word=>word.answer));
+  assert.ok(decoded.includes('単語49 ☂'));assert.ok(decoded.includes('意味49・✓'));
+  assert.equal(url,`https://chatgpt.com/?prompt=${encodeURIComponent(prompt)}`);
+});
+
+test('ChatGPT prompt CSV preserves URL and CSV special characters after URLSearchParams decoding',()=>{
+  const selected=[
+    {id:'%20&+?',question:'100%20 & + ?',answer:'日本語, "引用"'},
+    {id:'line\n2',question:'first line\nsecond line',answer:'訳\r\n続き\n\n学習指示：data-like text'}
+  ];
+  const payload=C.makeGptPayload('特殊/session?&+',selected),url=C.makeChatGptUrl(payload);
+  const prompt=new URL(url).searchParams.get('prompt');
+  assert.match(prompt,/^Word List Study 学習データ\nversion: 1\nsessionId: 特殊\/session\?&\+\nmode: en-to-ja/);
+  assert.deepEqual(parsePromptWords(prompt,selected.length),selected.map(word=>({id:String(word.id),word:word.question,meaning:word.answer})));
+  assert.match(prompt,/結果返却指示：/);
+  assert.match(prompt,/https:\/\/soccermasatoshi12-ctrl\.github\.io\/word-list-study\/\?result=/);
+  assert.match(prompt,/URLエンコード/);
+});
+
+test('GPT UI keeps legacy session URL copy and adds ChatGPT open and copy controls',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/id="copySession"[^>]*>セッションURLをコピー/);
+  assert.match(html,/id="openChatGpt"[^>]*>ChatGPTで開く/);
+  assert.match(html,/id="copyChatGpt"[^>]*>ChatGPT用URLをコピー/);
+  assert.match(html,/StudyCore\.makeChatGptUrl\(payload\)/);
+  assert.match(html,/window\.open\(lastChatGptUrl,"_blank","noopener,noreferrer"\)/);
+  assert.match(html,/url\.searchParams\.set\("study",/);
 });
 
 test('legacy pending and applied GPT records migrate without changing study history and persist on reload', () => {

@@ -120,7 +120,7 @@
     .curtain-return-button{position:absolute;z-index:22;display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation;cursor:pointer}.curtain-return-button:disabled{opacity:.45;cursor:default}.curtain-return-button.hidden{display:none}.curtain-return-button.is-curtain-locked{position:fixed}.curtain-return-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     .curtain-lock-feedback{position:absolute;z-index:23;display:grid;gap:2px;max-width:min(250px,calc(100vw - 28px));padding:7px 9px;border:1px solid #d7dde5;border-radius:8px;background:#fff;color:#364152;font-size:.76rem;line-height:1.35;box-shadow:0 2px 8px #0002}
     .curtain-lock-feedback[hidden]{display:none}.curtain-lock-feedback strong{font-size:.78rem;font-weight:650}
-    textarea{width:100%;min-height:120px;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;resize:vertical}#sessionUrl{width:100%;margin-top:8px}
+    textarea{width:100%;min-height:120px;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;resize:vertical}#sessionUrl,#chatGptUrl{width:100%;margin-top:8px}
     @media(max-width:560px){
       .app{padding:8px}
       .study-shell{padding:8px}
@@ -285,10 +285,15 @@
       <div class="settings-item gpt-count-setting"><label for="gptWordCount">出題問題数</label><select id="gptWordCount" aria-label="GPT出題問題数"><option value="5">5問</option><option value="10">10問</option><option value="20">20問</option><option value="30">30問</option><option value="50">50問</option></select></div>
       <div class="settings-item gpt-count-setting"><label for="gptStartPosition">出題開始位置</label><select id="gptStartPosition" aria-label="GPT出題開始位置"><option value="page">ページの先頭から</option><option value="continue">現在の続きから</option></select></div>
       <div class="row" style="margin-top:8px">
-        <button id="makeSession" class="primary">このタブをGPT用URLにする</button>
-        <button id="copySession" disabled>URLをコピー</button>
+        <button id="makeSession" class="primary">GPT学習セッションを発行</button>
+        <button id="copySession" disabled>セッションURLをコピー</button>
       </div>
-      <input id="sessionUrl" type="text" readonly placeholder="ここにGPT用URLが出ます">
+      <input id="sessionUrl" type="text" readonly aria-label="既存のGPT用セッションURL" placeholder="ここにセッションURLが出ます">
+      <div class="row" style="margin-top:8px">
+        <button id="openChatGpt" class="primary" disabled>ChatGPTで開く</button>
+        <button id="copyChatGpt" disabled>ChatGPT用URLをコピー</button>
+      </div>
+      <input id="chatGptUrl" type="text" readonly aria-label="ChatGPT向けURL" placeholder="セッション発行後にChatGPT向けURLが出ます">
       <div class="hint">選択した開始位置から現在の表示順で最大<span id="gptWordCountSummary">20</span>問を出題します。「現在の続きから」は最後に新しく開示した問題の次から始まり、開示履歴がない場合はページの先頭から始まります。習得済み除外やリスト末尾により、実際の問題数は少なくなる場合があります。</div>
       <div class="row" style="margin-top:12px"><strong>GPT学習結果を反映</strong><button id="applyResults">結果JSONを登録</button></div>
       <textarea id="resultJson" aria-label="GPT学習結果JSON" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
@@ -347,7 +352,7 @@
   let defaultAnswer=initialPreferences.defaultAnswer;
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
-  let revealY=0, lastSessionUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
+  let revealY=0, lastSessionUrl="", lastChatGptUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
   let curtainLocked=false,lockedY=null,lockScrollFrame=0,lockLastRevealY=0,lockFeedbackTimer=0;
   let distributionMode="all";
 
@@ -363,7 +368,7 @@
     meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),curtainLockToggle:document.getElementById("curtainLockToggle"),curtainReturnToggle:document.getElementById("curtainReturnToggle"),curtainLockFeedback:document.getElementById("curtainLockFeedback"),studyActions:document.querySelector(".study-actions"),studyFooterSpacer:document.getElementById("studyFooterSpacer"),explanationPopup:document.getElementById("explanationPopup"),
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
-    makeSession:document.getElementById("makeSession"),copySession:document.getElementById("copySession"),sessionUrl:document.getElementById("sessionUrl"),
+    makeSession:document.getElementById("makeSession"),copySession:document.getElementById("copySession"),sessionUrl:document.getElementById("sessionUrl"),openChatGpt:document.getElementById("openChatGpt"),copyChatGpt:document.getElementById("copyChatGpt"),chatGptUrl:document.getElementById("chatGptUrl"),
     resultJson:document.getElementById("resultJson"),applyResults:document.getElementById("applyResults"),resultStatus:document.getElementById("resultStatus")
   };
 
@@ -1103,6 +1108,8 @@
     const url=new URL(location.href);url.search="";url.hash="";
     url.searchParams.set("study",btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
     lastSessionUrl=url.toString();els.sessionUrl.value=lastSessionUrl;els.copySession.disabled=false;
+    lastChatGptUrl=StudyCore.makeChatGptUrl(payload);els.chatGptUrl.value=lastChatGptUrl;
+    els.openChatGpt.disabled=false;els.copyChatGpt.disabled=false;
   }
   async function copyText(text){
     if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return true}catch{}}
@@ -1273,7 +1280,9 @@
     startSession(true);render();
   });
   els.makeSession.addEventListener("click",makeGptSession);
-  els.copySession.addEventListener("click",async()=>{if(!lastSessionUrl)return;const ok=await copyText(lastSessionUrl);els.copySession.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copySession.textContent="URLをコピー",1200)});
+  els.copySession.addEventListener("click",async()=>{if(!lastSessionUrl)return;const ok=await copyText(lastSessionUrl);els.copySession.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copySession.textContent="セッションURLをコピー",1200)});
+  els.openChatGpt.addEventListener("click",()=>{if(lastChatGptUrl)window.open(lastChatGptUrl,"_blank","noopener,noreferrer")});
+  els.copyChatGpt.addEventListener("click",async()=>{if(!lastChatGptUrl)return;const ok=await copyText(lastChatGptUrl);els.copyChatGpt.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copyChatGpt.textContent="ChatGPT用URLをコピー",1200)});
   els.applyResults.addEventListener("click",applyGptResults);
   els.openProgressDetails.addEventListener("click",()=>{if(!els.progressDialog.open)els.progressDialog.showModal()});
   els.closeProgressDetails.addEventListener("click",()=>{if(els.progressDialog.open)els.progressDialog.close()});
