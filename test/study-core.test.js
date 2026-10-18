@@ -310,6 +310,71 @@ test('processRevealThresholds does not auto-disclose explicitly GPT-skipped rows
   assert.equal(C.processRevealThresholds(thresholds,100,[],id=>{calls.push(id);return true},['skip']),true);
   assert.deepEqual(calls,['a','b']);
 });
+test('display-size frontier uses stable order IDs and places the cover after the furthest fully disclosed word',()=>{
+  const words=Array.from({length:100},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const randomIds=[...words].reverse().map(word=>word.id);
+  const longer=Array.from({length:120},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  assert.deepEqual(C.pagePositionForId(longer,'normal',[], '51',20),{sortMode:'normal',position:50,start:40,pageIndex:2},'10-question page six maps to the page containing 51 at size 20');
+  assert.deepEqual(C.pagePositionForId(words,'normal',randomIds,'100',20),{sortMode:'normal',position:99,start:80,pageIndex:4},'a fully disclosed list resolves to its final raw page');
+  assert.deepEqual(C.pagePositionForId(words,'normal',randomIds,'51',20),{sortMode:'normal',position:50,start:40,pageIndex:2});
+  assert.deepEqual(C.pagePositionForId(words,'random',randomIds,'51',20),{sortMode:'random',position:49,start:40,randomStart:40});
+  const identity=C.studyOrderIdentity(words,'normal',randomIds);
+  const session={targetIds:words.map(word=>word.id),studiedIds:['41','51'],checkedIds:['51'],finalizedIds:[],furthestProgressId:'51'};
+  const frontier=C.resolveDisplayFrontier(session,words,'normal',randomIds,'1');
+  assert.equal(frontier.learnedId,'51');assert.equal(frontier.position,50);
+  const empty=C.resolveDisplayFrontier(null,words,'normal',randomIds,'51');
+  assert.equal(empty.id,'51');assert.equal(empty.learnedId,null,'no learned frontier uses the old page start only as page-selection fallback');
+  let anchored={...session,curtainFrontierId:'51',curtainFrontierIdentity:identity};
+  anchored=C.advanceCurtainFrontier(anchored,words,'normal',randomIds,'45');assert.equal(anchored.curtainFrontierId,'51','frontier never moves backward');
+  anchored=C.advanceCurtainFrontier(anchored,words,'normal',randomIds,'52');assert.equal(anchored.curtainFrontierId,'52');
+  assert.deepEqual(C.idsThroughPosition(words,'normal',randomIds,['41','43','52','60'],'51'),['41','43']);
+  assert.equal(C.curtainFrontierBoundary([{id:'41',bottom:20},{id:'43',bottom:40},{id:'52',bottom:60}],words,'normal',randomIds,'51'),40);
+  assert.equal(C.curtainFrontierBoundary([{id:'52',bottom:20},{id:'53',bottom:40}],words,'normal',randomIds,'51'),0,'a filtered-out frontier keeps later visible rows fully covered');
+});
+test('display-size transition clears only skipped IDs leaving the old target and keeps common or unrelated skips',()=>{
+  const words=Array.from({length:100},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  let skipped=null;for(const id of ['30','44','59','99'])skipped=C.setGptSkippedState(skipped,words,id,true);
+  const next=C.clearGptSkippedOutsideTarget(skipped,words,['30','44','59'],['44','59','60']);
+  assert.deepEqual(next.ids,['44','59','99']);
+  const roundTrip=C.clearGptSkippedOutsideTarget(next,words,['44','59','60'],['1','100']);
+  assert.deepEqual(roundTrip.ids,['99'],'an already-cleared skip does not return when the old range is shown again');
+});
+test('display-size cover protection keeps rows through the saved frontier masked during forward curtain movement',()=>{
+  const words=Array.from({length:60},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const order=words.map(word=>word.id),currentIds=order.slice(40,60),identity=C.studyOrderIdentity(words,'normal',[]);
+  const protectedIds=C.idsThroughPosition(words,'normal',[],currentIds,'51'),thresholds=currentIds.map((id,index)=>({id,bottom:(index+1)*20})),opened=[];
+  assert.equal(C.processRevealThresholds(thresholds,260,[],id=>{opened.push(id);return true},protectedIds),true);
+  assert.deepEqual(opened,['52','53'],'previously passed but fresh-session undisclosed IDs stay individually masked');
+  const active={sessionId:'new',key:'all:off:normal:20:normal:1',updatedAt:1,revealY:0,targetIds:currentIds,viewState:{filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:2,randomStart:0,pageSize:20},studiedIds:[],checkedIds:[],finalizedIds:[],pendingId:null,curtainFrontierId:'51',curtainFrontierIdentity:identity};
+  const restored=C.tryRestoreSession(active,{currentKey:active.key,legacyKey:'',filter:'all',sortMode:'normal',pageIndex:2,excludeStreak:false,masteryThreshold:3,legacyThreshold:3,words,state:{},randomIds:[],currentPageIds:currentIds});
+  assert.equal(restored.curtainFrontierId,'51');assert.deepEqual(restored.curtainFrontierIdentity,identity,'ID anchor and order identity survive session restoration');
+});
+test('display-size finalization commits pending evaluations once without incrementing disclosure counts again',()=>{
+  const state={};const active={studiedIds:['41','42','43'],checkedIds:['41','43'],finalizedIds:[]};
+  for(const id of active.studiedIds)state[id]={...C.defaultState(),studyCount:1};
+  const first=C.finalizeSessionDraft(state,active);
+  assert.equal(first.state['41'].studyCount,1);assert.equal(first.state['41'].correctCount,1);
+  assert.equal(first.state['42'].studyCount,1);assert.equal(first.state['42'].correctCount,0);
+  assert.deepEqual(first.activeSession,null);assert.deepEqual(first.finalizedIds,['41','42','43']);
+  C.finalizeStudySession(active,id=>state[id]);const once=JSON.stringify(state);C.finalizeStudySession(active,id=>state[id]);
+  assert.deepEqual(active.finalizedIds,['41','42','43']);assert.equal(JSON.stringify(state),once,'retrying finalization does not append history twice');
+});
+test('page-size input uses its isolated frontier transition while other display settings keep their prior path',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const pageSize=html.match(/function changePageSizePreservingLearningPosition\(nextPageSize\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.ok(pageSize,'page-size change has a dedicated transition');
+  assert.match(pageSize,/const oldRawStart=sortMode===\"random\"\?randomStart:pageIndex\*pageSize/);
+  assert.match(pageSize,/const fallbackId=orderedIds\[oldRawStart\]/);
+  assert.match(pageSize,/resolveDisplayFrontier\(activeSession,words,sortMode,randomIds,fallbackId\)/);
+  assert.match(pageSize,/pagePositionForId\(words,sortMode,randomIds,frontier\.id,nextPageSize\)/);
+  assert.match(pageSize,/finalize:true,resetCurtain:true,clearGptSkippedExitedTarget:true/);
+  assert.match(pageSize,/curtainFrontier:frontier/);
+  const pageHandler=html.match(/els\.pageSize\.addEventListener\("change",\(\)=>\{([\s\S]*?)\n  \}\);/)?.[1];
+  assert.ok(pageHandler);assert.match(pageHandler,/changePageSizePreservingLearningPosition\(next\)/);assert.doesNotMatch(pageHandler,/changeDisplaySettings/);
+  assert.match(html,/const nextSession=!nextWords\.length\?null:finalize\|\|!priorSession[\s\S]*?studiedIds:\[\],checkedIds:\[\],finalizedIds:\[\]/);
+  assert.match(html,/saveCoreTransition\(localStorage,STORAGE_LEDGER,[\s\S]*?state=draftState;studyProgress=draftProgress;activeSession=nextSession/);
+  assert.match(html,/clearGptSkippedOutsideTarget\(draftSkipped,nextWords,oldTarget\.ids,target\.ids\)/);
+});
 test('processRevealThresholds retry handles only remaining IDs without recounting committed words',()=>{
   const thresholds=['a','b','c','d'].map((id,index)=>({id,bottom:(index+1)*20})),committed=[],firstCalls=[];
   assert.equal(C.processRevealThresholds(thresholds,100,committed,id=>{firstCalls.push(id);if(id==='c')return false;committed.push(id);return true}),false);
@@ -330,9 +395,10 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/function syncMeaningDisclosure\(row,id\)/);
   assert.match(html,/text\.setAttribute\('aria-hidden',String\(!disclosed\)\)/);
   assert.doesNotMatch(html,/createElement\('span'\);mask\.className='meaning-mask'/);
+  assert.match(html,/mc\.addEventListener\("click",\(\)=>\{if\(!rowDisclosed\(w\.id\)&&canIndividuallyDisclose\(w\.id\)\)markStudied\(w\.id,revealY,true,undefined,defaultAnswer\)\}\)/);
   assert.match(html,/row\.append\(wc,cc,mc\);syncMeaningDisclosure\(row,w\.id\)/);
   assert.match(html,/function renderAnswerControlForExposure\(id,measuredGeometry=undefined\)\{const row=.*syncMeaningDisclosure\(row,id\)/);
-  assert.match(html,/function processRevealProgress\(g=geometry\(\)\).*StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,\(id,boundary\)=>markStudied\(id,boundary,false,g\),gptSkipped\.ids\)/);
+  assert.match(html,/function processRevealProgress\(g=geometry\(\)\)[\s\S]*?idsThroughPosition\(words,sortMode,randomIds,g\.thresholds\.map\(item=>item\.id\),activeSession\.curtainFrontierId\)[\s\S]*?StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,\(id,boundary\)=>markStudied\(id,boundary,false,g\),\[\.\.\.gptSkipped\.ids,\.\.\.protectedIds\]\)/);
   assert.match(html,/function markStudied\(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined,studyDefaultAnswer=defaultAnswer\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
   assert.match(html,/markStudied\(id,revealY,true,undefined,StudyCore\.initialAnswerForToggle\(defaultAnswer\)\)/);
   assert.match(html,/const restoreCommittedPosition=\(\)=>\{cancelDrag\(\);curtainUserDragging=false;revealY=Number\(activeSession\?\.revealY\|\|0\);positionCurtain\(\)\}/);
@@ -371,10 +437,10 @@ test('session frontier is the farthest reached ID in this session order and adva
   assert.equal(C.advanceSessionFrontier(session,'outside'),session);
   assert.equal(C.sessionFurthestProgressId({targetIds:['1','2'],studiedIds:[]}),null);
 });
-test('tip-return UI uses the session frontier without invoking reveal learning',()=>{
+test('tip-return UI uses the session or preserved display frontier without invoking reveal learning',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<button id="curtainReturnToggle" class="curtain-return-button hidden"[^>]*aria-label="続きに戻る"[^>]*disabled><svg/);
-  assert.match(html,/function returnToSessionFrontier\(\)[\s\S]*?sessionFurthestProgressId\(activeSession\)[\s\S]*?saveActiveSession\(true,\[\],true\)[\s\S]*?updateLockedCurtain\(\{suppressRevealProcessing:true\}\)/);
+  assert.match(html,/function returnToSessionFrontier\(\)[\s\S]*?resolveDisplayFrontier\(activeSession,words,sortMode,randomIds\)\.learnedId[\s\S]*?saveActiveSession\(true,\[\],true\)[\s\S]*?updateLockedCurtain\(\{suppressRevealProcessing:true\}\)/);
   assert.match(html,/const updateResult=updateLockedCurtain\(\{suppressRevealProcessing:true\}\);[\s\S]*?if\(!curtainLocked&&updateResult!=="natural-end"\)return false;[\s\S]*?if\(!curtainLocked&&updateResult==="natural-end"\)[\s\S]*?const unlockedGeometry=geometry\(\)[\s\S]*?revealY=Number\(unlockedTarget\.bottom\)[\s\S]*?saveActiveSession/);
   assert.match(html,/function updateLockedCurtain\(\{suppressRevealProcessing=false\}=\{\}\)[\s\S]*?advanced&&!suppressRevealProcessing&&!processRevealProgress\(g\)/);
 });
@@ -1060,6 +1126,19 @@ test('first exposure applies default answer once without changing finalized hist
   const retainedState=C.defaultState(),retained={studiedIds:[],checkedIds:[],finalizedIds:[]};
   C.recordStudy(retained,'retained',retainedState,'t','correct');C.finalizeStudySession(retained,()=>retainedState);
   assert.deepEqual([retainedState.studyCount,retainedState.correctCount,retainedState.recentResults,retainedState.currentStreak],[1,1,[true],1]);
+});
+test('individual mask disclosure applies the configured default evaluation for both settings', () => {
+  for(const defaultAnswer of ['wrong','correct']) {
+    const state=C.defaultState(),session={studiedIds:[],checkedIds:[],finalizedIds:[]};
+    assert.equal(C.recordStudy(session,'masked',state,'t',defaultAnswer),true);
+    assert.deepEqual(session.studiedIds,['masked']);
+    assert.deepEqual(session.checkedIds,defaultAnswer==='correct'?['masked']:[]);
+    assert.equal(state.studyCount,1);
+    assert.deepEqual(state.recentResults,[]);
+    C.finalizeStudySession(session,()=>state);
+    assert.deepEqual(state.recentResults,[defaultAnswer==='correct']);
+    assert.equal(state.correctCount,defaultAnswer==='correct'?1:0);
+  }
 });
 test('answer toggles do not change history and ON OFF ON finalizes as one correct', () => {
   const s=C.defaultState(),session={studiedIds:[],checkedIds:[],finalizedIds:[]};
@@ -2084,7 +2163,17 @@ test('GPT result beginning after the displayed page registers without moving the
       studyProgress:C.recordStudyDisclosure({},words,'normal',[],'10'),gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
   assert.equal(result.transition.kind,'stay');assert.equal(result.jump.reason,'first-after-current-page');
   assert.equal(result.activeSession,null);
-  assert.equal(result.state['11'],undefined);assert.deepEqual(result.gptSkipped.ids,['11']);assert.equal(result.studyProgress.normal.id,'10');
+  assert.equal(result.state['11'],undefined);assert.deepEqual(result.gptSkipped.ids,[],'GPT skipped rows outside the current displayed target are not recorded');assert.equal(result.studyProgress.normal.id,'10');
+});
+test('GPT skipped is limited to the current displayed target while formal outcomes still apply outside it',()=>{
+  const words=Array.from({length:30},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`})),ids=['11','12'];
+  const context=C.createGptIssueContext(words,{startId:'11',pageSize:10,ids}),record={createdAt:'t',ids,context};
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const result=prepareIntegration({version:1,sessionId:'late-range',results:[{id:'11',result:'skipped'},{id:'12',result:'wrong'}]},
+    {sessions:{'late-range':record},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:10,randomIds:[],studyProgress:{},gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.deepEqual(result.gptSkipped.ids,[]);assert.equal(result.state['11'],undefined);
+  assert.equal(result.state['12'].studyCount,1);assert.deepEqual(result.state['12'].recentResults,[false]);
+  assert.equal(result.formalApplied,1,'non-skipped outcomes retain existing out-of-range history behavior');
 });
 
 test('GPT result for an already disclosed active row preserves its session state and does not overwrite it',()=>{
@@ -2257,7 +2346,7 @@ test('21–25 disclosed, finalization resets the cover, and latest GPT results 2
   assert.equal(draft.applied,42);assert.equal(draft.jump.canJump,true);assert.equal(draft.jump.reason,'start-undisclosed-confirmation-required');
   assert.equal(draft.jump.needsStartConfirmation,true);assert.equal(draft.jump.firstResultId,'26');assert.equal(draft.jump.lastResultId,'70');
   assert.equal(draft.transition.kind,'jump');assert.equal(draft.transition.view.pageIndex,3);assert.equal(draft.activeSession.gptRevealTargetId,'70');
-  assert.deepEqual(draft.gptSkipped.ids,['30','44','59']);assert.equal(draft.state['26'].studyCount,1);assert.equal(draft.state['70'].studyCount,1);
+  assert.deepEqual(draft.gptSkipped.ids,['30'],'only the skipped row inside the current 21–40 display target is retained');assert.equal(draft.state['26'].studyCount,1);assert.equal(draft.state['70'].studyCount,1);
   assert.equal(C.gptIntegrationNotice(draft).text,'GPT結果を42件登録しました。解答カバーを70番まで移動しました。');
   const declined=C.prepareGptIntegration({version:1,sessionId:'issue',results},{sessions:{issue:{ids,context,issueSequence:4}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:20,randomIds:[],studyProgress:C.recordStudyDisclosure({},words,'normal',[],'25'),gptSkipped:null,latestIssueSequence:4,forceFormalOnly:'user-declined-jump',now:'2026-10-12T00:00:00.000Z'});
   assert.equal(declined.applied,42);assert.equal(declined.jump.reason,'user-declined-jump');assert.equal(declined.transition.kind,'stay');

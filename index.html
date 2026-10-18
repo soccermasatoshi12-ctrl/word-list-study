@@ -683,6 +683,7 @@
       finalizedIds:Array.isArray(restored.finalizedIds)?restored.finalizedIds:[],
       furthestProgressId:StudyCore.sessionFurthestProgressId(restored),
       pendingId:restored.pendingId||null,
+      ...(typeof restored.curtainFrontierId==="string"&&restored.curtainFrontierIdentity?{curtainFrontierId:restored.curtainFrontierId,curtainFrontierIdentity:restored.curtainFrontierIdentity}:{}),
       ...(typeof restored.gptRevealTargetId==="string"?{gptRevealTargetId:restored.gptRevealTargetId}:{}),
       ...(restored.preserveTargetIds?{preserveTargetIds:true,preservedTargetIdentity:restored.preservedTargetIdentity}: {})
     };
@@ -717,19 +718,22 @@
   function applyView(view,size,threshold,answer){
     filter=view.filter;sortMode=view.sortMode;excludeStreak=view.excludeStreak;masteryThreshold=threshold;defaultAnswer=answer;pageIndex=view.pageIndex;randomStart=view.randomStart;pageSize=size;
   }
-  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,writeListTitle=false,nextListTitle=listTitle,finalize=true,resetCurtain=finalize}={}){
+  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,writeListTitle=false,nextListTitle=listTitle,finalize=true,resetCurtain=finalize,curtainFrontier=null,clearGptSkippedExitedTarget=false}={}){
     let draftState=JSON.parse(JSON.stringify(nextState||state));
     let draftProgress=StudyCore.normalizeStudyProgress(studyProgress);
     if(writeRandomOrder)draftProgress.random=null;
     const priorSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
+    const oldTarget=clearGptSkippedExitedTarget?buildTarget(currentView(),state,words,randomIds,pageSize):null;
     if(finalize&&priorSession)draftState=StudyCore.finalizeSessionDraft(draftState,priorSession).state;
     let view={...nextView,masteryThreshold:nextThreshold,randomStart:StudyCore.normalizeRandomStart(nextView.randomStart,nextRandomIds.length)};
     const target=buildTarget(view,draftState,nextWords,nextRandomIds,nextPageSize);view=target.view;
     const nextSession=!nextWords.length?null:finalize||!priorSession
       ?{sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(view,nextPageSize),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),studiedIds:[],checkedIds:[],finalizedIds:[],furthestProgressId:null,pendingId:null}
       :{...priorSession,key:sessionKey(view,nextPageSize),targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),updatedAt:Date.now()};
+    if(nextSession&&curtainFrontier?.learnedId&&curtainFrontier.identity){nextSession.curtainFrontierId=String(curtainFrontier.learnedId);nextSession.curtainFrontierIdentity=curtainFrontier.identity}
     if(nextSession){delete nextSession.preserveTargetIds;delete nextSession.preservedTargetIdentity}
-    const draftSkipped=StudyCore.normalizeGptSkippedState(gptSkipped,nextWords);
+    let draftSkipped=StudyCore.normalizeGptSkippedState(gptSkipped,nextWords);
+    if(clearGptSkippedExitedTarget&&oldTarget)draftSkipped=StudyCore.clearGptSkippedOutsideTarget(draftSkipped,nextWords,oldTarget.ids,target.ids);
     const writes=[];
     if(writeWords)writes.push({key:STORAGE_WORDS,value:JSON.stringify(nextWords)});
     if(writeRandomOrder)writes.push({key:STORAGE_RANDOM_ORDER,value:JSON.stringify(nextRandomIds)});
@@ -752,7 +756,8 @@
     const draftState=JSON.parse(JSON.stringify(state)),draftSession=JSON.parse(JSON.stringify(activeSession));
     const st=draftState[id]=normalizeState(draftState[id]||defaultState());if(!StudyCore.recordStudy(draftSession,id,st,undefined,studyDefaultAnswer))return true;
     draftSession.pendingId=id;draftSession.updatedAt=Date.now();draftSession.revealY=Number(committedRevealY)||0;
-    const progressedSession=StudyCore.advanceSessionFrontier(draftSession,id);
+    let progressedSession=StudyCore.advanceSessionFrontier(draftSession,id);
+    if(draftSession.curtainFrontierId)progressedSession=StudyCore.advanceCurtainFrontier(progressedSession,words,sortMode,randomIds,id);
     const draftProgress=clearSkipped
       ?StudyCore.advanceStudyProgress(studyProgress,words,sortMode,randomIds,id)
       :StudyCore.recordStudyDisclosure(studyProgress,words,sortMode,randomIds,id);
@@ -886,6 +891,7 @@
       explanation.addEventListener("pointerdown",event=>beginExplanationPress(event,explanation));explanation.addEventListener("pointerleave",endExplanationPress);explanation.addEventListener("pointercancel",endExplanationPress);explanation.addEventListener("keydown",event=>beginExplanationKey(event,explanation));explanation.addEventListener("blur",hideExplanationPopup);explanation.addEventListener("contextmenu",event=>event.preventDefault());cc.appendChild(explanation);
 
       const mc=document.createElement("div");mc.className="meaning-cell";mc.dataset.id=w.id;
+      mc.addEventListener("click",()=>{if(!rowDisclosed(w.id)&&canIndividuallyDisclose(w.id))markStudied(w.id,revealY,true,undefined,defaultAnswer)});
       const mt=document.createElement("div");mt.className="meaning-text";mt.textContent=w.answer;mc.appendChild(mt);
       row.append(wc,cc,mc);syncMeaningDisclosure(row,w.id);syncAnswerControl(row,w.id,null);syncExplanationControl(row,w.id);els.words.appendChild(row);
     }
@@ -931,7 +937,12 @@
     const thresholds=cells.map(cell=>{const r=cell.getBoundingClientRect();return{id:cell.dataset.id,top:r.top-firstRect.top,bottom:r.bottom-firstRect.top}});
     return{top,left,width,height:bottom-top,thresholds};
   }
-  function processRevealProgress(g=geometry()){if(!g||!activeSession)return true;return StudyCore.processRevealThresholds(g.thresholds,revealY,activeSession.studiedIds,(id,boundary)=>markStudied(id,boundary,false,g),gptSkipped.ids)}
+  function processRevealProgress(g=geometry()){
+    if(!g||!activeSession)return true;
+    const identity=StudyCore.studyOrderIdentity(words,sortMode,randomIds),frontierValid=activeSession.curtainFrontierId&&StudyCore.sameStudyOrderIdentity(activeSession.curtainFrontierIdentity,identity);
+    const protectedIds=frontierValid?StudyCore.idsThroughPosition(words,sortMode,randomIds,g.thresholds.map(item=>item.id),activeSession.curtainFrontierId):[];
+    return StudyCore.processRevealThresholds(g.thresholds,revealY,activeSession.studiedIds,(id,boundary)=>markStudied(id,boundary,false,g),[...gptSkipped.ids,...protectedIds]);
+  }
   function syncStudyFooterSpacer(){
     if(!els.studyActions||!els.studyFooterSpacer)return;
     if(els.studyScreen.hidden){els.studyFooterSpacer.style.height="0px";return}
@@ -964,7 +975,7 @@
   function setReturnButtonState(g){
     const button=els.curtainReturnToggle;if(!g){button.classList.add("hidden");button.disabled=true;return}
     button.classList.remove("hidden");button.classList.toggle("is-curtain-locked",curtainLocked);
-    const id=StudyCore.sessionFurthestProgressId(activeSession),target=id?g.thresholds.find(item=>String(item.id)===String(id)):null;
+    const id=StudyCore.resolveDisplayFrontier(activeSession,words,sortMode,randomIds).learnedId,target=id?g.thresholds.find(item=>String(item.id)===String(id)):null;
     const first=els.words.querySelector(".meaning-cell"),effectiveY=curtainLocked?effectiveLockedY(first):null,currentBoundary=curtainLocked&&first?effectiveY-first.getBoundingClientRect().top:revealY;
     button.disabled=!target||Number(target.bottom)<=currentBoundary+1;
     button.setAttribute("aria-label","続きに戻る");button.title="続きに戻る";
@@ -1024,7 +1035,10 @@
   function positionCurtain(g=geometry()){
     if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");els.curtainLockToggle.classList.add("hidden");els.curtainReturnToggle.classList.add("hidden");els.curtainReturnToggle.disabled=true;return}
     const anchor=!curtainLocked&&!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
+    const identity=StudyCore.studyOrderIdentity(words,sortMode,randomIds),frontierId=activeSession?.curtainFrontierId;
+    const frontierAnchor=!anchor&&!curtainLocked&&!curtainUserDragging&&frontierId&&StudyCore.sameStudyOrderIdentity(activeSession?.curtainFrontierIdentity,identity);
     if(anchor)revealY=Number(anchor.bottom);
+    else if(frontierAnchor)revealY=StudyCore.curtainFrontierBoundary(g.thresholds,words,sortMode,randomIds,frontierId);
     revealY=Math.max(0,Math.min(revealY,g.height));
     els.meaningCurtain.classList.remove("hidden");els.curtainHandle.classList.remove("hidden");
     if(curtainLocked){
@@ -1043,7 +1057,7 @@
   }
   function returnToSessionFrontier(){
     if(curtainLocked&&lockScrollFrame){cancelAnimationFrame(lockScrollFrame);lockScrollFrame=0;const updateResult=updateLockedCurtain();if(!curtainLocked&&updateResult!=="natural-end")return false}
-    const g=geometry(),id=StudyCore.sessionFurthestProgressId(activeSession),target=id&&g?.thresholds.find(item=>String(item.id)===String(id));
+    const g=geometry(),id=StudyCore.resolveDisplayFrontier(activeSession,words,sortMode,randomIds).learnedId,target=id&&g?.thresholds.find(item=>String(item.id)===String(id));
     if(!g||!target)return false;
     if(!curtainLocked){
       if(Number(target.bottom)<=revealY+1)return false;
@@ -1316,6 +1330,19 @@
     }
     return true;
   }
+  function changePageSizePreservingLearningPosition(nextPageSize){
+    const oldView=currentView(),orderedIds=sortMode==="random"?randomIds.map(String):words.map(word=>String(word.id));
+    const oldRawStart=sortMode==="random"?randomStart:pageIndex*pageSize;
+    const fallbackId=orderedIds[oldRawStart]??null;
+    const frontier=StudyCore.resolveDisplayFrontier(activeSession,words,sortMode,randomIds,fallbackId);
+    const position=frontier.id===null?null:StudyCore.pagePositionForId(words,sortMode,randomIds,frontier.id,nextPageSize);
+    let nextView={...oldView};
+    if(position){if(sortMode==="random")nextView.randomStart=position.randomStart;else nextView.pageIndex=position.pageIndex}
+    const options={nextPageSize,writePreferences:true,finalize:true,resetCurtain:true,clearGptSkippedExitedTarget:true,
+      ...(frontier.learnedId?{curtainFrontier:frontier}:{})};
+    if(!requestViewTransition(nextView,options)){els.pageSize.value=String(pageSize);return false}
+    return true;
+  }
 
   els.settingsPanel.addEventListener("click",event=>{if(event.target===els.settingsPanel)els.settingsPanel.close()});
   els.gptPanel.addEventListener("click",event=>{if(!els.gptIssueConfirm.open&&event.target===els.gptPanel)els.gptPanel.close()});
@@ -1343,7 +1370,7 @@
   });
   els.pageSize.addEventListener("change",()=>{
     const next=Number(els.pageSize.value);if(!PAGE_SIZES.includes(next)||next===pageSize)return;
-    changeDisplaySettings(next,masteryThreshold);
+    changePageSizePreservingLearningPosition(next);
   });
   els.masteryThreshold.addEventListener("change",()=>{
     const next=Number(els.masteryThreshold.value);if(!MASTERY_THRESHOLDS.includes(next)||next===masteryThreshold)return;

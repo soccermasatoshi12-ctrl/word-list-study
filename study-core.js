@@ -53,6 +53,11 @@
     if(skipped)ids.add(key);else ids.delete(key);
     return{contentFingerprint:next.contentFingerprint,ids:[...ids]};
   }
+  function clearGptSkippedOutsideTarget(raw,words,previousTargetIds,nextTargetIds) {
+    const nextIds=new Set((nextTargetIds||[]).map(String));let skipped=normalizeGptSkippedState(raw,words);
+    for(const id of previousTargetIds||[])if(!nextIds.has(String(id)))skipped=setGptSkippedState(skipped,words,id,false);
+    return skipped;
+  }
   function loadCore(storage, snapshotKey, legacyKeys) {
     const snapshot=readJson(storage,snapshotKey,null);
     const legacy={state:readJson(storage,legacyKeys.stateKey,{}),gptSessions:readJson(storage,legacyKeys.gptSessionsKey,{}),activeSession:readJson(storage,legacyKeys.activeSessionKey,null)};
@@ -148,6 +153,50 @@
     const csvIds=words.map(word=>String(word.id));
     const content=words.map(word=>[String(word.id),String(word.question??""),String(word.answer??"")]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
     return{sortMode,orderFingerprint:fingerprint(order.map(word=>String(word.id))),csvOrderFingerprint:fingerprint(csvIds),contentFingerprint:fingerprint(content),wordCount:words.length};
+  }
+  function sameStudyOrderIdentity(left,right) {
+    return !!left&&!!right&&left.sortMode===right.sortMode&&left.wordCount===right.wordCount&&
+      ["orderFingerprint","csvOrderFingerprint","contentFingerprint"].every(key=>left[key]===right[key]);
+  }
+  function studyOrderPosition(words,sortMode,randomIds,id) {
+    const order=orderedWords(words,sortMode,randomIds);if(!order)return -1;
+    return order.findIndex(word=>String(word.id)===String(id));
+  }
+  function pagePositionForId(words,sortMode,randomIds,id,pageSize) {
+    const size=[10,20,50,100].includes(Number(pageSize))?Number(pageSize):50;
+    const position=studyOrderPosition(words,sortMode,randomIds,id);if(position<0)return null;
+    const start=Math.floor(position/size)*size;
+    return sortMode==="random"?{sortMode,position,start,randomStart:start}:{sortMode,position,start,pageIndex:Math.floor(position/size)};
+  }
+  function resolveDisplayFrontier(session,words,sortMode,randomIds,fallbackId=null) {
+    const identity=studyOrderIdentity(words,sortMode,randomIds);if(!identity)return{id:null,learnedId:null,identity:null,position:-1};
+    const candidates=[sessionFurthestProgressId(session)];
+    if(sameStudyOrderIdentity(session?.curtainFrontierIdentity,identity))candidates.push(session.curtainFrontierId);
+    let learnedId=null,position=-1;
+    for(const value of candidates){if(value==null)continue;const index=studyOrderPosition(words,sortMode,randomIds,value);if(index>position){learnedId=String(value);position=index}}
+    if(learnedId!==null)return{id:learnedId,learnedId,identity,position};
+    const fallbackPosition=fallbackId==null?-1:studyOrderPosition(words,sortMode,randomIds,fallbackId);
+    return{id:fallbackPosition>=0?String(fallbackId):null,learnedId:null,identity,position:fallbackPosition};
+  }
+  function advanceCurtainFrontier(session,words,sortMode,randomIds,id) {
+    if(!session||id==null)return session;
+    const identity=studyOrderIdentity(words,sortMode,randomIds),position=studyOrderPosition(words,sortMode,randomIds,id);
+    if(!identity||position<0)return session;
+    const valid=sameStudyOrderIdentity(session.curtainFrontierIdentity,identity);
+    const prior=valid?studyOrderPosition(words,sortMode,randomIds,session.curtainFrontierId):-1;
+    if(position<=prior)return session;
+    return{...session,curtainFrontierId:String(id),curtainFrontierIdentity:identity};
+  }
+  function idsThroughPosition(words,sortMode,randomIds,candidateIds,frontierId) {
+    const frontier=studyOrderPosition(words,sortMode,randomIds,frontierId);
+    if(frontier<0)return[];
+    return(candidateIds||[]).map(String).filter(id=>{const position=studyOrderPosition(words,sortMode,randomIds,id);return position>=0&&position<=frontier});
+  }
+  function curtainFrontierBoundary(thresholds,words,sortMode,randomIds,frontierId) {
+    const frontier=studyOrderPosition(words,sortMode,randomIds,frontierId);if(frontier<0)return 0;
+    let boundary=0;
+    for(const item of thresholds||[]){const position=studyOrderPosition(words,sortMode,randomIds,item.id);if(position>=0&&position<=frontier)boundary=Math.max(boundary,Number(item.bottom)||0)}
+    return boundary;
   }
   function recordStudyDisclosure(progress,words,sortMode,randomIds,id) {
     const next=normalizeStudyProgress(progress),identity=studyOrderIdentity(words,sortMode,randomIds);
@@ -643,16 +692,22 @@
     const index=safePageIndex(model.pages,position),page=model.pages[index];
     return{view:{...view,pageIndex:index},page,model,ids:(page?.entries||[]).map(w=>String(w.id))};
   }
-  function updateGptSkippedResults(raw,words,results,protectedIds=[]) {
-    let skipped=normalizeGptSkippedState(raw,words);const protectedSet=new Set(protectedIds.map(String));
+  function updateGptSkippedResults(raw,words,results,protectedIds=[],allowedIds=null) {
+    let skipped=normalizeGptSkippedState(raw,words);const protectedSet=new Set(protectedIds.map(String)),allowed=Array.isArray(allowedIds)?new Set(allowedIds.map(String)):null;
     for(const {id,result} of results||[]) {
       if(protectedSet.has(String(id))){skipped=setGptSkippedState(skipped,words,id,false);continue}
+      if(result==="skipped"&&allowed&&!allowed.has(String(id)))continue;
       skipped=setGptSkippedState(skipped,words,id,result==="skipped");
     }
     return skipped;
   }
   function prepareGptIntegration(obj,{sessions={},registeredIds=[],knownIds=[],words=[],state={},activeSession=null,currentView=null,pageSize,randomIds=[],studyProgress={},gptSkipped=null,forceFormalOnly=false,latestIssueSequence,now=new Date().toISOString()}={}) {
     const checked=inspectGptResults(obj,sessions,registeredIds,knownIds),sessionId=String(obj.sessionId);
+    const currentOffset=currentView?.sortMode==="random"?currentView.randomStart:currentView?.pageIndex;
+    const displayedPage=currentView&&Number.isInteger(Number(currentOffset))
+      ?pageForGptPosition(words,state,currentView,pageSize,randomIds,currentOffset||0):null;
+    const allowedSkippedIds=activeSession&&currentView&&activeSession.key===studySessionKey(currentView,pageSize)
+      ?activeSession.targetIds:(displayedPage?.ids||[]);
     if(checked.isReplay) {
       const finalizedIds=new Set((activeSession?.finalizedIds||[]).map(String));
       const pendingIds=new Set((activeSession?.studiedIds||[]).map(String).filter(id=>!finalizedIds.has(id)));
@@ -662,7 +717,7 @@
       const stamp=new Date(updatedAt).toISOString();
       for(const {id,result} of results){const st=nextState[id]=normalizeState(nextState[id]||defaultState());st.studyCount+=1;st.lastStudiedAt=stamp;if(result==="correct"){st.correctCount+=1;appendResult(st,true)}else appendResult(st,false)}
       const replaySession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;if(replaySession&&results.length)replaySession.preserveTargetIds=true;
-      const nextSkipped=updateGptSkippedResults(gptSkipped,words,checked.results,activeSession?.studiedIds||[]);
+      const nextSkipped=updateGptSkippedResults(gptSkipped,words,checked.results,activeSession?.studiedIds||[],allowedSkippedIds);
       return{state:nextState,gptSessions:JSON.parse(JSON.stringify(sessions||{})),registeredGptSessionIds:[...registeredIds],activeSession:replaySession,gptSkipped:nextSkipped,studyProgress:normalizeStudyProgress(studyProgress),
         applied:results.length,isReplay:true,mode:"formal-replay",jump:{canJump:false,reason:"replay",lastResultId:null,candidatePosition:null},samePage:false,
         transition:{kind:"stay",view:currentView},formalApplied:results.length,provisionalIds:[],ignoredOverlapIds,skippedCount:checked.results.filter(result=>result.result==="skipped").length};
@@ -677,9 +732,6 @@
     const ignoredOverlapIds=(original?.ids||[]).map(String).filter(id=>overlapping.has(id));
     const ignored=new Set(ignoredOverlapIds),eligible=checked.results.filter(r=>r.result!=="skipped"&&!ignored.has(r.id));
     const positionResults=checked.results;
-    const currentOffset=currentView?.sortMode==="random"?currentView.randomStart:currentView?.pageIndex;
-    const displayedPage=currentView&&Number.isInteger(Number(currentOffset))
-      ?pageForGptPosition(words,state,currentView,pageSize,randomIds,currentOffset||0):null;
     const activeMatchesDisplayedPage=!!(nextSession&&displayedPage&&nextSession.key===studySessionKey(currentView,pageSize)&&
       sameOrderedIds(nextSession.targetIds,displayedPage.ids));
     const jumpView={...buildGptJumpView(currentView,pageSize,randomIds),disclosedIds:activeMatchesDisplayedPage?[...currentDisclosed]:[]};
@@ -768,7 +820,7 @@
     delete nextSessions[sessionId];if(!nextRegistered.includes(sessionId))nextRegistered.push(sessionId);
     const provisionalIds=candidatePage?candidatePage.ids.filter(id=>provisionalSet.has(id)):[];
     const formalApplied=formalResults.length,applied=formalApplied+provisionalIds.length;
-    const nextSkipped=updateGptSkippedResults(gptSkipped,words,checked.results,activeSession?.studiedIds||[]);
+    const nextSkipped=updateGptSkippedResults(gptSkipped,words,checked.results,activeSession?.studiedIds||[],allowedSkippedIds);
     const nextProgress=jump.canJump&&jump.lastResultId
       ?advanceStudyProgress(studyProgress,words,jump.issuedMode||currentView.sortMode,randomIds,jump.lastResultId)
       :normalizeStudyProgress(studyProgress);
@@ -848,7 +900,7 @@
   function makeChatGptUrl(payload) {
     return `https://chatgpt.com/?prompt=${encodeURIComponent(makeGptPrompt(payload))}`;
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,gptIntegrationNotice,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,initialAnswerForToggle,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,clearGptSkippedOutsideTarget,studyOrderIdentity,sameStudyOrderIdentity,studyOrderPosition,pagePositionForId,resolveDisplayFrontier,advanceCurtainFrontier,idsThroughPosition,curtainFrontierBoundary,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,gptIntegrationNotice,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,initialAnswerForToggle,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);
