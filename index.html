@@ -100,14 +100,59 @@
     .modal-close{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;min-height:36px;padding:0;border-radius:50%;font-size:0;line-height:1}
     .modal-close svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
     .settings-section{display:grid;gap:7px;padding:9px 0;border-top:1px solid var(--border)}
+    .settings-section>:not(h2){margin-left:14px;min-width:0;box-sizing:border-box}
+    .gpt-steps{display:grid;gap:0}
+    .gpt-step{display:grid;gap:10px;padding:15px 0;border-top:1px solid var(--border);min-width:0}
+    .gpt-step:first-of-type{border-top:0;padding-top:4px}
+    .gpt-step-heading{display:flex;align-items:center;gap:10px;min-width:0}
+    .gpt-step-number{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#eff6ff;color:var(--accent);font-size:.84rem;font-weight:700;font-variant-numeric:tabular-nums}
+    .gpt-step-heading h2{margin:0;font-size:.98rem;line-height:1.3}
+    .gpt-step .hint{margin:0}
+    .gpt-step>:not(.gpt-step-heading){margin-left:22px;min-width:0;box-sizing:border-box}
+    .gpt-step>#openChatGpt{width:min(232px,calc(100% - 22px));margin-left:0}
+    .gpt-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
+    .gpt-fields .settings-item{display:grid;grid-template-columns:minmax(5.8em,1fr) minmax(0,min(220px,58%));gap:10px;min-height:38px}
+    .gpt-fields .settings-item>label{white-space:nowrap}
+    .gpt-fields .settings-item select{width:100%;min-width:0}
+    .gpt-action{box-sizing:border-box;min-height:42px;padding:8px 14px;border-radius:9px;font-size:.9rem;font-weight:600}
+    .gpt-step-action{justify-self:start;width:min(232px,100%);white-space:nowrap}
+    .gpt-open-action,.gpt-result-action{justify-self:end}
+    .gpt-issue-button,.gpt-result-action{background:#f1f3f6;border-color:#cfd5de;color:#273244}
+    .gpt-prompt-preview{display:grid;gap:5px;width:100%;box-sizing:border-box;min-width:0;padding:7px 9px;border:1px solid var(--border);border-radius:9px;background:#fafbfc}
+    .gpt-step>.gpt-prompt-preview{width:calc(100% - 22px)}
+    .gpt-prompt-preview-header{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+    .gpt-prompt-issued{color:#536174;font-size:.76rem;font-weight:600}
+    .gpt-prompt-copy-wrap{display:flex;align-items:center;gap:6px;margin-left:auto}
+    .gpt-prompt-copy-button{display:grid;place-items:center;width:32px;min-height:30px;padding:4px;border:1px solid #cfd5de;border-radius:7px;background:#fff;color:#354052;touch-action:manipulation}
+    .gpt-prompt-copy-button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    .gpt-prompt-copy-feedback{color:#536174;font-size:.72rem}
+    .gpt-prompt-copy-button:disabled{opacity:.55;cursor:default}
+    .gpt-prompt-text{box-sizing:border-box;height:60px;min-width:0;overflow:auto;padding:3px 1px;border:0;border-radius:0;background:transparent;color:#566171;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;overscroll-behavior:contain}
+    dialog.gpt-issue-confirm-dialog{width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);margin:auto;padding:0;border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--text);box-shadow:0 12px 38px rgba(15,23,42,.24);overflow:auto}
+    dialog.gpt-issue-confirm-dialog::backdrop{background:rgba(15,23,42,.58)}
+    .gpt-issue-confirm{display:grid;gap:16px;padding:18px}
+    .gpt-issue-confirm strong{font-size:1rem}
+    .gpt-issue-confirm p{margin:4px 0 0;color:var(--muted);font-size:.92rem}
+    .gpt-issue-confirm-actions{display:flex;justify-content:flex-end;gap:9px}
+    .gpt-issue-confirm-actions button{box-sizing:border-box;min-width:104px;min-height:42px;padding:8px 14px;border:1px solid #cfd5de;border-radius:9px;font-size:.9rem;font-weight:600}
+    .gpt-issue-confirm-actions #cancelGptIssue{background:#fff!important;border-color:#cfd5de!important;color:#273244!important;-webkit-text-fill-color:#273244!important}
+    .gpt-issue-confirm-actions #cancelGptIssue:hover,.gpt-issue-confirm-actions #cancelGptIssue:focus-visible{background:#f4f6f8!important;color:#273244!important;-webkit-text-fill-color:#273244!important}
+    .gpt-issue-confirm-actions #confirmGptIssue,.gpt-issue-confirm-actions #confirmGptIssue:hover,.gpt-issue-confirm-actions #confirmGptIssue:focus-visible,.gpt-issue-confirm-actions #confirmGptIssue:active{background:#2563eb!important;border-color:#2563eb!important;color:#fff!important;-webkit-text-fill-color:#fff!important}
+    .gpt-issue-confirm-actions button:focus-visible{outline:3px solid #2563eb66;outline-offset:2px}
+    .gpt-result-entry{display:grid;gap:9px;min-width:0}
+    #gptPanel #resultJson{display:block;width:100%;min-width:0;min-height:84px;max-height:26dvh;resize:vertical;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.84rem;line-height:1.4}
+    #gptPanel #resultStatus{overflow-wrap:anywhere}
     .settings-section h2{margin:0;font-size:1rem}
     .settings-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;min-height:34px}
     .settings-item>label:first-child{min-width:0}
     .settings-item select{flex:0 0 auto;min-height:34px;padding:5px 28px 5px 9px;border-radius:8px;font-size:.9rem}
+    .settings-section[aria-labelledby="learningSettingsTitle"]>.settings-item{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:10px;min-height:42px}
+    .settings-section[aria-labelledby="learningSettingsTitle"]>.settings-item select{box-sizing:border-box;width:120px;height:42px;min-height:42px;padding:7px 26px 7px 9px;border-radius:8px;font-size:.9rem}
+    .settings-section[aria-labelledby="learningSettingsTitle"] .mastery-setting{white-space:normal}
     .gpt-count-setting{margin:8px 0}
     .settings-section details{font-size:.9rem;line-height:1.4}.settings-section details summary{width:fit-content;color:var(--accent);cursor:pointer}.settings-section details .hint{margin:5px 0 0}
-    .data-action-row{display:grid;grid-template-columns:minmax(150px,auto) minmax(0,1fr);align-items:center;gap:10px}.data-action-row button{justify-self:start;min-height:34px;padding:6px 9px;border-radius:8px;font-size:.9rem}.data-action-row .hint{margin:0}
-    @media(max-width:560px){.home-panel.registration{grid-template-columns:minmax(0,1fr) auto}.home-panel.study{grid-template-columns:minmax(0,1fr) auto auto;gap:4px 7px;padding:10px}.home-study-heading{flex-wrap:nowrap}.home-title-editor{flex-wrap:nowrap}.home-title-editor input{flex-basis:0}.home-start-study{grid-row:1 / span 2;padding:6px 9px}.mastery-ring.small{width:42px;height:42px}.progress-overview{grid-template-columns:auto auto minmax(0,1fr) 42px;grid-template-rows:minmax(48px,auto);column-gap:8px;margin-bottom:6px;padding:4px 6px 7px}.mastery-ring.medium{width:48px;height:48px}.progress-dialog-content{padding:12px}.data-action-row{grid-template-columns:minmax(0,1fr);gap:3px}.data-action-row button{max-width:100%;white-space:normal;text-align:left}}
+    .data-action-row{display:grid;grid-template-columns:160px minmax(0,1fr);align-items:center;gap:10px}.data-action-row button,.settings-section[aria-labelledby="csvSettingsTitle"]>.file-btn{display:inline-flex;align-items:center;justify-content:flex-start;box-sizing:border-box;width:180px;max-width:100%;height:42px;min-height:42px;padding:8px 12px;border-radius:8px;font-size:.9rem;white-space:nowrap}.data-action-row button{width:160px;justify-self:start}.data-action-row .hint{min-width:0;margin:0;overflow-wrap:anywhere}
+    @media(max-width:560px){.home-panel.registration{grid-template-columns:minmax(0,1fr) auto}.home-panel.study{grid-template-columns:minmax(0,1fr) auto auto;gap:4px 7px;padding:10px}.home-study-heading{flex-wrap:nowrap}.home-title-editor{flex-wrap:nowrap}.home-title-editor input{flex-basis:0}.home-start-study{grid-row:1 / span 2;padding:6px 9px}.mastery-ring.small{width:42px;height:42px}.progress-overview{grid-template-columns:auto auto minmax(0,1fr) 42px;grid-template-rows:minmax(48px,auto);column-gap:8px;margin-bottom:6px;padding:4px 6px 7px}.mastery-ring.medium{width:48px;height:48px}.progress-dialog-content{padding:12px}.data-action-row{grid-template-columns:160px minmax(0,1fr);gap:7px}.study-actions.study-footer{bottom:env(safe-area-inset-bottom,0px)}.gpt-step{gap:9px;padding:13px 0}.gpt-fields{gap:6px}.gpt-fields .settings-item{grid-template-columns:minmax(0,1fr) minmax(0,min(220px,58%));gap:7px}}
     dialog.modal input[type="text"]{max-width:100%;min-width:0;overflow-wrap:anywhere}
     .meaning-curtain{position:absolute;z-index:20;background:var(--cover);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);user-select:none;pointer-events:none}.meaning-curtain.hidden{display:none}
     .meaning-text.is-undisclosed{visibility:hidden}
@@ -193,7 +238,7 @@
           <option value="wrong">×</option><option value="correct">○</option>
         </select>
       </div>
-      <div class="settings-item"><label class="mastery-setting" for="masteryThreshold"><svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>習得済み判定（連続正答）</label>
+      <div class="settings-item"><label class="mastery-setting" for="masteryThreshold"><svg class="medal-icon" aria-hidden="true" viewBox="0 0 20 24"><circle cx="10" cy="8" r="5.2"/><path d="M6.6 12 5 22l5-2.8 5 2.8-1.6-10"/><path d="m10 5.6.7 1.3 1.5.2-1.1 1.1.3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1.1 1.5-.2z"/></svg>判定（連続正答）</label>
         <select id="masteryThreshold" aria-label="習得済み判定の連続正答回数">
           <option value="2">2回</option><option value="3">3回</option><option value="4">4回</option><option value="5">5回</option>
         </select>
@@ -202,7 +247,7 @@
     <section class="settings-section" aria-labelledby="csvSettingsTitle">
       <h2 id="csvSettingsTitle">CSV管理</h2>
       <label class="file-btn">CSV読込・差し替え<input id="csvFile" type="file" accept=".csv,text/csv"></label>
-      <details open><summary>CSV形式と読み込みについて</summary><div class="hint">UTF-8のCSVを使用します。新形式は <code>id,question,answer,explanation</code> で、<code>id</code>・<code>question</code>・<code>answer</code>が必須、<code>explanation</code>列は任意です。カンマ・改行・引用符を含む値はCSVの二重引用符で囲み、引用符自体は二重にします。旧形式の <code>id,word,meaning</code> も読み込めます。同じIDの問題・解答なら、再読込後も学習履歴を引き継ぎます。</div></details>
+      <details id="csvHelpDetails" open><summary>CSV形式と読み込みについて</summary><div class="hint">UTF-8のCSVを使用します。新形式は <code>id,question,answer,explanation</code> で、<code>id</code>・<code>question</code>・<code>answer</code>が必須、<code>explanation</code>列は任意です。カンマ・改行・引用符を含む値はCSVの二重引用符で囲み、引用符自体は二重にします。旧形式の <code>id,word,meaning</code> も読み込めます。同じIDの問題・解答なら、再読込後も学習履歴を引き継ぎます。</div></details>
       <div class="hint">通常順ではCSV登録順の固定範囲をタブに分け、ランダム順では保存済み順序の固定範囲に対して習得済み除外を適用します。</div>
     </section>
     <section class="settings-section" aria-labelledby="dataSettingsTitle">
@@ -281,23 +326,41 @@
 
   <dialog id="gptPanel" class="modal" aria-labelledby="gptTitle">
     <div class="panel">
-    <div class="modal-header"><strong id="gptTitle">GPT学習</strong><button id="closeGpt" class="modal-close" type="button" aria-label="GPT学習を閉じる" title="閉じる"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-      <div class="settings-item gpt-count-setting"><label for="gptWordCount">出題問題数</label><select id="gptWordCount" aria-label="GPT出題問題数"><option value="5">5問</option><option value="10">10問</option><option value="20">20問</option><option value="30">30問</option><option value="50">50問</option></select></div>
-      <div class="settings-item gpt-count-setting"><label for="gptStartPosition">出題開始位置</label><select id="gptStartPosition" aria-label="GPT出題開始位置"><option value="page">ページの先頭から</option><option value="continue">現在の続きから</option></select></div>
-      <div class="row" style="margin-top:8px">
-        <button id="makeSession" class="primary">GPT学習セッションを発行</button>
-        <button id="copySession" disabled>セッションURLをコピー</button>
+      <div class="modal-header"><strong id="gptTitle">GPT学習</strong><button id="closeGpt" class="modal-close" type="button" aria-label="GPT学習を閉じる" title="閉じる"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div class="gpt-steps">
+        <section class="gpt-step" aria-labelledby="gptStep1Title">
+          <div class="gpt-step-heading"><span class="gpt-step-number" aria-hidden="true">1</span><h2 id="gptStep1Title">出題する単語を選ぶ</h2></div>
+          <div class="gpt-fields">
+            <div class="settings-item"><label for="gptWordCount">問題数</label><select id="gptWordCount" aria-label="GPT出題問題数"><option value="5">5問</option><option value="10">10問</option><option value="20">20問</option><option value="30">30問</option><option value="50">50問</option></select></div>
+            <div class="settings-item"><label for="gptStartPosition">開始位置</label><select id="gptStartPosition" aria-label="GPT出題開始位置"><option value="page">ページの先頭から</option><option value="continue">現在の続きから</option></select></div>
+          </div>
+          <details class="hint gpt-issue-help"><summary>出題位置と問題数について</summary><p>選択した開始位置から現在の表示順で最大<span id="gptWordCountSummary">20</span>問を出題します。「現在の続きから」は最後に新しく開示した問題の次から始まり、開示履歴がない場合はページの先頭から始まります。習得済み除外やリスト末尾により、実際の問題数は少なくなる場合があります。</p></details>
+        </section>
+        <section class="gpt-step" aria-labelledby="gptStep2Title">
+          <div class="gpt-step-heading"><span class="gpt-step-number" aria-hidden="true">2</span><h2 id="gptStep2Title">ChatGPTで学習する</h2></div>
+          <button id="makeSession" class="gpt-action gpt-step-action gpt-issue-button">プロンプトを発行</button>
+          <div id="gptPromptPreview" class="gpt-prompt-preview" hidden>
+            <div class="gpt-prompt-preview-header"><span class="gpt-prompt-issued">プロンプト発行済み</span><span class="gpt-prompt-copy-wrap"><span id="gptPromptCopyFeedback" class="gpt-prompt-copy-feedback" role="status" aria-live="polite"></span><button id="copyChatGpt" class="gpt-prompt-copy-button" type="button" disabled aria-label="プロンプトをコピー" title="プロンプトをコピー"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></svg></button></span></div>
+            <div id="gptPromptText" class="gpt-prompt-text" tabindex="0" aria-label="発行したプロンプト"></div>
+          </div>
+          <button id="openChatGpt" class="primary gpt-action gpt-step-action gpt-open-action" disabled hidden>ChatGPTで開く</button>
+        </section>
+        <section class="gpt-step" aria-labelledby="gptStep3Title">
+          <div class="gpt-step-heading"><span class="gpt-step-number" aria-hidden="true">3</span><h2 id="gptStep3Title">学習結果を登録する</h2></div>
+          <p class="hint">ChatGPTで学習した結果のJSONを貼り付けてください。</p>
+          <div class="gpt-result-entry">
+            <textarea id="resultJson" aria-label="GPT学習結果JSON" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
+            <button id="applyResults" class="gpt-action gpt-step-action gpt-result-action">結果を登録する</button>
+          </div>
+          <div id="resultStatus" class="status" role="status" aria-live="polite"></div>
+        </section>
       </div>
-      <input id="sessionUrl" type="text" readonly aria-label="既存のGPT用セッションURL" placeholder="ここにセッションURLが出ます">
-      <div class="row" style="margin-top:8px">
-        <button id="openChatGpt" class="primary" disabled>ChatGPTで開く</button>
-        <button id="copyChatGpt" disabled>ChatGPT用URLをコピー</button>
-      </div>
-      <input id="chatGptUrl" type="text" readonly aria-label="ChatGPT向けURL" placeholder="セッション発行後にChatGPT向けURLが出ます">
-      <div class="hint">選択した開始位置から現在の表示順で最大<span id="gptWordCountSummary">20</span>問を出題します。「現在の続きから」は最後に新しく開示した問題の次から始まり、開示履歴がない場合はページの先頭から始まります。習得済み除外やリスト末尾により、実際の問題数は少なくなる場合があります。</div>
-      <div class="row" style="margin-top:12px"><strong>GPT学習結果を反映</strong><button id="applyResults">結果JSONを登録</button></div>
-      <textarea id="resultJson" aria-label="GPT学習結果JSON" placeholder='{"version":1,"sessionId":"...","results":[{"id":"1","result":"correct"}]}'></textarea>
-      <div id="resultStatus" class="status" role="status" aria-live="polite"></div>
+    </div>
+  </dialog>
+  <dialog id="gptIssueConfirm" class="gpt-issue-confirm-dialog" aria-labelledby="gptIssueConfirmTitle" aria-describedby="gptIssueConfirmDescription">
+    <div class="gpt-issue-confirm">
+      <div><strong id="gptIssueConfirmTitle">前回の学習結果が未反映です</strong><p id="gptIssueConfirmDescription">新しいプロンプトを発行しますか？</p></div>
+      <div class="gpt-issue-confirm-actions"><button id="cancelGptIssue" type="button" autofocus>キャンセル</button><button id="confirmGptIssue" type="button">発行する</button></div>
     </div>
   </dialog>
   <div id="studyFooterSpacer" aria-hidden="true"></div>
@@ -316,6 +379,8 @@
   const STORAGE_SCREEN="wordlist.screen.v1";
   const STORAGE_LIST_TITLE="wordlist.listTitle.v1";
   const STORAGE_PREFERENCES="wordlist.preferences.v1";
+  const STORAGE_GPT_START_POSITION="wordlist.gptStartPosition.v1";
+  const STORAGE_CSV_HELP_OPEN="wordlist.csvHelpOpen.v1";
   const STORAGE_LEDGER="wordlist.studyLedger.v1";
   const savedCore=StudyCore.loadCore(localStorage,STORAGE_LEDGER,{stateKey:STORAGE_STATE,gptSessionsKey:STORAGE_GPT_SESSIONS,activeSessionKey:STORAGE_ACTIVE_SESSION});
 
@@ -353,13 +418,14 @@
   let defaultAnswer=initialPreferences.defaultAnswer;
   let pageIndex=normalizedView.pageIndex;
   let randomStart=normalizedView.randomStart;
-  let revealY=0, lastSessionUrl="", lastChatGptUrl="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
+  let revealY=0, lastSessionUrl="", lastChatGptUrl="", lastChatGptPrompt="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
   let curtainLocked=false,lockedY=null,lockScrollFrame=0,lockLastRevealY=0,lockFeedbackTimer=0;
+  let gptIssueInProgress=false,gptIssueConfirmationPending=false,gptIssuedInCurrentModal=false;
   let distributionMode="all";
 
   const els={
     homeScreen:document.getElementById("homeScreen"),homeRegistrationCard:document.getElementById("homeRegistrationCard"),homeStudyCard:document.getElementById("homeStudyCard"),homeListTitle:document.getElementById("homeListTitle"),homeQuestionCount:document.getElementById("homeQuestionCount"),editListTitle:document.getElementById("editListTitle"),homeTitleEditor:document.getElementById("homeTitleEditor"),homeTitleInput:document.getElementById("homeTitleInput"),saveListTitle:document.getElementById("saveListTitle"),cancelListTitle:document.getElementById("cancelListTitle"),studyScreen:document.getElementById("studyScreen"),startStudy:document.getElementById("startStudy"),goHome:document.getElementById("goHome"),homeStatus:document.getElementById("homeStatus"),
-    openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
+    openSettings:document.getElementById("openSettings"),closeSettings:document.getElementById("closeSettings"),settingsPanel:document.getElementById("settingsPanel"),csvHelpDetails:document.getElementById("csvHelpDetails"),openGpt:document.getElementById("openGpt"),closeGpt:document.getElementById("closeGpt"),gptPanel:document.getElementById("gptPanel"),repeatStudy:document.getElementById("repeatStudy"),
     csvFile:document.getElementById("csvFile"),homeCsvFile:document.getElementById("homeCsvFile"),clearData:document.getElementById("clearData"),
     pageSize:document.getElementById("pageSize"),masteryThreshold:document.getElementById("masteryThreshold"),defaultAnswer:document.getElementById("defaultAnswer"),gptWordCount:document.getElementById("gptWordCount"),gptStartPosition:document.getElementById("gptStartPosition"),resetSettings:document.getElementById("resetSettings"),
     homeMasteryRing:document.getElementById("homeMasteryRing"),studyMasteryRing:document.getElementById("studyMasteryRing"),detailMasteryRing:document.getElementById("detailMasteryRing"),masteryCount:document.getElementById("masteryCount"),progressDialog:document.getElementById("progressDialog"),openProgressDetails:document.getElementById("openProgressDetails"),closeProgressDetails:document.getElementById("closeProgressDetails"),distributionAll:document.getElementById("distributionAll"),distributionUnmastered:document.getElementById("distributionUnmastered"),distributionBar:document.getElementById("distributionBar"),distributionLegend:document.getElementById("distributionLegend"),distributionEmpty:document.getElementById("distributionEmpty"),
@@ -369,9 +435,16 @@
     meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),curtainLockToggle:document.getElementById("curtainLockToggle"),curtainReturnToggle:document.getElementById("curtainReturnToggle"),curtainLockFeedback:document.getElementById("curtainLockFeedback"),studyActions:document.querySelector(".study-actions"),studyFooterSpacer:document.getElementById("studyFooterSpacer"),explanationPopup:document.getElementById("explanationPopup"),
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
-    makeSession:document.getElementById("makeSession"),copySession:document.getElementById("copySession"),sessionUrl:document.getElementById("sessionUrl"),openChatGpt:document.getElementById("openChatGpt"),copyChatGpt:document.getElementById("copyChatGpt"),chatGptUrl:document.getElementById("chatGptUrl"),
+    makeSession:document.getElementById("makeSession"),gptIssueConfirm:document.getElementById("gptIssueConfirm"),cancelGptIssue:document.getElementById("cancelGptIssue"),confirmGptIssue:document.getElementById("confirmGptIssue"),openChatGpt:document.getElementById("openChatGpt"),copyChatGpt:document.getElementById("copyChatGpt"),gptPromptPreview:document.getElementById("gptPromptPreview"),gptPromptText:document.getElementById("gptPromptText"),gptPromptCopyFeedback:document.getElementById("gptPromptCopyFeedback"),
     resultJson:document.getElementById("resultJson"),applyResults:document.getElementById("applyResults"),resultStatus:document.getElementById("resultStatus")
   };
+
+  const savedGptStartPosition=localStorage.getItem(STORAGE_GPT_START_POSITION);
+  let gptStartPosition=savedGptStartPosition==="continue"?"continue":"page";
+  els.gptStartPosition.value=gptStartPosition;
+  const savedCsvHelpOpen=localStorage.getItem(STORAGE_CSV_HELP_OPEN);
+  if(savedCsvHelpOpen==="open"||savedCsvHelpOpen==="closed")els.csvHelpDetails.open=savedCsvHelpOpen==="open";
+  els.csvHelpDetails.addEventListener("toggle",()=>{try{localStorage.setItem(STORAGE_CSV_HELP_OPEN,els.csvHelpDetails.open?"open":"closed")}catch{}});
 
   function loadJson(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
   function persistCore(){
@@ -1088,6 +1161,13 @@
     els.curtainHandle.addEventListener("pointerup",finish);els.curtainHandle.addEventListener("pointercancel",finish);
   }
 
+  function latestUnregisteredGptSessionId(){
+    const sequences=Object.values(gptSessions).map(record=>record?.issueSequence).filter(sequence=>Number.isSafeInteger(sequence)&&sequence>0);
+    const latestIssueSequence=Math.max(gptIssueSequence,...sequences);
+    if(!Number.isSafeInteger(latestIssueSequence)||latestIssueSequence<1)return null;
+    const registered=new Set(registeredGptSessionIds.map(String));
+    return Object.entries(gptSessions).find(([id,record])=>record?.issueSequence===latestIssueSequence&&!registered.has(String(id)))?.[0]||null;
+  }
   function makeGptSession(){
     const current=pageWords(),continueFromProgress=els.gptStartPosition.value==="continue";
     if(!current.length&&!continueFromProgress){alert("表示中の問題がありません。");return}
@@ -1116,9 +1196,26 @@
     gptIssueSequence=nextIssueSequence;
     const url=new URL(location.href);url.search="";url.hash="";
     url.searchParams.set("study",btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
-    lastSessionUrl=url.toString();els.sessionUrl.value=lastSessionUrl;els.copySession.disabled=false;
-    lastChatGptUrl=StudyCore.makeChatGptUrl(payload);els.chatGptUrl.value=lastChatGptUrl;
-    els.openChatGpt.disabled=false;els.copyChatGpt.disabled=false;
+    lastSessionUrl=url.toString();
+    lastChatGptPrompt=StudyCore.makeGptPrompt(payload);lastChatGptUrl=StudyCore.makeChatGptUrl(payload);
+    els.gptPromptText.textContent=lastChatGptPrompt;els.gptPromptCopyFeedback.textContent="";els.gptPromptPreview.hidden=false;
+    els.makeSession.hidden=true;els.openChatGpt.hidden=false;els.openChatGpt.disabled=false;els.copyChatGpt.disabled=false;
+  }
+  function requestGptSessionIssue(){
+    if(gptIssueInProgress||gptIssueConfirmationPending||gptIssuedInCurrentModal||els.makeSession.hidden)return;
+    if(latestUnregisteredGptSessionId()){
+      gptIssueConfirmationPending=true;els.makeSession.disabled=true;els.gptIssueConfirm.showModal();return;
+    }
+    gptIssueInProgress=true;
+    try{makeGptSession();gptIssuedInCurrentModal=!els.gptPromptPreview.hidden}
+    finally{gptIssueInProgress=false}
+  }
+  function resetGptIssueUi(){
+    gptIssueConfirmationPending=false;gptIssuedInCurrentModal=false;lastChatGptUrl="";lastChatGptPrompt="";
+    if(els.gptIssueConfirm.open)els.gptIssueConfirm.close("reset");els.makeSession.hidden=false;els.makeSession.disabled=false;
+    els.gptPromptPreview.hidden=true;els.gptPromptText.textContent="";els.gptPromptCopyFeedback.textContent="";
+    els.copyChatGpt.disabled=true;els.copyChatGpt.setAttribute("aria-label","プロンプトをコピー");els.copyChatGpt.title="プロンプトをコピー";
+    els.openChatGpt.hidden=true;els.openChatGpt.disabled=true;
   }
   async function copyText(text){
     if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return true}catch{}}
@@ -1220,6 +1317,8 @@
     return true;
   }
 
+  els.settingsPanel.addEventListener("click",event=>{if(event.target===els.settingsPanel)els.settingsPanel.close()});
+  els.gptPanel.addEventListener("click",event=>{if(!els.gptIssueConfirm.open&&event.target===els.gptPanel)els.gptPanel.close()});
   els.openSettings.addEventListener("click",()=>{if(!els.settingsPanel.open)els.settingsPanel.showModal()});
   els.goHome.addEventListener("click",showHome);
   els.startStudy.addEventListener("click",showStudy);
@@ -1233,7 +1332,7 @@
   els.closeSettings.addEventListener("click",()=>els.settingsPanel.close());
   els.openGpt.addEventListener("click",()=>{if(!els.gptPanel.open)els.gptPanel.showModal()});
   els.closeGpt.addEventListener("click",()=>els.gptPanel.close());
-  els.gptPanel.addEventListener("close",removeGptResultParamFromUrl);
+  els.gptPanel.addEventListener("close",()=>{removeGptResultParamFromUrl();resetGptIssueUi()});
   els.excludeStreak.addEventListener("change",()=>{
     if(!pendingStudyTransitionNeedsConfirmation("現在の学習結果を確定して、習得済み除外の設定を切り替えますか？")){
       els.excludeStreak.checked=excludeStreak;els.excludeStreak.setAttribute("aria-checked",String(excludeStreak));return;
@@ -1261,9 +1360,16 @@
     catch(error){gptWordCount=prior;els.gptWordCount.value=String(prior);alert(`設定を保存できませんでした。${error.message||error}`);return}
     render();
   });
+  els.gptStartPosition.addEventListener("change",()=>{
+    const next=els.gptStartPosition.value;
+    if(next!=="page"&&next!=="continue"){els.gptStartPosition.value=gptStartPosition;return}
+    const prior=gptStartPosition;
+    try{localStorage.setItem(STORAGE_GPT_START_POSITION,next);gptStartPosition=next}
+    catch(error){els.gptStartPosition.value=prior;alert(`設定を保存できませんでした。${error.message||error}`)}
+  });
   els.resetSettings.addEventListener("click",()=>{
-    if(pageSize===10&&masteryThreshold===3&&defaultAnswer==="wrong"&&gptWordCount===20)return;
-    changeDisplaySettings(10,3,"wrong",20);
+    if(pageSize===10&&masteryThreshold===3&&defaultAnswer==="wrong")return;
+    changeDisplaySettings(10,3,"wrong");
   });
 
   els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;if(!orderChangeNeedsConfirmation())return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
@@ -1293,15 +1399,20 @@
   els.clearData.addEventListener("click",()=>{
     if(!confirm("学習データと履歴をこの端末から削除しますか？"))return;
     releaseCurtainLock();
-    words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];gptSkipped=StudyCore.normalizeGptSkippedState(null,[]);randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;pageIndex=0;randomStart=0;revealY=0;
-    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES,STORAGE_LIST_TITLE])localStorage.removeItem(key);
+    words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];gptSkipped=StudyCore.normalizeGptSkippedState(null,[]);randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;gptStartPosition="page";els.gptStartPosition.value=gptStartPosition;pageIndex=0;randomStart=0;revealY=0;
+    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES,STORAGE_LIST_TITLE,STORAGE_GPT_START_POSITION])localStorage.removeItem(key);
     updateHome();
     startSession(true);render();
   });
-  els.makeSession.addEventListener("click",makeGptSession);
-  els.copySession.addEventListener("click",async()=>{if(!lastSessionUrl)return;const ok=await copyText(lastSessionUrl);els.copySession.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copySession.textContent="セッションURLをコピー",1200)});
+  els.makeSession.addEventListener("click",requestGptSessionIssue);
+  els.cancelGptIssue.addEventListener("click",event=>{event.stopPropagation();if(gptIssueConfirmationPending&&els.gptIssueConfirm.open)els.gptIssueConfirm.close("cancel")});
+  document.addEventListener("keydown",event=>{if(event.key!=="Escape"||!els.gptIssueConfirm.open)return;event.preventDefault();event.stopImmediatePropagation();if(gptIssueConfirmationPending)els.gptIssueConfirm.close("cancel")},true);
+  els.gptIssueConfirm.addEventListener("cancel",event=>{event.preventDefault();if(gptIssueConfirmationPending&&els.gptIssueConfirm.open)els.gptIssueConfirm.close("cancel")});
+  els.gptIssueConfirm.addEventListener("click",event=>{event.stopPropagation();if(event.target===els.gptIssueConfirm&&gptIssueConfirmationPending)els.gptIssueConfirm.close("cancel")});
+  els.gptIssueConfirm.addEventListener("close",()=>{if(!gptIssueConfirmationPending)return;gptIssueConfirmationPending=false;els.makeSession.disabled=false;if(els.gptPanel.open)els.makeSession.focus()});
+  els.confirmGptIssue.addEventListener("click",event=>{event.stopPropagation();if(!gptIssueConfirmationPending||gptIssueInProgress)return;gptIssueConfirmationPending=false;els.gptIssueConfirm.close("confirm");els.makeSession.disabled=false;gptIssueInProgress=true;try{makeGptSession();gptIssuedInCurrentModal=!els.gptPromptPreview.hidden}finally{gptIssueInProgress=false}});
   els.openChatGpt.addEventListener("click",()=>{if(lastChatGptUrl)window.open(lastChatGptUrl,"_blank","noopener,noreferrer")});
-  els.copyChatGpt.addEventListener("click",async()=>{if(!lastChatGptUrl)return;const ok=await copyText(lastChatGptUrl);els.copyChatGpt.textContent=ok?"コピー済み":"コピー失敗";setTimeout(()=>els.copyChatGpt.textContent="ChatGPT用URLをコピー",1200)});
+  els.copyChatGpt.addEventListener("click",async()=>{if(!lastChatGptPrompt)return;const label=await copyText(lastChatGptPrompt)?"コピーしました":"コピーできませんでした";els.gptPromptCopyFeedback.textContent=label;els.copyChatGpt.setAttribute("aria-label",label);els.copyChatGpt.title=label;setTimeout(()=>{els.gptPromptCopyFeedback.textContent="";els.copyChatGpt.setAttribute("aria-label","プロンプトをコピー");els.copyChatGpt.title="プロンプトをコピー"},1600)});
   els.applyResults.addEventListener("click",applyGptResults);
   els.openProgressDetails.addEventListener("click",()=>{if(!els.progressDialog.open)els.progressDialog.showModal()});
   els.closeProgressDetails.addEventListener("click",()=>{if(els.progressDialog.open)els.progressDialog.close()});
