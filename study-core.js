@@ -434,8 +434,8 @@
   function nextAvailablePageIndex(pages,currentIndex) {
     const available=(pages||[]).filter(page=>Array.isArray(page.entries)&&page.entries.length>0);
     if(!available.length)return null;
-    const current=available.findIndex(page=>Number(page.index)===Number(currentIndex));
-    return available[(current+1)%available.length].index;
+    const current=Number(currentIndex);
+    return (available.find(page=>Number(page.index)>current)||available[0]).index;
   }
   function resolveInitialScreen(savedScreen,hasWords) { return hasWords&&savedScreen==="study"?"study":"home"; }
   function inspectInitialScreen(storage,key,hasWords) {

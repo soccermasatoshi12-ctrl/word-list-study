@@ -400,7 +400,8 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/function renderAnswerControlForExposure\(id,measuredGeometry=undefined\)\{const row=.*syncMeaningDisclosure\(row,id\)/);
   assert.match(html,/function processRevealProgress\(g=geometry\(\)\)[\s\S]*?idsThroughPosition\(words,sortMode,randomIds,g\.thresholds\.map\(item=>item\.id\),activeSession\.curtainFrontierId\)[\s\S]*?StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,\(id,boundary\)=>markStudied\(id,boundary,false,g\),\[\.\.\.gptSkipped\.ids,\.\.\.protectedIds\]\)/);
   assert.match(html,/function markStudied\(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined,studyDefaultAnswer=defaultAnswer\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
-  assert.match(html,/markStudied\(id,revealY,true,undefined,StudyCore\.initialAnswerForToggle\(defaultAnswer\)\)/);
+  assert.match(html,/mc\.addEventListener\("click",\(\)=>\{if\(!rowDisclosed\(w\.id\)&&canIndividuallyDisclose\(w\.id\)\)markStudied\(w\.id,revealY,true,undefined,defaultAnswer\)\}\)/);
+  assert.match(html,/function toggleAnswer\(id\)\{\s*if\(!rowDisclosed\(id\)\|\|activeSession\?\.finalizedIds\?\.includes\(id\)\)return/);
   assert.match(html,/const restoreCommittedPosition=\(\)=>\{cancelDrag\(\);curtainUserDragging=false;revealY=Number\(activeSession\?\.revealY\|\|0\);positionCurtain\(\)\}/);
   assert.match(html,/const persistDragPosition=\(\)=>\{try\{saveActiveSession\(true,\[\],true\);return true\}catch\(error\)[\s\S]*restoreCommittedPosition\(\);return false\}/);
   assert.doesNotMatch(html,/safeRevealBoundary\(activeSession\?\.studiedIds/);
@@ -440,6 +441,9 @@ test('session frontier is the farthest reached ID in this session order and adva
 test('tip-return UI uses the session or preserved display frontier without invoking reveal learning',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<button id="curtainReturnToggle" class="curtain-return-button hidden"[^>]*aria-label="続きに戻る"[^>]*disabled><svg/);
+  assert.match(html,/\.curtain-return-button\{position:fixed;z-index:22/);
+  assert.match(html,/const wrapRect=els\.listWrap\.getBoundingClientRect\(\),coverTop=curtainLocked\?effectiveY:wrapRect\.top\+g\.top\+revealY/);
+  assert.match(html,/function scheduleLockedCurtainUpdate\(\)\{if\(lockScrollFrame\)return;lockScrollFrame=requestAnimationFrame\(\(\)=>\{lockScrollFrame=0;if\(curtainLocked\)updateLockedCurtain\(\);else if\(!els\.studyScreen\.hidden\)setReturnButtonState\(geometry\(\)\)\}\)\}/);
   assert.match(html,/function returnToSessionFrontier\(\)[\s\S]*?resolveDisplayFrontier\(activeSession,words,sortMode,randomIds\)\.learnedId[\s\S]*?saveActiveSession\(true,\[\],true\)[\s\S]*?updateLockedCurtain\(\{suppressRevealProcessing:true\}\)/);
   assert.match(html,/const updateResult=updateLockedCurtain\(\{suppressRevealProcessing:true\}\);[\s\S]*?if\(!curtainLocked&&updateResult!=="natural-end"\)return false;[\s\S]*?if\(!curtainLocked&&updateResult==="natural-end"\)[\s\S]*?const unlockedGeometry=geometry\(\)[\s\S]*?revealY=Number\(unlockedTarget\.bottom\)[\s\S]*?saveActiveSession/);
   assert.match(html,/function updateLockedCurtain\(\{suppressRevealProcessing=false\}=\{\}\)[\s\S]*?advanced&&!suppressRevealProcessing&&!processRevealProgress\(g\)/);
@@ -546,7 +550,9 @@ test('normal next-page navigation wraps and skips excluded empty pages', () => {
     {index:3,entries:[]}
   ];
   assert.equal(C.nextAvailablePageIndex(pages,0),2);
+  assert.equal(C.nextAvailablePageIndex(pages,1),2,'from a temporarily retained empty page, next follows the physical page order');
   assert.equal(C.nextAvailablePageIndex(pages,2),0);
+  assert.equal(C.nextAvailablePageIndex(pages,3),0,'wrap only after checking later physical pages');
   assert.equal(C.nextAvailablePageIndex([{index:0,entries:[{id:'only'}]}],0),0);
   assert.equal(C.nextAvailablePageIndex([{index:0,entries:[]}],0),null);
   assert.equal(C.nextAvailablePageIndex([],0),null);
@@ -590,12 +596,35 @@ test('normal next and random navigation share the fixed study footer without cha
   assert.match(html,/env\(safe-area-inset-bottom,0px\)/);
   assert.match(html,/id="studyFooterSpacer"/);
   assert.match(html,/els\.count\.textContent=`全\$\{model\.total\}問`/);
-  assert.match(html,/els\.pagePosition\.textContent=`\$\{positionIndex<0\?0:positionIndex\+1\} \/ \$\{positionPages\.length\} ページ`/);
+  assert.match(html,/sortMode==="normal"&&model\.pages\.length&&page&&!current\.length[\s\S]*?\$\{pageIndex\+1\} \/ \$\{model\.pages\.length\} ページ/);
   assert.match(html,/els\.randomNext\.addEventListener\("click",nextRandomPage\)/);
   assert.match(html,/els\.reshuffle\.addEventListener\("click",reshuffleRandomOrder\)/);
   assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),randomStart:navigation\.nextStart\}\)/);
   assert.match(html,/requestViewTransition\(\{\.\.\.currentView\(\),sortMode:"random",randomStart:0\},\{nextRandomIds:order,writeRandomOrder:true\}\)/);
   assert.match(html,/途中までの学習結果を確定して、次のページへ進みますか？/);
+});
+test('empty filtered pages stay selected, persist their fixed index, and show the shared mastery medal',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const buildTarget=html.match(/function buildTarget\(([\s\S]*?)\n  \}/)?.[0];
+  assert.match(buildTarget,/keepEmptyPage=false/);
+  assert.match(buildTarget,/keepEmptyPage&&model\.pages\.length\?requestedIndex:StudyCore\.safePageIndex/,'empty-page retention is opt-in and safe fallback remains available');
+  assert.match(html,/const model=pageModel\(\),target=buildTarget\(currentView\(\),state,words,randomIds,pageSize,true\)/);
+  assert.match(html,/buildTarget\(view,draftState,nextWords,nextRandomIds,nextPageSize,true\)/);
+  assert.match(html,/b\.disabled=page\.entries\.length===0;b\.classList\.toggle\("active",i===pageIndex\)/);
+  assert.match(html,/function isMasteryCompletePage\(page\)[\s\S]*if\(!words\.length\|\|!excludeStreak\|\|filter!=="all"\|\|!page\)return false/);
+  assert.match(html,/makeMedalIcon\(\);medal\.setAttribute\("aria-hidden","true"\)[\s\S]*このページの単語をすべて習得しました！/);
+  assert.match(html,/\?`\$\{pageIndex\+1\} \/ \$\{model\.pages\.length\} ページ`/);
+  const restart=html.match(/function restartViewSession\(nextView=currentView\(\)\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(restart,/return requestViewTransition\(nextView\)/);assert.doesNotMatch(restart,/pageIndex:0/);
+});
+test('page-size change scrolls to the first answer row below the restored curtain boundary',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const pageSize=html.match(/function changePageSizePreservingLearningPosition\(nextPageSize\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(pageSize,/requestAnimationFrame\(\(\)=>\{positionCurtain\(\);syncStudyFooterSpacer\(\);requestAnimationFrame\(scrollToCurtainResumePosition\)\}\)/);
+  const scroll=html.match(/function scrollToCurtainResumePosition\(\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(scroll,/item\.bottom\)>boundary\+1/);
+  assert.match(scroll,/window\.scrollTo\(0,next\)/);
+  assert.match(scroll,/if\(!g\?\.thresholds\.length\)return false/);
 });
 test('compact row actions gate shared explanation popup on disclosure without persisting popup state',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
@@ -631,7 +660,7 @@ test('compact row actions gate shared explanation popup on disclosure without pe
   assert.match(html,/window\.addEventListener\("pointercancel"/);
   assert.match(html,/function beginExplanationPress\(event,button\)\{if\(button\.disabled\|\|event\.button>0\)return;event\.stopPropagation\(\);explanationPointerId=event\.pointerId;showExplanationPopup\(button,event\.clientX,event\.clientY,event\.pointerType,event\.height\)\}/);
   assert.match(html,/function hideExplanationPopup\(\)[\s\S]*els\.explanationPopup\.hidden=true/);
-  assert.match(html,/function renderRowsOnly\(current=pageWords\(\)\)\{\s*hideExplanationPopup\(\)/);
+  assert.match(html,/function renderRowsOnly\(current,page\)\{\s*hideExplanationPopup\(\)/);
   assert.match(html,/function showHome\(\)\{\s*hideExplanationPopup\(\)/);
   assert.doesNotMatch(html,/STORAGE_EXPLANATION|explanationPopup.*localStorage/);
 });
@@ -729,6 +758,10 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/answer\.addEventListener\("click",\(\)=>toggleAnswer\(w\.id\)\)/);
   assert.match(html,/if\(!changed\)\{renderAnswerControlFor\(id\);return\}\s*renderAnswerControlFor\(id\);saveActiveSession\(true\)/);
   assert.match(html,/button\.setAttribute\("aria-pressed",String\(revealed&&correct\)\)/);
+  assert.match(html,/button\.disabled=!revealed\|\|!!activeSession\?\.finalizedIds\?\.includes\(id\)/,'evaluation controls remain disabled until the individual mask is opened');
+  const toggle=html.match(/function toggleAnswer\(id\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(toggle,/if\(!rowDisclosed\(id\)\|\|activeSession\?\.finalizedIds\?\.includes\(id\)\)return/);
+  assert.doesNotMatch(toggle,/markStudied/,'answer button cannot disclose an unopened row');
   assert.match(html,/初回露出時のデフォルト評価/);
   const header=html.match(/<header class="app-header">([\s\S]*?)<\/header>/)?.[1];
   assert.ok(header);
@@ -2362,4 +2395,21 @@ test('GPT import reasons are visible and distinguish stale, replay, position, an
   assert.match(C.gptIntegrationNotice({applied:42,jump:{canJump:false,reason:'last-already-disclosed'}}).text,/末尾はすでに開示/);
   assert.match(C.gptIntegrationNotice({applied:42,jump:{canJump:false,reason:'user-declined-jump'}}).text,/現在の学習位置を維持/);
   assert.doesNotMatch(C.gptIntegrationNotice({applied:1,jump:{canJump:false,reason:'unknown'}}).text,/カーテン/);
+});
+
+test('footer spacer uses normal-flow extent and page-size changes synchronize after curtain controls are positioned',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const spacer=html.match(/function syncStudyFooterSpacer\(\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.ok(spacer,'footer spacer synchronization exists');
+  assert.match(spacer,/flowContainer=els\.studyFooterSpacer\.closest\("\.app"\)/);
+  assert.match(spacer,/flowBottom=flowContainer\.getBoundingClientRect\(\)\.bottom\+window\.scrollY/);
+  assert.match(spacer,/if\(!Number\.isFinite\(flowBottom\)\)return;[\s\S]*?flowMax=Math\.max\(0,flowBottom-innerHeight\)/);
+  assert.match(spacer,/currentHeight\+targetMax-flowMax/);
+  assert.doesNotMatch(spacer,/currentMax|document\.documentElement\.scrollHeight/,
+    'absolute curtain-control overflow is not counted as normal-flow spacer');
+
+  const pageSizeChange=html.match(/function changePageSizePreservingLearningPosition\(nextPageSize\)\{([\s\S]*?)\n  \}\n  function scrollToCurtainResumePosition/)?.[1];
+  assert.ok(pageSizeChange,'page-size preserving transition exists');
+  assert.match(pageSizeChange,/requestAnimationFrame\(\(\)=>\{positionCurtain\(\);syncStudyFooterSpacer\(\);requestAnimationFrame\(scrollToCurtainResumePosition\)\}\)/,
+    'new curtain/control positions are measured before spacer sizing and resume scrolling');
 });
