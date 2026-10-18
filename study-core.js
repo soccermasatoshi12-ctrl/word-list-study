@@ -570,6 +570,9 @@
   function approvePendingStudyTransition(session,confirmFn) {
     return !hasPendingStudyResults(session)||(typeof confirmFn==="function"&&!!confirmFn());
   }
+  function initialAnswerForToggle(defaultAnswer) {
+    return defaultAnswer==="correct"?"wrong":"correct";
+  }
   function setSessionAnswer(session,id,checked) {
     if(!session.studiedIds.includes(id)||session.finalizedIds.includes(id)) return false;
     const index=session.checkedIds.indexOf(id);
@@ -845,7 +848,7 @@
   function makeChatGptUrl(payload) {
     return `https://chatgpt.com/?prompt=${encodeURIComponent(makeGptPrompt(payload))}`;
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,gptIntegrationNotice,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,studyOrderIdentity,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,gptIntegrationNotice,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,initialAnswerForToggle,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

@@ -68,7 +68,7 @@
     .study-actions button{min-width:0}
     .study-actions.study-footer{position:fixed;z-index:50;left:50%;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(796px,calc(100vw - 16px));margin:0;padding:8px 10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.97);box-shadow:0 -3px 14px rgba(15,23,42,.1);backdrop-filter:blur(8px)}
     #studyFooterSpacer{display:block;width:100%;height:0;pointer-events:none}
-    .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:8px}
+    .list-wrap{position:relative}.words{display:flex;flex-direction:column;gap:7px}
     .word-row{display:grid;grid-template-columns:minmax(0,210px) 28px minmax(0,1fr);gap:8px;align-items:stretch;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px}
     .word-cell{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-content:center;column-gap:6px;row-gap:3px;padding:2px 4px}
     .word-main{grid-column:2;grid-row:1;align-self:baseline;min-width:0;font-weight:650;overflow-wrap:anywhere;word-break:break-word}
@@ -179,7 +179,7 @@
       .study-actions button{flex:1 1 auto}
       .study-actions.study-footer{gap:5px;padding:7px}
       .study-actions.study-footer button{flex:1 1 0;padding:7px 5px;font-size:.86rem;white-space:nowrap}
-      .word-row{grid-template-columns:minmax(96px,max(96px,min(calc((100% - 54px)/2),calc(100% - 164px)))) 28px minmax(110px,1fr);gap:6px;padding:6px}
+      .word-row{grid-template-columns:minmax(96px,max(96px,min(calc((100% - 54px)/2),calc(100% - 164px)))) 28px minmax(110px,1fr);gap:6px;padding:5px 6px}
       .word-main{font-size:.98rem}.word-meta{font-size:.7rem;gap:5px}.meaning-text{padding:5px 8px}
     }
     @media(max-width:560px) and (max-height:420px){
@@ -747,10 +747,10 @@
     catch(error){alert(`保存に失敗したため操作を適用できませんでした。${error.message||error}`);return false}
   }
 
-  function markStudied(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined){
+  function markStudied(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined,studyDefaultAnswer=defaultAnswer){
     if(!activeSession)startSession();
     const draftState=JSON.parse(JSON.stringify(state)),draftSession=JSON.parse(JSON.stringify(activeSession));
-    const st=draftState[id]=normalizeState(draftState[id]||defaultState());if(!StudyCore.recordStudy(draftSession,id,st,undefined,defaultAnswer))return true;
+    const st=draftState[id]=normalizeState(draftState[id]||defaultState());if(!StudyCore.recordStudy(draftSession,id,st,undefined,studyDefaultAnswer))return true;
     draftSession.pendingId=id;draftSession.updatedAt=Date.now();draftSession.revealY=Number(committedRevealY)||0;
     const progressedSession=StudyCore.advanceSessionFrontier(draftSession,id);
     const draftProgress=clearSkipped
@@ -824,7 +824,7 @@
   function renderAnswerControlForExposure(id,measuredGeometry=undefined){const row=els.words.querySelector(`.word-row[data-id="${CSS.escape(String(id))}"]`);if(row){syncMeaningDisclosure(row,id);syncAnswerControl(row,id,measuredGeometry);syncExplanationControl(row,id);renderRecent(row.querySelector('.recent'),id,getState(id))}}
   function toggleAnswer(id){
     if(rowDisclosed(id)){if(activeSession?.finalizedIds?.includes(id))return;markAnswer(id,!activeSession.checkedIds.includes(id));return}
-    if(canIndividuallyDisclose(id))markStudied(id,revealY,true);
+    if(canIndividuallyDisclose(id))markStudied(id,revealY,true,undefined,StudyCore.initialAnswerForToggle(defaultAnswer));
   }
   function refreshVisibleRows(){
     const scrollX=window.scrollX,scrollY=window.scrollY;

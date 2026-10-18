@@ -333,7 +333,8 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/row\.append\(wc,cc,mc\);syncMeaningDisclosure\(row,w\.id\)/);
   assert.match(html,/function renderAnswerControlForExposure\(id,measuredGeometry=undefined\)\{const row=.*syncMeaningDisclosure\(row,id\)/);
   assert.match(html,/function processRevealProgress\(g=geometry\(\)\).*StudyCore\.processRevealThresholds\(g\.thresholds,revealY,activeSession\.studiedIds,\(id,boundary\)=>markStudied\(id,boundary,false,g\),gptSkipped\.ids\)/);
-  assert.match(html,/function markStudied\(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
+  assert.match(html,/function markStudied\(id,committedRevealY=revealY,clearSkipped=false,measuredGeometry=undefined,studyDefaultAnswer=defaultAnswer\)[\s\S]*draftSession\.revealY=Number\(committedRevealY\)\|\|0[\s\S]*return false/);
+  assert.match(html,/markStudied\(id,revealY,true,undefined,StudyCore\.initialAnswerForToggle\(defaultAnswer\)\)/);
   assert.match(html,/const restoreCommittedPosition=\(\)=>\{cancelDrag\(\);curtainUserDragging=false;revealY=Number\(activeSession\?\.revealY\|\|0\);positionCurtain\(\)\}/);
   assert.match(html,/const persistDragPosition=\(\)=>\{try\{saveActiveSession\(true,\[\],true\);return true\}catch\(error\)[\s\S]*restoreCommittedPosition\(\);return false\}/);
   assert.doesNotMatch(html,/safeRevealBoundary\(activeSession\?\.studiedIds/);
@@ -533,7 +534,8 @@ test('normal next and random navigation share the fixed study footer without cha
 test('compact row actions gate shared explanation popup on disclosure without persisting popup state',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/\.word-row\{display:grid;grid-template-columns:minmax\(0,210px\) 28px minmax\(0,1fr\)/);
-  assert.match(html,/\.word-row\{grid-template-columns:minmax\(96px,max\(96px,min\(calc\(\(100% - 54px\)\/2\),calc\(100% - 164px\)\)\)\) 28px minmax\(110px,1fr\);gap:6px;padding:6px\}/);
+  assert.match(html,/\.words\{display:flex;flex-direction:column;gap:7px\}/);
+  assert.match(html,/\.word-row\{grid-template-columns:minmax\(96px,max\(96px,min\(calc\(\(100% - 54px\)\/2\),calc\(100% - 164px\)\)\)\) 28px minmax\(110px,1fr\);gap:6px;padding:5px 6px\}/);
   assert.match(html,/\.row-actions\{display:grid;grid-template-rows:28px 20px;align-items:center;justify-items:center;align-self:center;gap:0;width:28px;height:48px/);
   assert.match(html,/\.row-actions button\{[^}]*width:28px[^}]*background:#f7f8fa/);
   assert.match(html,/\.answer-toggle\{height:28px;min-height:28px;font-size:1\.05rem\}/);
@@ -1070,6 +1072,32 @@ test('answer toggles do not change history and ON OFF ON finalizes as one correc
   assert.deepEqual([s.studyCount,s.correctCount,s.recentResults,s.currentStreak],[1,1,[true],1]);
   C.finalizeStudySession(session,()=>s);
   assert.deepEqual([s.studyCount,s.correctCount,s.recentResults,s.currentStreak],[1,1,[true],1]);
+});
+test('first answer-control click starts opposite the default, then alternates and persists', () => {
+  for(const defaultAnswer of ['wrong','correct']) {
+    const state=C.defaultState(),session={studiedIds:[],checkedIds:[],finalizedIds:[]};
+    const first=C.initialAnswerForToggle(defaultAnswer);
+    assert.equal(first,defaultAnswer==='wrong'?'correct':'wrong');
+    C.recordStudy(session,'a',state,'t',first);
+    assert.deepEqual(session.checkedIds,first==='correct'?['a']:[]);
+    const answers=[first];
+    for(let i=0;i<4;i++) {
+      const next=!session.checkedIds.includes('a');
+      assert.equal(C.setSessionAnswer(session,'a',next),true);
+      answers.push(next?'correct':'wrong');
+    }
+    assert.deepEqual(answers,defaultAnswer==='wrong'
+      ?['correct','wrong','correct','wrong','correct']
+      :['wrong','correct','wrong','correct','wrong']);
+    assert.deepEqual([state.studyCount,state.correctCount,state.recentResults],[1,0,[]]);
+    C.finalizeStudySession(session,()=>state);
+    const storage=memoryStorage();
+    C.saveCore(storage,'ledger',{state:{a:state},activeSession:session,gptSessions:{}});
+    const restored=C.loadCore(storage,'ledger',{stateKey:'state',activeSessionKey:'active',gptSessionsKey:'gpt'});
+    assert.equal(restored.state.a.studyCount,1);
+    assert.equal(restored.state.a.correctCount,answers.at(-1)==='correct'?1:0);
+    assert.deepEqual(restored.state.a.recentResults,[answers.at(-1)==='correct']);
+  }
 });
 test('ON OFF finalizes once as wrong and multiple words use their final states', () => {
   const state={a:C.defaultState(),b:C.defaultState(),c:C.defaultState()};
