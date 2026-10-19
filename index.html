@@ -158,11 +158,12 @@
     .meaning-text.is-undisclosed{visibility:hidden}
     .curtain-handle{position:absolute;z-index:21;height:34px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;user-select:none}.curtain-handle.hidden{display:none}
     .curtain-handle::before{content:"";width:58px;height:5px;border-radius:999px;background:#7d848d;box-shadow:0 0 0 6px rgba(223,227,232,.95)}
-    .meaning-curtain.is-curtain-locked,.curtain-handle.is-curtain-locked,.curtain-lock-button.is-curtain-locked{position:fixed}
-    .curtain-lock-button{position:absolute;z-index:22;display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation}.curtain-lock-button.hidden{display:none}
+    .meaning-curtain.is-curtain-locked,.curtain-handle.is-curtain-locked,.curtain-controls.is-curtain-locked{position:fixed}
+    .curtain-controls{position:absolute;z-index:22;display:flex;align-items:center;gap:8px}.curtain-controls.hidden{display:none}
+    .curtain-lock-button{display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation}.curtain-lock-button.hidden{display:none}
     .curtain-lock-button[aria-pressed="true"]{border-color:#2563eb;background:var(--cover);color:#1d4ed8}
     .curtain-lock-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-    .curtain-return-button{position:fixed;z-index:22;display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation;cursor:pointer}.curtain-return-button:disabled{opacity:.45;cursor:default}.curtain-return-button.hidden{display:none}.curtain-return-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .curtain-return-button{position:static;display:grid;place-items:center;width:38px;height:34px;min-height:34px;padding:5px;border:1px solid #c4ccd6;border-radius:9px;background:var(--cover);color:#354052;box-shadow:0 1px 4px #0002;touch-action:manipulation;cursor:pointer}.curtain-return-button:disabled{opacity:.45;cursor:default}.curtain-return-button.hidden{display:none}.curtain-return-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     .curtain-lock-feedback{position:absolute;z-index:23;display:grid;gap:2px;max-width:min(250px,calc(100vw - 28px));padding:7px 9px;border:1px solid #d7dde5;border-radius:8px;background:#fff;color:#364152;font-size:.76rem;line-height:1.35;box-shadow:0 2px 8px #0002}
     .curtain-lock-feedback[hidden]{display:none}.curtain-lock-feedback strong{font-size:.78rem;font-weight:650}
     textarea{width:100%;min-height:120px;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;resize:vertical}#sessionUrl,#chatGptUrl{width:100%;margin-top:8px}
@@ -311,8 +312,10 @@
       <div id="emptyState" class="empty-state" hidden>表示対象の単語がありません。</div>
       <div id="meaningCurtain" class="meaning-curtain hidden" aria-hidden="true"></div>
       <div id="curtainHandle" class="curtain-handle hidden" aria-label="意味カバーを上下に動かす"></div>
-      <button id="curtainLockToggle" class="curtain-lock-button hidden" type="button" aria-label="カーテンをロック" aria-pressed="false" title="カーテンをロック"></button>
-      <button id="curtainReturnToggle" class="curtain-return-button hidden" type="button" aria-label="続きに戻る" title="続きに戻る" disabled><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h14m-6-6 6 6-6 6M21 5v14"/></svg></button>
+      <div id="curtainControls" class="curtain-controls hidden">
+        <button id="curtainReturnToggle" class="curtain-return-button hidden" type="button" aria-label="続きに戻る" title="続きに戻る" disabled><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h14m-6-6 6 6-6 6M21 5v14"/></svg></button>
+        <button id="curtainLockToggle" class="curtain-lock-button hidden" type="button" aria-label="カーテンをロック" aria-pressed="false" title="カーテンをロック"></button>
+      </div>
       <div id="curtainLockFeedback" class="curtain-lock-feedback" role="status" aria-live="polite" hidden><strong></strong><span></span></div>
       <div id="explanationPopup" class="explanation-popup" role="tooltip" aria-hidden="true" hidden></div>
     </div>
@@ -432,7 +435,7 @@
     count:document.getElementById("count"),pagePositionRow:document.getElementById("pagePositionRow"),pagePosition:document.getElementById("pagePosition"),tabs:document.getElementById("tabs"),normalNext:document.getElementById("normalNext"),listWrap:document.getElementById("listWrap"),words:document.getElementById("words"),
     emptyState:document.getElementById("emptyState"),gptWordCountSummary:document.getElementById("gptWordCountSummary"),
     randomNav:document.getElementById("randomNav"),randomProgress:document.getElementById("randomProgress"),randomNext:document.getElementById("randomNext"),
-    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),curtainLockToggle:document.getElementById("curtainLockToggle"),curtainReturnToggle:document.getElementById("curtainReturnToggle"),curtainLockFeedback:document.getElementById("curtainLockFeedback"),studyActions:document.querySelector(".study-actions"),studyFooterSpacer:document.getElementById("studyFooterSpacer"),explanationPopup:document.getElementById("explanationPopup"),
+    meaningCurtain:document.getElementById("meaningCurtain"),curtainHandle:document.getElementById("curtainHandle"),curtainControls:document.getElementById("curtainControls"),curtainLockToggle:document.getElementById("curtainLockToggle"),curtainReturnToggle:document.getElementById("curtainReturnToggle"),curtainLockFeedback:document.getElementById("curtainLockFeedback"),studyActions:document.querySelector(".study-actions"),studyFooterSpacer:document.getElementById("studyFooterSpacer"),explanationPopup:document.getElementById("explanationPopup"),
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
     makeSession:document.getElementById("makeSession"),gptIssueConfirm:document.getElementById("gptIssueConfirm"),cancelGptIssue:document.getElementById("cancelGptIssue"),confirmGptIssue:document.getElementById("confirmGptIssue"),openChatGpt:document.getElementById("openChatGpt"),copyChatGpt:document.getElementById("copyChatGpt"),gptPromptPreview:document.getElementById("gptPromptPreview"),gptPromptText:document.getElementById("gptPromptText"),gptPromptCopyFeedback:document.getElementById("gptPromptCopyFeedback"),
@@ -984,8 +987,6 @@
   function setLockButtonState(g){
     const button=els.curtainLockToggle;if(!g||pageSize===10){button.classList.add("hidden");return}
     button.classList.remove("hidden");
-    if(curtainLocked){button.classList.add("is-curtain-locked");button.style.left=`${els.listWrap.getBoundingClientRect().left+g.left+Math.max(0,g.width-44)}px`;button.style.top=`${effectiveLockedY()+20}px`}
-    else{button.classList.remove("is-curtain-locked");button.style.left=`${g.left+Math.max(0,g.width-44)}px`;button.style.top=`${g.top+revealY+20}px`}
     button.setAttribute("aria-pressed",String(curtainLocked));
     button.setAttribute("aria-label",curtainLocked?"カーテンのロックを解除":"カーテンをロック");
     button.title=curtainLocked?"カーテンのロックを解除":"カーテンをロック";
@@ -997,14 +998,16 @@
   }
   function setReturnButtonState(g){
     const button=els.curtainReturnToggle;if(!g){button.classList.add("hidden");button.disabled=true;return}
-    button.classList.remove("hidden");button.classList.toggle("is-curtain-locked",curtainLocked);
+    button.classList.remove("hidden");
     const id=StudyCore.resolveDisplayFrontier(activeSession,words,sortMode,randomIds).learnedId,target=id?g.thresholds.find(item=>String(item.id)===String(id)):null;
     const first=els.words.querySelector(".meaning-cell"),effectiveY=curtainLocked?effectiveLockedY(first):null,currentBoundary=curtainLocked&&first?effectiveY-first.getBoundingClientRect().top:revealY;
     button.disabled=!target||Number(target.bottom)<=currentBoundary+1;
     button.setAttribute("aria-label","続きに戻る");button.title="続きに戻る";
-    const wrapRect=els.listWrap.getBoundingClientRect(),coverTop=curtainLocked?effectiveY:wrapRect.top+g.top+revealY,buttonOffset=pageSize===10?20:58;
-    button.style.left=`${wrapRect.left+g.left+Math.max(0,g.width-44)}px`;
-    button.style.top=`${coverTop+buttonOffset}px`;
+  }
+  function positionCurtainControls(g){
+    const controls=els.curtainControls,wrapRect=els.listWrap.getBoundingClientRect(),right=curtainLocked?wrapRect.left+g.left+Math.max(0,g.width-44):g.left+Math.max(0,g.width-44),boundary=curtainLocked?effectiveLockedY():g.top+revealY;
+    controls.classList.remove("hidden");controls.classList.toggle("is-curtain-locked",curtainLocked);
+    controls.style.left=`${right-(pageSize===10?0:46)}px`;controls.style.top=`${boundary+20}px`;
   }
   function effectiveLockedY(first=els.words.querySelector(".meaning-cell")){
     if(!curtainLocked||!Number.isFinite(lockedY)||!first)return lockedY;
@@ -1019,7 +1022,7 @@
     if(preserveViewportBoundary&&g&&Number.isFinite(priorEffectiveY)){
       const currentFirst=els.words.querySelector(".meaning-cell");if(currentFirst)revealY=Math.max(0,Math.min(priorEffectiveY-currentFirst.getBoundingClientRect().top,g.height));
     }
-    positionCurtain(g);
+    positionCurtain(g,{preserveBoundary:preserveViewportBoundary});
   }
   function beginCurtainLock(){
     if(pageSize===10){releaseCurtainLock();return false}
@@ -1054,12 +1057,12 @@
     try{saveActiveSession(true,[],true)}catch(error){releaseCurtainLock();revealY=Number(activeSession?.revealY||0);positionCurtain();lockFeedback("保存できません",`保存に失敗したためロックを解除しました。${error.message||error}`);return "save-failed"}
     return "updated";
   }
-  function scheduleLockedCurtainUpdate(){if(lockScrollFrame)return;lockScrollFrame=requestAnimationFrame(()=>{lockScrollFrame=0;if(curtainLocked)updateLockedCurtain();else if(!els.studyScreen.hidden)setReturnButtonState(geometry())})}
-  function positionCurtain(g=geometry()){
-    if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");els.curtainLockToggle.classList.add("hidden");els.curtainReturnToggle.classList.add("hidden");els.curtainReturnToggle.disabled=true;return}
-    const anchor=!curtainLocked&&!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
+  function scheduleLockedCurtainUpdate(){if(lockScrollFrame||!curtainLocked)return;lockScrollFrame=requestAnimationFrame(()=>{lockScrollFrame=0;if(curtainLocked)updateLockedCurtain()})}
+  function positionCurtain(g=geometry(),{preserveBoundary=false}={}){
+    if(!g){els.meaningCurtain.classList.add("hidden");els.curtainHandle.classList.add("hidden");els.curtainControls.classList.add("hidden");els.curtainLockToggle.classList.add("hidden");els.curtainReturnToggle.classList.add("hidden");els.curtainReturnToggle.disabled=true;return}
+    const anchor=!preserveBoundary&&!curtainLocked&&!curtainUserDragging&&activeSession?.gptRevealTargetId&&g.thresholds.find(item=>String(item.id)===String(activeSession.gptRevealTargetId));
     const identity=StudyCore.studyOrderIdentity(words,sortMode,randomIds),frontierId=activeSession?.curtainFrontierId;
-    const frontierAnchor=!anchor&&!curtainLocked&&!curtainUserDragging&&frontierId&&StudyCore.sameStudyOrderIdentity(activeSession?.curtainFrontierIdentity,identity);
+    const frontierAnchor=!preserveBoundary&&!anchor&&!curtainLocked&&!curtainUserDragging&&frontierId&&StudyCore.sameStudyOrderIdentity(activeSession?.curtainFrontierIdentity,identity);
     if(anchor)revealY=Number(anchor.bottom);
     else if(frontierAnchor)revealY=StudyCore.curtainFrontierBoundary(g.thresholds,words,sortMode,randomIds,frontierId);
     revealY=Math.max(0,Math.min(revealY,g.height));
@@ -1074,6 +1077,7 @@
       els.meaningCurtain.style.left=`${g.left}px`;els.meaningCurtain.style.width=`${g.width}px`;els.meaningCurtain.style.top=`${g.top+revealY}px`;els.meaningCurtain.style.height=`${Math.max(0,g.height-revealY)}px`;
       els.curtainHandle.style.left=`${g.left}px`;els.curtainHandle.style.width=`${g.width}px`;els.curtainHandle.style.top=`${g.top+revealY}px`;
     }
+    positionCurtainControls(g);
     setLockButtonState(g);
     setReturnButtonState(g);
     for(const row of els.words.querySelectorAll(".word-row"))syncAnswerControl(row,row.dataset.id,g);

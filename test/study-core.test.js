@@ -405,7 +405,7 @@ test('word rows use flowing full-meaning text, five-result history, and mastered
   assert.match(html,/const restoreCommittedPosition=\(\)=>\{cancelDrag\(\);curtainUserDragging=false;revealY=Number\(activeSession\?\.revealY\|\|0\);positionCurtain\(\)\}/);
   assert.match(html,/const persistDragPosition=\(\)=>\{try\{saveActiveSession\(true,\[\],true\);return true\}catch\(error\)[\s\S]*restoreCommittedPosition\(\);return false\}/);
   assert.doesNotMatch(html,/safeRevealBoundary\(activeSession\?\.studiedIds/);
-  assert.match(html,/function positionCurtain\(g=geometry\(\)\)[\s\S]*?els\.meaningCurtain\.style\.height=`\$\{Math\.max\(0,g\.height-revealY\)\}px`[\s\S]*?els\.curtainHandle\.style\.top=[\s\S]*?syncAnswerControl\(row,row\.dataset\.id,g\)/);
+  assert.match(html,/function positionCurtain\(g=geometry\(\),\{preserveBoundary=false\}=\{\}\)[\s\S]*?const anchor=!preserveBoundary&&[\s\S]*?const frontierAnchor=!preserveBoundary&&[\s\S]*?els\.meaningCurtain\.style\.height=`\$\{Math\.max\(0,g\.height-revealY\)\}px`[\s\S]*?els\.curtainHandle\.style\.top=[\s\S]*?syncAnswerControl\(row,row\.dataset\.id,g\)/);
   assert.match(html,/function canIndividuallyDisclose\(id,measuredGeometry=undefined\)[\s\S]*?measuredGeometry===undefined\?geometry\(\):measuredGeometry/);
   assert.match(html,/row\.append\(wc,cc,mc\);syncMeaningDisclosure\(row,w\.id\);syncAnswerControl\(row,w\.id,null\)/);
   assert.match(html,/function historySlots\(id,st\)/);
@@ -441,12 +441,74 @@ test('session frontier is the farthest reached ID in this session order and adva
 test('tip-return UI uses the session or preserved display frontier without invoking reveal learning',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/<button id="curtainReturnToggle" class="curtain-return-button hidden"[^>]*aria-label="続きに戻る"[^>]*disabled><svg/);
-  assert.match(html,/\.curtain-return-button\{position:fixed;z-index:22/);
-  assert.match(html,/const wrapRect=els\.listWrap\.getBoundingClientRect\(\),coverTop=curtainLocked\?effectiveY:wrapRect\.top\+g\.top\+revealY/);
-  assert.match(html,/function scheduleLockedCurtainUpdate\(\)\{if\(lockScrollFrame\)return;lockScrollFrame=requestAnimationFrame\(\(\)=>\{lockScrollFrame=0;if\(curtainLocked\)updateLockedCurtain\(\);else if\(!els\.studyScreen\.hidden\)setReturnButtonState\(geometry\(\)\)\}\)\}/);
+  assert.match(html,/<div id="curtainControls" class="curtain-controls hidden">\s*<button id="curtainReturnToggle"[\s\S]*?<button id="curtainLockToggle"/);
+  assert.match(html,/\.curtain-controls\{position:absolute;z-index:22;display:flex;align-items:center;gap:8px\}/);
+  assert.match(html,/\.curtain-controls\.is-curtain-locked\{position:fixed\}/);
+  assert.match(html,/function positionCurtainControls\(g\)[\s\S]*?right=curtainLocked\?wrapRect\.left\+g\.left\+Math\.max\(0,g\.width-44\):g\.left\+Math\.max\(0,g\.width-44\),boundary=curtainLocked\?effectiveLockedY\(\):g\.top\+revealY[\s\S]*?right-\(pageSize===10\?0:46\)[\s\S]*?boundary\+20/);
+  assert.match(html,/function scheduleLockedCurtainUpdate\(\)\{if\(lockScrollFrame\|\|!curtainLocked\)return;lockScrollFrame=requestAnimationFrame\(\(\)=>\{lockScrollFrame=0;if\(curtainLocked\)updateLockedCurtain\(\)\}\)\}/);
+  assert.doesNotMatch(html,/setReturnButtonState\(geometry\(\)\)/,'normal scrolling relies on the shared absolute controls group instead of JS return-button tracking');
   assert.match(html,/function returnToSessionFrontier\(\)[\s\S]*?resolveDisplayFrontier\(activeSession,words,sortMode,randomIds\)\.learnedId[\s\S]*?saveActiveSession\(true,\[\],true\)[\s\S]*?updateLockedCurtain\(\{suppressRevealProcessing:true\}\)/);
   assert.match(html,/const updateResult=updateLockedCurtain\(\{suppressRevealProcessing:true\}\);[\s\S]*?if\(!curtainLocked&&updateResult!=="natural-end"\)return false;[\s\S]*?if\(!curtainLocked&&updateResult==="natural-end"\)[\s\S]*?const unlockedGeometry=geometry\(\)[\s\S]*?revealY=Number\(unlockedTarget\.bottom\)[\s\S]*?saveActiveSession/);
   assert.match(html,/function updateLockedCurtain\(\{suppressRevealProcessing=false\}=\{\}\)[\s\S]*?advanced&&!suppressRevealProcessing&&!processRevealProgress\(g\)/);
+});
+test('shared curtain control group aligns return and lock buttons for 10, 20, and 50 item pages',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const source=html.match(/function positionCurtainControls\(g\)\{([\s\S]*?)\n  \}/)?.[0];assert.ok(source);
+  const position=new Function('input',`
+    let curtainLocked=input.locked,pageSize=input.pageSize,revealY=input.revealY;
+    const classes=new Set(),els={curtainControls:{classList:{remove(name){classes.delete(name)},toggle(name,on){if(on)classes.add(name);else classes.delete(name)},add(name){classes.add(name)}},style:{}},listWrap:{getBoundingClientRect(){return{left:input.wrapLeft}}}};
+    function effectiveLockedY(){return input.effectiveY}
+    ${source}
+    positionCurtainControls(input.g);
+    return{left:parseFloat(els.curtainControls.style.left),top:parseFloat(els.curtainControls.style.top),lockedClass:classes.has('is-curtain-locked')};
+  `);
+  for(const pageSize of [10,20,50]){
+    const g={left:12,width:300,top:90},revealY=30,normal=position({pageSize,locked:false,revealY,wrapLeft:0,g});
+    const right=g.left+g.width-44,groupLeft=right-(pageSize===10?0:46);
+    assert.equal(normal.left,groupLeft);assert.equal(normal.top,g.top+revealY+20);assert.equal(normal.lockedClass,false);
+    if(pageSize>10)assert.equal(groupLeft+38+8,right-0,'the return button and lock button retain an 8px gap with the lock on the original right edge');
+    const locked=position({pageSize,locked:true,revealY,wrapLeft:40,effectiveY:260,g});
+    assert.equal(locked.left,40+right-(pageSize===10?0:46));assert.equal(locked.top,280);assert.equal(locked.lockedClass,true);
+  }
+  assert.match(html,/function setLockButtonState\(g\)\{\s*const button=els\.curtainLockToggle;if\(!g\|\|pageSize===10\)\{button\.classList\.add\("hidden"\);return\}/);
+  assert.match(html,/\.curtain-return-button\{position:static;display:grid;place-items:center;width:38px;height:34px/);
+});
+test('unlock preserves the locked viewport boundary and does not reapply learning or GPT anchors',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const release=html.match(/function releaseCurtainLock\(preserveViewportBoundary=false\)\{([\s\S]*?)\n  \}/)?.[0];
+  const end=html.match(/function endCurtainLock\(\)\{([\s\S]*?)\n  \}/)?.[1];
+  assert.ok(release&&end,'lock release functions should be present');
+  assert.match(release,/priorEffectiveY=effectiveLockedY\(first\)/);
+  assert.match(release,/revealY=Math\.max\(0,Math\.min\(priorEffectiveY-currentFirst\.getBoundingClientRect\(\)\.top,g\.height\)\)/);
+  assert.match(release,/positionCurtain\(g,\{preserveBoundary:preserveViewportBoundary\}\)/);
+  assert.match(end,/releaseCurtainLock\(true\)/);
+  assert.match(html,/function positionCurtain\(g=geometry\(\),\{preserveBoundary=false\}=\{\}\)[\s\S]*?const anchor=!preserveBoundary&&[\s\S]*?const frontierAnchor=!preserveBoundary&&/);
+
+  for(const {scrollY,firstTop,lockedY} of [
+    {scrollY:0,firstTop:100,lockedY:340},
+    {scrollY:720,firstTop:-620,lockedY:188},
+    {scrollY:1080,firstTop:-980,lockedY:120}
+  ]){
+    const run=new Function('input',`
+      let curtainLocked=true,lockedY=input.lockedY,lockLastRevealY=0,revealY=0,lockScrollFrame=0;
+      let usedOptions=null,renderedViewportBoundary=null;
+      const els={curtainLockToggle:{setAttribute(){}},words:{querySelector(){return{getBoundingClientRect(){return{top:input.firstTop}}}}}};
+      const priorEffectiveY=Math.max(lockedY,input.firstTop);
+      function effectiveLockedY(){return priorEffectiveY}
+      function geometry(){return{height:2000}}
+      function positionCurtain(g,options={}){usedOptions=options;if(!options.preserveBoundary)revealY=input.sessionAnchor;renderedViewportBoundary=input.firstTop+revealY}
+      function cancelAnimationFrame(){}
+      ${release}
+      releaseCurtainLock(true);
+      return{revealY,curtainLocked,lockedY,usedOptions,renderedViewportBoundary,renderedDocumentBoundary:input.scrollY+renderedViewportBoundary,expectedViewportY:priorEffectiveY,expectedDocumentBoundary:input.scrollY+priorEffectiveY};
+    `)({scrollY,firstTop,lockedY,sessionAnchor:640});
+    assert.equal(run.curtainLocked,false);
+    assert.equal(run.lockedY,null);
+    assert.equal(run.usedOptions.preserveBoundary,true);
+    assert.equal(run.renderedViewportBoundary,run.expectedViewportY);
+    assert.equal(run.renderedDocumentBoundary,run.expectedDocumentBoundary);
+    assert.notEqual(run.revealY,640,'the learning anchor must not overwrite the released boundary');
+  }
 });
 test('normal order keeps fixed ranges and original numbering with filtered gaps', () => {
   const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:''}));
@@ -809,8 +871,9 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/\.word-meta \.recent\{display:inline-grid;grid-template-columns:repeat\(5,minmax\(0,1fr\)\);align-items:center;flex:0 0 5em;width:5em/);
   assert.match(html,/\.history-slot\{display:block;min-width:0;text-align:center;color:#9299a3\}/);
   assert.doesNotMatch(html,/lockRunway|setLockRunwayForTarget/);
-  assert.match(html,/\.meaning-curtain\.is-curtain-locked,\.curtain-handle\.is-curtain-locked,\.curtain-lock-button\.is-curtain-locked\{position:fixed\}/);
-  assert.match(html,/\.curtain-lock-button\{position:absolute;[\s\S]*?background:var\(--cover\)/);
+  assert.match(html,/\.meaning-curtain\.is-curtain-locked,\.curtain-handle\.is-curtain-locked,\.curtain-controls\.is-curtain-locked\{position:fixed\}/);
+  assert.match(html,/\.curtain-controls\{position:absolute;z-index:22;display:flex;align-items:center;gap:8px\}/);
+  assert.match(html,/\.curtain-lock-button\{display:grid;place-items:center;width:38px;height:34px;min-height:34px/);
   assert.match(html,/function releaseCurtainLock\(preserveViewportBoundary=false\)[\s\S]*?curtainLocked=false;lockedY=null/);
   assert.match(html,/const didJump=!!draft\.jump\?\.canJump;\s*const changedPage=draft\.transition\?\.kind==="jump"&&didJump;\s*if\(didJump&&curtainLocked\)\{releaseCurtainLock\(\)\}/);
   assert.match(html,/if\(curtainLocked&&draft\.samePage&&!draft\.jump\?\.canJump&&draft\.activeSession\?\.gptRevealTargetId\)\{\s*draft\.activeSession\.gptRevealTargetId=null/);
