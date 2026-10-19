@@ -2,62 +2,57 @@
 
 ## 1. この文書について
 
-この文書は、Word List Study の学習状態、通常学習、GPT出題・結果登録、保存復元の現行実装を説明する。将来の変更時に、似た名前の状態を混同したり、GPT結果を通常学習状態へ誤って一括反映したりしないための参照資料とする。
+本書はWord List Studyの現行構造と動作を説明する設計資料である。記述時点の基準はHEAD `d5ad3e899bf29e77215192d67c9c3be1ee4010a3`（2026-10-19）とする。コード変更後は、関連コードと回帰テストを確認して必要な箇所を更新する。
 
-記述は次の区分を使う。
+記述は次のように区別する。
 
-- **現行仕様**：HEAD `e06bf6414f7c30f0dee2b7fd63fadfa9ea33e6d9` のコード・テストで確認できた動作。
-- **実装構造**：その動作を実現するデータ、関数、画面処理。
-- **設計意図の根拠**：コメント、ガード条件、テスト名・期待値、または明示された合意から確認できる意図。理由をコードから確定できない場合は推測しない。
-- **変更候補・未解決事項**：まだ実装されていない機能や、動作統一を検討中の点。
+- **現行実装**：コード上で確認できる状態・処理・画面動作。
+- **テストで確認された契約**：自動テストが期待値として固定している動作。ブラウザ・端末での表示品質まで保証する意味ではない。
+- **意図・仕様判断**：明示された要件や根拠がある場合に限って記載する。コードだけでは理由を確定できない場合は実装動作と分ける。
+- **未決事項**：複数の妥当な仕様があり、現行実装だけでは今後の望ましい動作を判断できない点。
 
-この文書はカーテンロックや先端復帰が既に存在するとは扱わない。コードを変更した際は、関係する関数名と契約を照合して更新する。
+この文書は現在の実装を説明し、過去の実装状態や変更希望を履歴として列挙するものではない。問題の可能性がある挙動を記載する場合は、現行動作と懸念・未決判断を明確に分ける。
 
 ## 2. 全体構造
 
 ### 2.1 問題集、順序、ページ
 
-問題集は `words` 配列で、各問題は文字列ID、`question`、`answer`、任意の`explanation`を持つ。旧CSV列`word`・`meaning`は正規化時に`question`・`answer`へ移される。IDは状態マップのキー、GPT payloadとの照合キー、セッションの問題参照に使う。
+`words`配列の各要素は文字列`id`、`question`、`answer`、任意の`explanation`を持つ。IDは履歴state、セッション、GPT結果の照合に使う。
 
-- 通常順はCSV登録順。ページは問題集上の固定範囲で分割され、習得済み除外などの表示条件をページ内に適用する。
-- ランダム順は保存されたID順を使う。ランダムページは順序上の固定範囲を先に切り、表示条件を適用する。
-- 表示順・ページ・除外設定は現在の画面状態。通常順とランダム順の学習到達カーソルは別々に保持する。
+- 通常順はCSV順。ページ境界はフィルター適用前の元配列の固定範囲で、フィルター後の表示行数が減っても番号・範囲は詰めない。
+- ランダム順は永続化された`randomIds`を使う。ページ境界は固定random順上で先に切り、その後に表示条件を適用する。
+- 表示数は10、20、50、100。習得除外を含む表示条件はページ範囲内に適用する。
+- `view`には現在の順序・ページ・除外条件が入り、`preferences`には表示数などの設定が入る。学習到達位置は`studyProgress.normal`と`studyProgress.random`に分けて保持する。
 
 ### 2.2 処理の概略
 
 ```text
 CSV / localStorage
-       │
-       ├─ words・state・preferences・view・random order
-       └─ studyLedger (activeSession / studyProgress / GPT records / gptSkipped)
-                    │
-                    ├─ 通常学習: カーテンドラッグまたは個別開示
-                    │             → studiedIds・studyCount・studyProgress
-                    │             → ○×は暫定、遷移時等に確定履歴へ
-                    │
-                    ├─ GPT出題: 表示順・開始位置・除外条件でID列を選択
-                    │             → payload + 発行時contextを保存
-                    │
-                    └─ GPT結果登録: JSON/ID検証 → 重複・開示保護
-                                  → 最新発行・現在ページ位置 → 確認要否
-                                  → 結果の正式履歴または現在ページの暫定状態
-                                  → gptSkipped / studyProgress / view/session保存
+  ├─ words, state, preferences, view, random order, screen/title
+  └─ studyLedger (activeSession / studyProgress / GPT issue & replay / gptSkipped)
+       ├─ 通常学習: カーテン・個別マスク → studiedIds / 暫定評価 / 到達ID
+       │             → 遷移時等に確定履歴へ反映
+       ├─ 表示数変更: 旧frontier取得 → 現セッション確定 → 新ページ/新session
+       │             → ID frontierからカーテン復元・スクロール
+       ├─ GPT発行: 順序・開始位置・除外条件 → payload / issue context / issue sequence
+       └─ GPT結果: 検証・重複/開示保護 → formal/provisional結果・skipped
+                     → 必要な場合のみ確認済みjump → snapshot保存後に画面反映
 ```
 
-ホーム画面と学習画面の習得率・学習回数分布は`StudyCore.buildProgressSummary()`から算出する。進捗表示は保存状態を読む表示処理であり、分布の対象切替は学習対象やカーソルを書き換えない。
+`study-core.js`はDOMに依存しない状態正規化、ページモデル、学習履歴、セッション判定、GPT結果検証・統合などを提供する。`index.html`は画面状態、DOM、ブラウザイベント、localStorage接続、表示とモーダルを管理する。
 
 ### 2.3 主な実装箇所
 
-| 対象 | 主な参照箇所 |
+| 対象 | 主な参照 |
 |---|---|
-| 純粋な状態・履歴・GPT処理 | `study-core.js`: `normalizeState`, `recordStudy`, `finalizeStudySession`, `inspectGptResults`, `evaluateGptJump`, `prepareGptIntegration` |
-| 画面状態とlocalStorage接続 | `index.html`: 初期化、`writeCoreSnapshot`, `transitionView`, `markStudied`, `applyGptResults` |
-| カーテン・行表示 | `index.html`: `geometry`, `positionCurtain`, `processRevealProgress`, `syncMeaningDisclosure`, `syncAnswerControl` |
-| GPT発行・結果登録UI | `index.html`: `makeGptSession`, `applyGptResults` |
-| 進捗可視化 | `study-core.js`: `buildProgressSummary`; `index.html`: `renderProgressSummary` |
-| 仕様回帰テスト | `test/study-core.test.js`: GPT integration、issue sequence、page-position jump、session persistence、reveal threshold関連の各テスト |
+| 状態・履歴・保存・CSV/GPTロジック | `study-core.js`: `normalizeState`, `recordStudy`, `finalizeStudySession`, `saveCoreTransition`, `parseWordCsv`, `buildPageModel`, `tryRestoreSession`, `prepareGptIntegration` |
+| ページ/表示/学習状態 | `index.html`: `buildTarget`, `transitionView`, `changePageSizePreservingLearningPosition`, `markStudied`, `toggleAnswer`, `render` |
+| カーテン・行境界 | `index.html`: `geometry`, `processRevealProgress`, `positionCurtain`, `positionCurtainControls`, `attachCurtainDrag`, `releaseCurtainLock`, `returnToSessionFrontier` |
+| フッター余白 | `index.html`: `.study-actions.study-footer`, `#studyFooterSpacer`, `syncStudyFooterSpacer` |
+| GPT UI・URL | `index.html`: `makeGptSession`, `applyGptResults`, `receiveGptResultFromUrl`, `removeGptResultParamFromUrl`; `study-core.js`: `makeGptPayload`, `makeGptPrompt`, `makeChatGptUrl` |
+| 回帰テスト | `test/study-core.test.js`: display-size/frontier、empty page、curtain lock/unlock、footer spacer、CSV、session restore、GPT integrationなど |
 
-以下では行番号を固定参照にせず、関数名・状態名を主な参照単位とする。
+この文書では関数名・状態名を参照単位とし、行番号はコード改訂で変化するため固定しない。
 
 ## 3. 学習状態データモデル
 
@@ -88,8 +83,12 @@ CSV / localStorage
 | `finalizedIds` | このセッション中に確定済みのID。再確定を防ぐ。 |
 | `pendingId` | 最近操作した問題のID。 |
 | `revealY` | 現在ページのカーテン先端位置。`geometry()`が作る先頭meaning cell基準の局所座標で保存する。 |
-| `gptRevealTargetId` | GPT由来の到達先を示す問題ID。ページ内の実寸法が変わっても再計測できるアンカー。手動ドラッグ保存時には解除される。 |
-| `preserveTargetIds`, `preservedTargetIdentity` | GPT結果反映による習得状態変化で対象ページが変わる場合、データ・順序・固定範囲が一致する間だけ現在対象を保つための一時的な復元情報。 |
+| `furthestProgressId` | active session内の表示順上での到達位置。現在の行を調べる候補の一つ。 |
+| `curtainFrontierId`, `curtainFrontierIdentity` | 表示数変更後もカーテンの進行境界をIDで再構成するためのfrontier。identityが現在の単語順と一致する場合にだけ使う。 |
+| `gptRevealTargetId` | GPT由来の到達先ID。ページ内寸法が変わっても再計測できるアンカー。GPT jump用で、表示数変更用のcurtain frontierとは別の状態。 |
+| `preserveTargetIds`, `preservedTargetIdentity` | GPT結果に伴う結果確定後の対象再評価で、条件が一致する場合に限り現在の対象ID列を一時保持する情報。 |
+
+`revealY`は画面描画に使うページ内pixel値で、永続的な順序位置の代用ではない。表示数変更ではfrontier IDとorder identityから新しいページの境界を測り直す。
 
 `recordStudy()`は`studiedIds`に既にあるIDなら何も加算しない。初回だけ`studyCount`と`lastStudiedAt`を更新してIDを追加する。`defaultAnswer`がcorrectの場合は初期の`checkedIds`にも追加する。
 
@@ -98,7 +97,8 @@ CSV / localStorage
 - `revealY`はactive session内の現在ページの表示座標であり、到達順序を示す永続カーソルではない。
 - `studyProgress.normal`と`studyProgress.random`はそれぞれの順序における最後の新規開示・GPT到達IDと、`wordCount`、order/CSV-order/content fingerprintを持つ。
 - `recordStudyDisclosure()`は通常の新規開示IDを記録する。`advanceStudyProgress()`はGPT到達用で、有効なカーソルが対象より後ろなら後退させない。
-- `gptRevealTargetId`は現在セッションの行境界を再計測するアンカー。`studyProgress`はモード別の順序位置であり、両者は同じ値・同じ保存目的ではない。
+- `gptRevealTargetId`はGPT jump後の現在セッション行境界を再計測するアンカー。`curtainFrontierId`は表示数変更後の境界復元に使うIDであり、`studyProgress`はモード別の到達位置である。3者は値や保存目的を混同しない。
+- `resolveDisplayFrontier()`はセッション内の到達IDと有効なcurtain frontierを順序上で比較し、開示先端を選ぶ。先端がないときは変更前ページ先頭をfallbackにする。
 
 ### 3.4 GPT状態・順序identity
 
@@ -122,6 +122,8 @@ CSV / localStorage
 | `wordlist.randomOrder.v1` | 保存されたランダムID順。 |
 | `wordlist.view.v1` | 表示モード・ページ・除外などのview。 |
 | `wordlist.preferences.v1` | ページサイズ、習得閾値、初期評価、GPT出題数。 |
+| `wordlist.gptStartPosition.v1` | GPT出題開始方法（`page`または`continue`）。preferencesとは別に保存。 |
+| `wordlist.csvHelpOpen.v1` | CSV形式ヘルプの開閉状態（`open`/`closed`）。 |
 | `wordlist.screen.v1` | ホーム／学習画面の復帰先。 |
 | `wordlist.listTitle.v1` | ホームに表示する問題集タイトル。 |
 
@@ -129,35 +131,54 @@ CSV / localStorage
 
 ## 4. 通常学習とカーテン
 
-### 4.1 DOMと座標
+### 4.1 行、評価ボタン、個別マスク
 
-`index.html`の`#listWrap`内に`#words`、`#meaningCurtain`、`#curtainHandle`がある。`geometry()`は各`.meaning-cell`の`getBoundingClientRect()`を計り、先頭meaning cellからの相対`top`・`bottom`、`listWrap`内の先頭位置・幅・全高を返す。
+1行は`.word-row`内に問題・履歴/習得表示・`.answer-toggle`・`.explanation-button`・`.meaning-cell`を持つ。`activeSession.studiedIds`が現在セッションでの開示状態を示し、確定履歴だけでは現在セッションの意味開示状態にならない。
 
-`revealY`はmeaning cell先頭を0としたページ内のCSS pixel値。表示時は`positionCurtain()`が`listWrap`内の`top = geometry.top + revealY`へカーテンとハンドルを置く。画面座標自体を保存していないため、スクロール位置とは独立して再計測できる。
+- 未開示時、解答テキストは`is-undisclosed`で隠され、評価ボタンは「－」表示かつdisabled。`toggleAnswer()`も未開示IDなら何もせず、開示・評価・履歴・カーテン位置を変更しない。
+- 未開示の`.meaning-cell`をクリックし、`canIndividuallyDisclose()`が許可した場合は、そのIDだけ`markStudied()`で開示する。設定中の`defaultAnswer`を適用し、通常学習の開示として`studyCount`とセッションを更新する。
+- 開示後、評価ボタンは○/×を切り替える。○×は`checkedIds`に保持され、通常はsession確定まで正誤履歴へ追加されない。未選択は暫定×として確定される。
+- 解説ボタンは解説文があり、かつ開示済みの場合だけ利用できる。ポップアップ表示中の内容は保存しない。
+- 各行の履歴表示は5つの等幅スロットで、確定済みの直近結果を右寄せし、空きは未記録記号で埋める。開示中の暫定評価がある場合は確定履歴4件と今回の評価を表示し、`aria-label`で確定履歴と暫定値を区別する。`recentResults`の保存上限（最大10件）と、画面表示数（5枠）は別である。
 
-### 4.2 通常ドラッグから開示まで
+### 4.2 カーテンの境界とドラッグ
 
-1. `curtainHandle`のpointerdownが開始位置・pointer IDを保持し、pointer captureを取る。
-2. pointermoveごとに`geometry()`を取得し、`clientY`差分で`revealY`を更新して`positionCurtain()`を呼ぶ。
-3. `processRevealProgress()`が`StudyCore.processRevealThresholds()`へ行のbottom閾値、`revealY`、`studiedIds`、`gptSkipped.ids`を渡す。
-4. 閾値を越え、未開示かつblockedでない行だけ`markStudied(id, threshold.bottom)`へ渡す。
-5. `markStudied()`はdraftを作り、`recordStudy()`で一度だけ加算し、`studyProgress`とledgerを保存してからメモリ・DOM表示を更新する。保存失敗時には開示を確定せず、ドラッグ位置を直前の保存位置へ戻す。
+`#listWrap`には`#words`、`#emptyState`、`#meaningCurtain`、`#curtainHandle`、`#curtainControls`、lock feedback、解説popupがある。ドラッグハンドルはカーテン境界を動かす専用要素で、先端復帰/lockのボタンとは別である。
 
-`positionCurtain()`自体は学習記録を作らない。GPT由来のカーテン位置更新も通常の`processRevealProgress()`を通らない。これにより到達位置と行ごとの開示記録は別に保たれる。
+`geometry()`は各meaning cellの矩形を測り、先頭セルからの相対`top`/`bottom`閾値とリスト寸法を返す。`revealY`は先頭meaning cell基準の局所CSS pixel位置である。`positionCurtain()`はこの値からカーテンとハンドルの位置を描画するが、単独では学習履歴を記録しない。
 
-### 4.3 評価と確定
+ハンドルのpointer操作はpointer captureを使う。ドラッグ中の境界を`processRevealProgress()`から`StudyCore.processRevealThresholds()`へ渡し、閾値を越えた未開示IDだけ`markStudied()`で記録する。保存失敗時は直前に保存された境界へ戻す。GPT `skipped` IDおよび表示数変更後の保護frontierまでにあるマスク行は、自動開示対象から除外する。カーテン通過範囲と`studiedIds`は同じものではない。
 
-開示時は`studiedIds`へ入る。○×操作は`setSessionAnswer()`で`checkedIds`を切り替えるだけで、まだ確定履歴へ追加しない。`finalizeStudySession()`は未確定の`studiedIds`について、`checkedIds`にあるものを正解、ないものを誤答として確定し、`correctCount`、`recentResults`、`currentStreak`、`finalizedIds`を更新する。
+ドラッグ境界を逆方向へ動かしても、すでに`studiedIds`へ記録された開示や、`state[id]`に確定済みとなった履歴を取り消す処理はない。境界を戻すと意味欄はカーテン下に視覚的に覆われ得るが、保存済み学習履歴は残り、セッション上の開示記録も自動で削除されない。境界の見た目と学習記録は別状態である。
 
-ページ遷移、順序・表示設定変更などの経路で確認・確定されるかは操作ごとに異なる。次・繰返し等は専用確認を行う一方、通常ページタブは`requestViewTransition()`へ直接進む。したがって「どのページ移動にも必ず確認が出る」と一般化しない。
+### 4.3 カーテンロック、解除、操作ボタン
 
-### 4.4 個別マスクと「－」
+`#curtainControls`は先端復帰とロック/解除ボタンを同じ配置基準で保持する。横並びは先端復帰が左、lockが右で、間隔はCSS gapで設定する。`#curtainHandle`はこのcontrols groupに含まれない。
 
-`syncMeaningDisclosure()`は`activeSession.studiedIds`にない解答テキストを`is-undisclosed`として隠し、`aria-hidden=true`にする。`syncAnswerControl()`は未開示なら「－」を表示する。`canIndividuallyDisclose()`は、現在ページの行閾値が`revealY`内にある場合だけ有効とする。
+- 通常時、`.curtain-controls`は`.list-wrap`を基準にabsolute配置される。`positionCurtainControls()`はカーテン境界の下20pxを縦位置基準とし、右端をリスト幅に合わせる。文書スクロール時は通常レイアウトによりcontrols全体が一緒に移動する。ロック中は同じグループが`position:fixed`へ切り替わり、viewport上の境界に配置される。
+- `#curtainControls`内は先端復帰が左、ロック/解除が右で、gapは8px。ボタンは各38×34px。`#curtainHandle`は独立したドラッグ要素であり、両ボタンのグループに含まれない。ボタン同士も別々のclick handlerを持ち、先端復帰とlock toggleは別操作である。
+- 10問表示ではロックボタンだけを隠し、先端復帰ボタンは表示対象に応じて通常どおり有効/無効を更新する。20/50/100問表示では両ボタンを表示する。10問表示ではロック開始自体も拒否される。
+- ロック中はカーテン、ドラッグハンドル、controls groupに`is-curtain-locked`を付け、fixed配置へ切り替える。scroll eventは`requestAnimationFrame`で`updateLockedCurtain()`を呼び、文書の動きに合わせて固定境界・進行量を更新する。保存可能な新しい開示閾値だけを学習記録へ反映する。
+- `beginCurtainLock()`はロック時のハンドル中心のviewport Yを`lockedY`に記録する。`effectiveLockedY()`はこの位置と先頭meaning cellのviewport上端の大きい方を返す。このため通常は画面Yを固定するが、先頭行より上へ境界が入らないよう先頭行位置へクランプされる場合がある。ロック開始可否の54px条件は、ハンドル中心と固定フッター上端の間に操作スペースが残るかを調べる条件であり、カーテン全体のドラッグ可能範囲を54pxに制限する指定ではない。ドラッグ中の通常境界は`0..g.height`にクランプされる。
+- `endCurtainLock()`は`releaseCurtainLock(true)`を呼ぶ。解除前の有効viewport境界を記録し、解除後の行位置から`revealY`へ変換して`positionCurtain(...,{preserveBoundary:true})`を使う。これにより解除時にGPT anchorや学習frontier anchorで境界を上書きしない。解除自体は追加開示・評価を行わず、通常ドラッグへ戻す。
+- 先端復帰ボタンは`returnToSessionFrontier()`を実行する。通常の非ロック経路では表示中のセッションfrontier/GPT到達位置に境界を合わせて`revealY`を保存し、開示・評価履歴を直接変更しない。ロック中に保留中のscroll animation frameがあれば、先にそのframeをキャンセルし、現在のviewport位置で`updateLockedCurtain()`を同期実行する。この判定は先端復帰の`window.scrollTo()`より前なので、そこで記録されるのは復帰前のスクロールによって既に越えていた開示thresholdであり、記録が遅れていた場合の反映である。その後、先端復帰が行うスクロール後の更新は`{suppressRevealProcessing:true}`で呼び、`lockLastRevealY`を更新するため、復帰スクロールだけで新たな開示記録を作らない。`test/study-core.test.js`の`locked return flushes pre-return scroll disclosures before its own scroll and suppresses new thresholds`は、実コードから抽出した両関数を使いこの順序を検証する。
+- ロック中にスクロールが自然終端へ達すると、`updateLockedCurtain()`は文書の最大scroll位置と最終行下端がfooter上端-12pxに達した条件で`endCurtainLock()`を呼ぶ。ロック中の先端復帰では、その更新結果が`natural-end`なら解除後に目標IDの行境界を再計測して`revealY`へ設定する分岐がある。コード上は自然終端で先に解除し、その後に目標位置を設定する経路である。自動テストはこの分岐の構造・境界維持を確認するが、実ブラウザでの全自然終端タイミングを網羅するものではない。
 
-「－」を押すと`toggleAnswer()`から`markStudied(id, revealY, true)`へ進む。対象IDのみを開示・加算し、もし`gptSkipped`に含まれるならそのIDだけ解除する。開示後は通常の○×評価・確定フローへ合流する。
+### 4.4 GPT anchorと表示数変更frontier
 
-**現行の差異**：通常ドラッグの`processRevealThresholds()`は`gptSkipped.ids`をblocked IDとして除外する。しかし結果なしIDはblocked集合に入らない。したがって同じく画面上「－」に見える未回答行でも、カーテンが通過すれば通常ドラッグで開示される場合があり、明示的skipped行は自動開示されない。これは現行コードの条件差であり、この文書作成では変更しない。
+`gptRevealTargetId`はGPT結果jumpの目標ID、`curtainFrontierId`と`curtainFrontierIdentity`は表示数変更後の境界復元情報。`positionCurtain()`はidentityが一致する場合にIDから行境界を再計算する。手動ドラッグ保存はGPT anchorを解除する。
+
+表示数変更では旧セッションの開示先端を確定前に取得し、対象範囲を切り替えた後に未確定評価を確定し、新しい空のactive sessionを作る。旧frontier IDと順序identityを次sessionへ渡し、カーテン境界だけを復元する。境界より手前のIDは自動開示から保護されるが、新sessionで開示済みや評価済みにはならない。再描画後にカーテンを配置し、`syncStudyFooterSpacer()`を更新してから`scrollToCurtainResumePosition()`を呼ぶ。
+
+### 4.5 固定footerとスクロール余白
+
+`.study-actions.study-footer`は画面下部固定で、safe-area insetを考慮する。DOM上の`#studyFooterSpacer`は通常フロー末尾にあり、固定footerに最終行を隠されないスクロール余裕を補う。
+
+`syncStudyFooterSpacer()`は`document.scrollHeight`を余白の基準にせず、`.app`の通常フロー下端、最終行の文書位置、固定footerの上端から必要量を計算する。カーテン操作ボタンは別レイヤーに絶対配置されるため、通常フロー下端とスクロール可能overflowを同一視しない。表示数変更後はcontrolsの位置が更新された後に余白を再同期する。この計算のDOM依存性は`test/study-core.test.js`のfooter spacer関連テストで契約を確認するが、各ブラウザ/端末の寸法保証ではない。
+
+### 4.6 履歴確定
+
+評価確定は`StudyCore.finalizeStudySession()`/`finalizeSessionDraft()`が担当する。同一active session内で再確定を避けるため`finalizedIds`を用いる。ページ・順序・設定変更の確定確認は呼び出し操作ごとに異なる。通常のページタブ遷移に常にconfirmが出るとは限らない。
 
 ## 5. GPT出題
 
@@ -170,13 +191,17 @@ CSV / localStorage
 
 `selectGptWords()`は現在の順序を走査し、最大指定件数を選択する。習得済み除外がONなら`currentStreak >= masteryThreshold`の候補を飛ばし、件数に達するまで後続へ進む。全体末尾では循環しない。
 
-### 5.2 発行記録とpayload
+### 5.2 発行記録、payload、ユーザー向けUI
 
-`makeGptPayload()`は文字列IDを含む結果JSON契約を作る。`createGptIssueContext()`は発行時の順序で各IDの位置を保存する。発行記録を`gptSessions[sessionId]`として保存した後、既存のアプリ内セッションURL（`?study=`）を生成し、新たに`makeGptPrompt()`・`makeChatGptUrl()`でChatGPT向けの`https://chatgpt.com/?prompt=...`も作る。GPT画面には両方のURLと、それぞれのコピー操作を表示し、ChatGPTを開く操作を提供する。既存のセッションURL生成・コピーは互換用に維持する。
+`makeGptPayload()`は`version:1`、`sessionId`、`mode`、`words`（文字列ID・word・meaning）と`outputInstructions`を作る。`createGptIssueContext()`は発行時の順序・位置・ページサイズ・除外条件・fingerprintなどを記録する。`makeGptSession()`は`issueSequence`を増やし、発行記録と連番をstudy ledgerへ保存する。
 
-従来の`?study=` payloadに含む`outputInstructions`は、JSONのみを返す既存契約（`version`・`sessionId`・`results`、IDと許容result値）を維持する。ChatGPT向けpromptは同じpayloadの`version`・`sessionId`・`mode`・出題単語を順序を保ったCSV形式で示し、CSVのカンマ・引用符・改行はCSV規則でエスケープする。ChatGPT固有の学習進行指示と、全問題の学習後にJSONを直接URLエンコードした結果リンクを作る指示はprompt側で別途構成し、従来の`outputInstructions`には混ぜない。結果値は`correct`、`wrong`、`uncertain`、`skipped`とする。起動時に`receiveGptResultFromUrl()`が`?result=`を`URLSearchParams.get()`で取得し、既存の`resultJson`欄へそのまま設定して結果ダイアログを開く。この時点ではURLを変更しない。ダイアログの`close`イベントまたは`applyGptResults()`の保存成功後に`removeGptResultParamFromUrl()`が`result`だけを除き、他のquery・hash・history stateを保つ。検証エラー・登録確認キャンセル・保存失敗ではパラメータを保持する。URL受信では自動登録せず、利用者が既存の登録ボタンを押した後に通常の`applyGptResults()`検証・確認・保存経路へ進む。異なるブラウザのlocalStorage共有は前提とせず、発行セッションがない場合も通常のセッション照合に委ねる。
+アプリ内セッションURLは`?study=`にBase64化したpayloadを付けて内部生成し、`lastSessionUrl`に保持する。現在の起動時処理に`?study=`を取り込む処理はない。また、現行GPT画面にsession URLやChatGPT URLの表示・コピー欄はないため、内部生成と画面上の提供機能を区別する。
 
-発行contextはモード、開始位置、ページサイズ、習得除外条件・閾値、問題件数、CSV ID順・出題順・内容fingerprint、発行IDごとの位置を持つ。JSONの結果配列順やIDの辞書順ではなく、この発行ID順で位置を比較できる。`issueSequence`とledgerの`gptIssueSequence`で発行順を保持する。ジャンプ対象は、発行履歴全体で最後に発行されたセッションであり、未登録であることも必要とする。登録済み記録を除いた後に残る古い未登録記録を、最新として繰り上げてはならない。登録済みセッションの再取り込みは既存の再登録経路に進み、ジャンプしない。まだ連番のない旧pending記録は、新しい発行を行う際に`issueSequence: 0`として区別し、旧記録自体はジャンプ対象外とする。最新判定に必要な情報が不整合な場合は、安全のため結果登録のみとする。登録済み発行記録を削除してもledgerの`gptIssueSequence`は保持され、最後に発行された連番を示す。
+ユーザーが見るのは発行したプロンプト全文のpreview、同じ本文をコピーするボタン、`makeChatGptUrl()`が作るChatGPTへの起動ボタンである。preview/コピー/ChatGPT起動が共有する本文は`makeGptPrompt(payload)`の結果。プロンプトにはsessionIdとID順を含め、CSVの特殊文字はエスケープする。モーダルを閉じると発行前UIへ戻るが、保存済みの発行記録は維持される。最新発行が未登録なら、独立した確認dialogで新規発行の継続を確認する。
+
+GPT結果は`?result=<URLエンコードされたJSON>`から受け取る。`receiveGptResultFromUrl()`は結果JSONを登録欄へprefillしてモーダルを開くが自動登録しない。登録確認・検証・保存は通常の`applyGptResults()`経路を使う。成功時は保存後に`result` parameterを削除する。登録前にモーダルを閉じた場合もclose eventで削除する。登録失敗や確認拒否の直後はparameterを保持するが、その後モーダルを閉じればclose処理で削除される。他のquery、hash、history stateは維持する。
+
+`?result=`を受け取るブラウザのlocalStorageが発行元と共有される保証はない。セッション記録が見つからない場合は、通常のsession validationにより処理される。
 
 ## 6. GPT結果登録（中心処理）
 
@@ -280,28 +305,61 @@ formal-only時、active sessionの`studiedIds`、`checkedIds`、`revealY`と`stu
 
 `studyProgress`はjump成立時に最遠結果IDまで進めるが、その区間の中間問題を`studiedIds`に一括登録しない。active page内のprovisionalな結果IDだけがstudied/checkedとstudyCountに追加される。GPTカーテン移動では通常`processRevealProgress()`を呼ばない。
 
-`updateGptSkippedResults()`は結果IDだけを扱い、未返却IDを推定しない。現在active sessionで開示済みのIDを保護し、そのIDのGPT結果でスキップマスクを付けない。snapshotは`saveCoreTransition()`経由でstudy state、session、registered GPT IDs、`studyProgress`、`gptSkipped`をまとめて保存する。関連するview書き込みは失敗時にrollbackされる。保存成功後にメモリ状態を差し替えてrenderする。
+`updateGptSkippedResults()`は結果IDだけを扱い、未返却IDを推定しない。`prepareGptIntegration()`はskippedを現在の表示対象ID内に限定し、現在active sessionで開示済みのIDを保護する。表示数変更では旧表示対象から退出したIDのskippedだけ解除し、共通対象のskippedは保持する。解除済みIDを後で再表示してもskippedを復元しない。
+
+snapshotは`saveCoreTransition()`経由でstate、session、registered GPT IDs、`studyProgress`、`gptSkipped`をまとめて保存する。関連するview/preferences書き込みは失敗時にrollbackを試みる。保存成功後にメモリ状態を差し替えてrenderする。結果取り込みそのものは通常stayで、承認されたjumpがある場合だけviewを変更する。
 
 ## 7. `skipped`と結果なし
 
-| 状態 | 定義 | 永続化 | 到達位置 |
+| 状態 | 定義 | 永続化 | 到達/表示への作用 |
 |---|---|---|---|
-| `skipped` | 結果JSONに明示されたresult | `gptSkipped.ids`に保存。ただし現在セッションで開示済みのIDは保護され、スキップ状態を解除。 | 実結果として最前・最遠位置の対象。 |
-| 結果なし | 発行IDが結果JSONにない | 専用のunanswered状態は保存しない。 | 位置判定に含めない。 |
+| `skipped` | JSONに明示されたresult | `gptSkipped:{contentFingerprint,ids}`。現在対象のIDに限って追加し、開示済み保護対象はmask解除。 | GPT jump端点には実結果として含む。カーテン自動開示からblockedになる。 |
+| 結果なし | 発行IDがresultsに含まれない | 独立状態を保存しない。 | 到達端点に含めず、GPT取込だけで開示・studyCountを変えない。 |
 
-GPTによる到達位置移動のみでは、中間の結果なし問題を`studiedIds`へ加えたり、`studyCount`を増やしたりしない。ただし、現行実装では後続の**通常ドラッグ**で結果なしIDが通常閾値により開示される場合がある。一方、明示的skipped IDは`processRevealThresholds()`のblocked IDとして自動開示を防ぐ。同じ「－」表示でもこの操作差がある。統一は未実装の変更候補であり、この章は現行挙動を記録する。
+結果なしIDは後続の通常カーテンドラッグで閾値を越えると通常開示される場合がある。一方、明示`skipped` IDは`processRevealThresholds()`のblocked IDに入る。どちらも個別マスク上の開示操作は`markStudied()`へ進むが、表示数変更後に保護されたfrontier以前の行は追加で自動開示しない。この差は現行コードの動作として記述し、理由や今後の望ましさをコードだけで断定しない。
 
-この自動開示の差は、「－」から個別開示する操作の差ではない。現在のカーテン内で「－」が有効なら、skippedと結果なしのどちらも同じ個別開示処理へ進む。カーテンをドラッグして通過する場合の条件だけが異なる。
+表示数変更では旧targetから退出するIDの`gptSkipped`を解除し、変更前後に共通するIDは維持する。解除後に表示範囲へ戻ってもskippedは復活しない。
 
 ## 8. ページ遷移と復元
 
-- `requestViewTransition()`は`transitionView()`を呼び、既定ではactive sessionの暫定結果を確定して次の対象・sessionを保存する。confirmの有無は呼び出すUI操作側で決まる。
-- 通常順・ランダム順の切替、習得除外切替、閾値・ページサイズ変更はそれぞれイベント側の確認・再構築規則を使う。ランダム再シャッフル時にはrandomカーソルを無効化する。
-- `activeSession.viewState`は再読み込み時の保存view設定補助に使われる。`tryRestoreSession()`はsession key、target ID列、studied/checked/finalizedの整合を検査する。
-- active sessionが現在の対象と一致して復元できる場合は暫定状態とrevealYを復元する。安全に復元できない場合は、保存済み露出結果を確定して新しいsessionを開始する経路がある。
-- `gptRevealTargetId`はactiveSessionに保存され、再描画時にDOMの実測境界へ変換される。手動カーテンドラッグ位置を保存する際にアンカーは解除される。
-- `studyProgress`はsnapshot内に独立保存される。`resolveGptContinuationStart()`は選択中モードと全identityが一致しなければカーソルを使わず、現在ページ先頭へfallbackする。
-- `gptSkipped`は問題ID・問題文・解答のfingerprint一致が必要。問題や解答の変更・IDの別内容再利用は古いmask集合を無効にする。問題順やタイトルだけの変更ではそのcontent fingerprintを変えない。別のorder cursorは順序fingerprintで検証する。
+### 8.1 通常のページ・表示更新
+
+`requestViewTransition()`は`transitionView()`を呼び、既定ではactive sessionを確定して新しいtarget/sessionを保存する。確認ダイアログの有無は個々のイベント側で決まる。通常ページタブは空でない固定ページを選択でき、前後ページ操作は利用可能なページへ進む。フィルターや閾値の再評価で現在ページが空になっても、通常描画は固定pageIndexを維持する。
+
+習得除外中に、単語データがあり固定ページ内の単語がすべて習得済みで表示0件の場合、`makeMedalIcon()`と「このページの単語をすべて習得しました！」を表示する。CSV未登録など習得完了とは異なる空状態は通常の空表示を使う。空ページは固定範囲のindexとviewで保存され、再読み込み時も保持される。通常タブでは空ページボタンはdisabledだがactive位置は表せる。空ページから離れた後に、過去の空ページを特別に再挿入する仕組みはない。
+
+### 8.2 表示数変更
+
+`changePageSizePreservingLearningPosition()`は通常設定変更用`changeDisplaySettings()`と異なる専用経路である。
+
+1. 確定前に`resolveDisplayFrontier()`で現在順序の開示先端を取得する。先端がなければ変更前ページ先頭IDをfallbackとする。
+2. `pagePositionForId()`でそのIDを含む新しい固定範囲を決める。通常順では元配列順、ランダム順では既存`randomIds`順を使い、表示数変更で再シャッフルしない。
+3. `transitionView(finalize:true, resetCurtain:true, curtainFrontier:...)`で旧active sessionの未確定評価を一度確定し、新しい空sessionを作る。開示済み/暫定評価は移さず、frontier IDとorder identityだけを持ち越す。
+4. 退出した旧target IDの`gptSkipped`を解除し、共通target IDの状態は維持する。GPT発行記録自体は引き続き結果照合に使える。
+5. DOM再構築後にIDからカーテン境界を測り直し、footer spacerを同期してから境界の次に表示される行へスクロールする。
+
+表示数は10/20/50/100。ページ範囲内で習得フィルターが空ページを作ることがあり、page indexの補正には`buildTarget()`の`keepEmptyPage`条件が関わる。
+
+### 8.3 保存・復元、順序切替、データ差替え
+
+`tryRestoreSession()`はsession key、ordered `targetIds`、`studiedIds`/`checkedIds`/`finalizedIds`の包含・一意性を照合する。対象が一致すれば開示・評価・`revealY`を復元し、`curtainFrontierId`/identityおよび`gptRevealTargetId`も妥当な形で引き継ぐ。不整合時には保存された開示結果を確定して新しいsessionへ進む経路がある。`studyProgress`、`gptSkipped`、order/content fingerprintsは独立に保存・検証する。
+
+通常/ランダム順の切替と再シャッフルは個別の遷移で、再シャッフルは新しいrandom orderを保存しrandom cursorを無効化して先頭から始める。CSV差替えは新しいリストの先頭を選び、除外条件を解除する。ID集合が変わる場合は通常順に戻しrandom orderを作り直す。共通IDの履歴stateはIDをキーに引き継ぐ。これらは表示数変更のfrontier復元とは別の経路。
+
+ホーム画面への切替はsessionをそのまま確定する操作ではなく、現在状態を保存してscreenを切り替える。再開時に`tryRestoreSession()`を試す。
+
+### 8.4 表示更新ごとの移動範囲
+
+| 操作 | ページ位置の扱い（実装） |
+|---|---|
+| 習得除外・閾値などの再評価 | 現在の固定ページを保持する。空になっても別の非空ページへ自動補正しない。 |
+| 通常学習の確定・GPT結果のstay反映 | 現在のviewを維持する。表示行が変化しても勝手なページjumpはしない。 |
+| 表示数変更 | 開示frontierを含む新ページへ移動する。 |
+| GPT結果jump | 判定後、必要な確認でユーザーが承認した場合のみ候補viewへ移動。 |
+| タブ/前後ページ | 明示選択した有効ページへ移動。 |
+| 通常/ランダム切替、reshuffle、CSV差替え | それぞれの専用既存経路を使う。 |
+
+ページ内スクロールはview/pageIndexの変更とは別である。表示数変更時の学習再開位置スクロールは、ページ移動後に実行する。
 
 ## 9. 進捗可視化
 
@@ -327,61 +385,44 @@ GPTによる到達位置移動のみでは、中間の結果なし問題を`stud
 
 ## 11. 設計意図の根拠と限界
 
-- **コード・テストで確認できる根拠**：`study-core.js`の冒頭コメントはこのモジュールを学習履歴・GPT結果の純粋処理と位置付ける。テストはskippedと結果なし、最新issue順、表示ページ位置によるjump抑止、履歴不変、未確定結果の保護を検証する。
-- **今回の合意として確認できる意図**：ジャンプは最新・未登録の発行結果に限り、発行順と現在ページの位置関係で判断する。結果のない中間問題を開示済みにしない。未確定の通常学習結果はGPT結果から保護する。
-- **断定しないこと**：履歴出所を保存しない理由や、どの理由で現在の仕様差が選ばれたかはコードだけから確定できない。本書ではその理由を推定しない。
+- **コードで確認できる事実**：`study-core.js`は状態・履歴・GPT処理をDOMから分離する。`index.html`がDOMとbrowser storage/eventsを接続する。各自動テストは指定状態の入力と期待値を検証する。
+- **テストで確認された契約**：GPT skippedと結果なしの区別、最新issue順、active-session重複保護、ページサイズ変更時のfrontier、empty page、footer spacer順序、unlock boundary、個別mask default evaluationなどは`test/study-core.test.js`のテストで固定されている。
+- **意図を断定しない点**：コードの分岐が存在することは、その動作が将来も望ましいという証明ではない。特に結果なしIDが通常dragで開示される点、session URLを内部生成する一方で現UIに表示しない点、空ページからの再訪可能性の細部は実装事実として記載し、理由や将来要件を推測しない。
+- **テスト範囲の限界**：ソース構造を検査する単体テストは実DOM描画、すべてのブラウザ寸法、実機Safariの挙動を保証しない。固定要素・safe-area・スクロール寸法の変更時はブラウザ/端末での確認も必要。
 
-## 12. 変更候補・未解決事項
+## 12. 補足設計と未決事項
 
-### 12.1 「－」表示と開示動作
+### 12.1 CSVとデータ差替え
 
-#### 現行実装
+`StudyCore.parseWordCsv()`はUTF-8 CSVを解析し、`id,question,answer`（`explanation`任意）およびlegacyの`id,word,meaning`を受け付ける。汎用形式ではanswer必須。重複ヘッダー/ID、必須値不足、引用符不整合、列数超過をエラーにする。CSV parserは引用符、改行、Unicode等を扱う。
 
-- GPTから明示された`skipped`は`gptSkipped`へ保存され、通常ドラッグによる自動開示対象から除外される。
-- 結果なしIDは独立状態として保存されず、通常ドラッグで開示対象になる場合がある。
-- GPT結果によってカーテンが進んでも、その中間の未開示問題を自動的に`studiedIds`へ加えたり、`studyCount`を増やしたりしない。
-- カーテンが通過した範囲で有効になった「－」から個別開示する操作は、skippedと結果なしで共通している。対象問題だけを通常学習として開示・記録する。
+`importCsv()`はまずparseし、次状態/view/orderを用意してから`requestViewTransition()`へ渡す。失敗時は既存リストを入れ替えない。初回登録はファイル名からタイトルを作り、差替えでは既存タイトルを維持する。ID集合が同じ場合はID別学習履歴とrandom orderを継続し、異なる場合は通常順・先頭から始める。
 
-#### 合意済み変更方針
+### 12.2 設定・UI・モバイル
 
-- カーテン通過後の「－」表示では、明示的skippedか結果なしかによって個別開示操作を分けない。
-- 通常モードと今後のカーテンロックモードで、解答を開示し、対象問題だけを学習記録へ反映する基本ルールを共通にする。
-- GPT結果の到達位置計算では、明示的`skipped`を実結果として含め、結果なしを含めない。この区別は維持する。
+学習設定は1ページ表示数、デフォルト評価、習得判定閾値。設定初期化はこの3項目だけを初期値に戻し、GPT問題数/開始位置、履歴、GPT session、CSVヘルプ開閉状態を初期化しない。GPT出題数は`preferences`、GPT開始位置は`wordlist.gptStartPosition.v1`に独立保存する。CSV説明の開閉状態は`wordlist.csvHelpOpen.v1`に保存する。
 
-#### 未確定の実装詳細
+設定dialog、GPT dialog、結果確認dialog、進捗詳細dialogは`<dialog>`を使う。狭幅用CSSは主に560px以下、短い画面用調整は560px以下かつ高さ420px以下に定義される。学習行、モーダル、GPT prompt preview、ボタンなどの寸法はコード上のCSSで定義されるが、ここに書くことは実機Safariのレイアウト保証を意味しない。
 
-- 通常ドラッグ時の自動開示条件をどう整理すれば上記方針と整合するかは、現行コードと照合して詳細を決める必要がある。
-- この方針はまだ未実装である。現行コードの動作として扱わない。
+### 12.3 保存・エラー処理
 
-### 12.2 下部操作フッター
+`saveCoreTransition()`は複数localStorageキーの関連更新について書き込み前の値を取り、失敗時にrollbackを試みる。画面側は保存成功後にdraft stateを差し替える経路を使う。localStorageの読込失敗、CSV parse失敗、セッション復元不整合、書込失敗はそれぞれ画面メッセージや操作中断へ分岐する。すべてのブラウザストレージ障害やrollback障害を回復できるとは限らず、rollback自体の失敗はエラー内容へ付記される。
 
-#### 現行実装
+### 12.4 未決事項
 
-- 「もう一度学習」「次へ」等の操作は、リストの後にある`.study-actions`領域に配置されている。学習途中でも常時画面下部に固定表示する共通フッターではない。
-- カーテンロックモードは未実装。
+1. GPTの「結果なし」と明示`skipped`で通常ドラッグの自動開示条件が異なる。この差を将来も維持するか統一するかは、コードだけでは決めない。
+2. `?study=` URLは発行時に内部生成されるが、現在のアプリ起動処理で読み取られず、現UIにも表示されない。後方互換・将来利用などの意図は不明である。
+3. 履歴stateは通常学習/GPTの出所を記録しない。source別履歴を追加する決定は確認できない。
+4. 空ページやページタブの細かな再訪UXは固定ページ/disabled tabの実装が根拠。異なるUXを望む場合は別途仕様判断が必要。
+5. 過去に合意された「カーテンの下側54px制限」が移動範囲そのものを指す場合、現行実装とは一致しない。コード中の54pxは`beginCurtainLock()`でロックを開始できるか判定するためのハンドル中心―固定footer間clearanceであり、通常ドラッグは`0..g.height`まで動ける。下側移動をfooter基準で制限する意図だったかは、コードだけでは判断できない。
+6. 先端復帰時の保留frame処理は、先端復帰スクロールより前の現在位置で開示判定し、その後の復帰スクロール後はthreshold処理を抑制する。追加回帰テストでこの順序を確認した。ブラウザ固有のscroll event/rAFスケジューリング全般を単体テストで保証するものではないため、実機でのイベント順序保証が必要になった場合は別途ブラウザ検証を行う。
+7. 「全体・各回のステータス表示」が行内の直近5件履歴以外のUIを指す場合、対象要素を特定できていない。現在確認できる行内履歴は等幅5枠で整列している。
 
-#### 合意済み変更方針
-
-- 「もう一度学習」「次へ」を通常モード・カーテンロックモード共通で使える下部操作フッターとして扱う。
-- 学習途中でも操作できるよう画面下部に表示する。
-
-#### 未確定の実装詳細
-
-- 既存のリスト末尾ボタンを残すか、フッターへ一本化するかは未決定。
-- DOM構造、配置、画面サイズごとの表示方法・スクロール制御も未決定。
-- フッターは未実装であり、現行機能として案内しない。
-
-### 12.3 その他の変更候補
-
-- **カーテンロック**：リストをスクロールしながら固定境界で開示する方式。具体的な実装詳細は未確定。
-- **先端復帰**：現在の到達IDへスクロールして戻る操作。具体的な実装詳細は未確定。
-- **履歴出所**：過去の正誤・studyCountが通常学習かGPTかを識別するsource履歴は存在しない。保存方式を追加する合意はない。
-- **結果語彙**：コードは`uncertain`を受理し、正答以外として扱う。UI/payload契約を変更する場合は現行実装と既存記録との互換を確認する。
-
-新機能の実装前には、該当状態の永続性、順序fingerprint、activeSessionの復元条件、および結果JSONが発行sessionへ結び付いているかを先に確認する。
+これらは現行動作の説明と将来の仕様判断を分けるための項目であり、未実装機能を予定として約束するものではない。
 
 ## 13. 根拠ファイル
 
-- `study-core.js`: `normalizeGptSessionRecords`, `normalizeStudyProgress`, `studyContentFingerprint`, `normalizeGptSkippedState`, `saveCore`, `saveCoreTransition`, `resolveGptContinuationStart`, `selectGptWords`, `studyOrderIdentity`, `recordStudyDisclosure`, `advanceStudyProgress`, `compareStudyProgress`, `createGptIssueContext`, `evaluateGptJump`, `processRevealThresholds`, `tryRestoreSession`, `normalizeState`, `recordStudy`, `setSessionAnswer`, `finalizeStudySession`, `inspectGptResults`, `prepareGptIntegration`, `buildProgressSummary`.
-- `index.html`: storage constants and initialization; `writeCoreSnapshot`, `saveActiveSession`, `tryRestoreSession`, `transitionView`, `markStudied`, `canIndividuallyDisclose`, `syncAnswerControl`, `syncMeaningDisclosure`, `toggleAnswer`, `renderProgressSummary`, `geometry`, `processRevealProgress`, `positionCurtain`, `attachCurtainDrag`, `makeGptSession`, `applyGptResults`.
-- `test/study-core.test.js`: pure logic contracts, snapshot migration/rollback, GPT issue context and result validation, issue-order/page-position jump and formal-only branches, skipped/missing distinction, active-session overlap protection, disclosure and restoration contracts.
+- `study-core.js`: `normalizeWords`, `normalizeState`, `recordStudy`, `setSessionAnswer`, `finalizeStudySession`, `finalizeSessionDraft`, `saveCore`, `saveCoreTransition`, `studyOrderIdentity`, `resolveDisplayFrontier`, `curtainFrontierBoundary`, `clearGptSkippedOutsideTarget`, `buildPageModel`, `buildRandomFixedPage`, `safePageIndex`, `tryRestoreSession`, `parseCsv`, `parseWordCsv`, `prepareGptIntegration`, `updateGptSkippedResults`, `buildProgressSummary`, `makeGptPayload`, `makeGptPrompt`, `makeChatGptUrl`。
+- `index.html`: storage keysと初期化、`importCsv`, `buildTarget`, `tryRestoreSession`, `transitionView`, `markStudied`, `canIndividuallyDisclose`, `toggleAnswer`, `render`, `geometry`, `processRevealProgress`, `syncStudyFooterSpacer`, `positionCurtainControls`, `releaseCurtainLock`, `beginCurtainLock`, `endCurtainLock`, `updateLockedCurtain`, `scheduleLockedCurtainUpdate`, `positionCurtain`, `returnToSessionFrontier`, `attachCurtainDrag`, `makeGptSession`, `applyGptResults`, `receiveGptResultFromUrl`, `removeGptResultParamFromUrl`, `changePageSizePreservingLearningPosition`, `scrollToCurtainResumePosition`。
+- `test/study-core.test.js`: display-size/frontier/skipped、session restore、empty page、resume scroll、curtain controls/unlock、footer spacer、CSV、default evaluation、GPT payload/result/jump/duplicate handling、storage rollbackのテスト群。
+- `README.md`: 必要ファイル、起動、CSV、学習・GPT連携の利用者向け概要。

@@ -510,6 +510,40 @@ test('unlock preserves the locked viewport boundary and does not reapply learnin
     assert.notEqual(run.revealY,640,'the learning anchor must not overwrite the released boundary');
   }
 });
+test('locked return flushes pre-return scroll disclosures before its own scroll and suppresses new thresholds',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const update=html.match(/function updateLockedCurtain\(\{suppressRevealProcessing=false\}=\{\}\)\{[\s\S]*?\n  \}/)?.[0];
+  const returning=html.match(/function returnToSessionFrontier\(\)\{[\s\S]*?\n  \}/)?.[0];
+  assert.ok(update&&returning);
+  const run=new Function('input',`
+    let curtainLocked=true,lockScrollFrame=7,lockedY=150,lockLastRevealY=40,revealY=0;
+    const opened=[];
+    const window={scrollY:400,scrollTo(_x,y){this.scrollY=y}};
+    const thresholds=[{id:'already-satisfied-before-return',bottom:45},{id:'satisfied-only-after-return-scroll',bottom:250},{id:'target',bottom:300}];
+    const first={getBoundingClientRect(){return{top:500-window.scrollY}}};
+    const els={studyScreen:{hidden:false},words:{querySelector(){return first},querySelectorAll(){return[{getBoundingClientRect(){return{bottom:1400-window.scrollY}}}]}},studyActions:{getBoundingClientRect(){return{top:800}}}};
+    const document={documentElement:{scrollHeight:2000}},innerHeight=852,activeSession={};
+    const words=[],sortMode='normal',randomIds=[];
+    const StudyCore={resolveDisplayFrontier(){return{learnedId:'target'}}};
+    function geometry(){return{height:500,thresholds}}
+    function positionCurtain(){}
+    function processRevealProgress(){for(const item of thresholds)if(item.bottom<=revealY&&!opened.includes(item.id))opened.push(item.id);return true}
+    function saveActiveSession(){return true}
+    function endCurtainLock(){curtainLocked=false;lockedY=null;return true}
+    function effectiveLockedY(){return Math.max(lockedY,first.getBoundingClientRect().top)}
+    function cancelAnimationFrame(){}
+    ${update}
+    ${returning}
+    const returned=returnToSessionFrontier();
+    return{returned,opened,scrollY:window.scrollY,revealY,lockLastRevealY,curtainLocked};
+  `)({});
+  assert.deepEqual(run.opened,['already-satisfied-before-return']);
+  assert.equal(run.scrollY,650);
+  assert.equal(run.revealY,300);
+  assert.equal(run.lockLastRevealY,300);
+  assert.equal(run.curtainLocked,true);
+  assert.equal(run.returned,true);
+});
 test('normal order keeps fixed ranges and original numbering with filtered gaps', () => {
   const words=Array.from({length:10},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:''}));
   const state={'3':{studyCount:1,correctCount:1,currentStreak:3},'5':{studyCount:1,correctCount:1,currentStreak:3},'8':{studyCount:1,correctCount:1,currentStreak:3}};
