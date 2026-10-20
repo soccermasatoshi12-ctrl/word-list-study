@@ -27,6 +27,16 @@
     const pick=cursor=>({id:cursor.id,sortMode:cursor.sortMode,wordCount:cursor.wordCount,orderFingerprint:cursor.orderFingerprint,csvOrderFingerprint:cursor.csvOrderFingerprint,contentFingerprint:cursor.contentFingerprint});
     return {normal:valid(raw?.normal,"normal")?pick(raw.normal):null,random:valid(raw?.random,"random")?pick(raw.random):null};
   }
+  function normalizeOrderResume(raw={}) {
+    const valid=(entry,mode)=>entry&&typeof entry==="object"&&entry.sortMode===mode&&typeof entry.anchorId==="string"&&entry.anchorId.length>0&&
+      (entry.learnedId===null||entry.learnedId===undefined||typeof entry.learnedId==="string")&&entry.identity&&entry.identity.sortMode===mode&&
+      Number.isInteger(entry.identity.wordCount)&&entry.identity.wordCount>0&&
+      [entry.identity.orderFingerprint,entry.identity.csvOrderFingerprint,entry.identity.contentFingerprint].every(value=>typeof value==="string"&&/^[0-9a-f]{16}$/.test(value));
+    const pick=(entry,mode)=>({sortMode:mode,anchorId:entry.anchorId,learnedId:typeof entry.learnedId==="string"?entry.learnedId:null,identity:{
+      sortMode:mode,wordCount:entry.identity.wordCount,orderFingerprint:entry.identity.orderFingerprint,
+      csvOrderFingerprint:entry.identity.csvOrderFingerprint,contentFingerprint:entry.identity.contentFingerprint}});
+    return{normal:valid(raw?.normal,"normal")?pick(raw.normal,"normal"):null,random:valid(raw?.random,"random")?pick(raw.random,"random"):null};
+  }
   function studyContentFingerprint(words) {
     if(!Array.isArray(words))return null;
     const normalized=normalizeWords(words),ids=normalized.map(word=>word.id);
@@ -171,7 +181,7 @@
   function resolveDisplayFrontier(session,words,sortMode,randomIds,fallbackId=null) {
     const identity=studyOrderIdentity(words,sortMode,randomIds);if(!identity)return{id:null,learnedId:null,identity:null,position:-1};
     const candidates=[sessionFurthestProgressId(session)];
-    if(sameStudyOrderIdentity(session?.curtainFrontierIdentity,identity))candidates.push(session.curtainFrontierId);
+    if(!session?.curtainFrontierResumeOnly&&sameStudyOrderIdentity(session?.curtainFrontierIdentity,identity))candidates.push(session.curtainFrontierId);
     let learnedId=null,position=-1;
     for(const value of candidates){if(value==null)continue;const index=studyOrderPosition(words,sortMode,randomIds,value);if(index>position){learnedId=String(value);position=index}}
     if(learnedId!==null)return{id:learnedId,learnedId,identity,position};
@@ -657,6 +667,21 @@
     });
     return {results,isReplay};
   }
+  function summarizeGptResults(results, issuedIds=null, appliedCount=null) {
+    const rows=Array.isArray(results)?results:[],counts={correct:0,wrong:0,uncertain:0,skipped:0};
+    for(const row of rows)if(Object.hasOwn(counts,row?.result))counts[row.result]++;
+    const issued=Array.isArray(issuedIds)?issuedIds.map(String):null;
+    const returned=new Set(rows.map(row=>String(row.id)));
+    const issuedSet=issued?new Set(issued):null;
+    return{
+      issuedCount:issued?issued.length:null,
+      resultCount:rows.length,
+      missingCount:issued?issued.filter(id=>!returned.has(id)).length:null,
+      outsideIssuedCount:issuedSet?rows.filter(row=>!issuedSet.has(String(row.id))).length:null,
+      counts,
+      appliedCount:Number.isSafeInteger(appliedCount)&&appliedCount>=0?appliedCount:null
+    };
+  }
   function validateGptResults(obj, record, knownIds) {
     if(record?.applied) throw new Error("このGPTセッションは登録済みです。再登録の確認が必要です。");
     return inspectGptResults(obj,record?{[String(obj.sessionId)]:record}:{},[],knownIds).results;
@@ -692,14 +717,29 @@
     const index=safePageIndex(model.pages,position),page=model.pages[index];
     return{view:{...view,pageIndex:index},page,model,ids:(page?.entries||[]).map(w=>String(w.id))};
   }
-  function updateGptSkippedResults(raw,words,results,protectedIds=[],allowedIds=null) {
-    let skipped=normalizeGptSkippedState(raw,words);const protectedSet=new Set(protectedIds.map(String)),allowed=Array.isArray(allowedIds)?new Set(allowedIds.map(String)):null;
-    for(const {id,result} of results||[]) {
-      if(protectedSet.has(String(id))){skipped=setGptSkippedState(skipped,words,id,false);continue}
-      if(result==="skipped"&&allowed&&!allowed.has(String(id)))continue;
-      skipped=setGptSkippedState(skipped,words,id,result==="skipped");
-    }
+  function planGptSkippedUpdates(results,protectedIds=[],allowedIds=null) {
+    const protectedSet=new Set(protectedIds.map(String)),allowed=Array.isArray(allowedIds)?new Set(allowedIds.map(String)):null;
+    return(results||[]).map(({id,result})=>{
+      const key=String(id);
+      if(protectedSet.has(key))return{id:key,update:true,skipped:false,reason:"study"};
+      if(result==="skipped"&&allowed&&!allowed.has(key))return{id:key,update:false,skipped:false,reason:"outside"};
+      return{id:key,update:true,skipped:result==="skipped",reason:null};
+    });
+  }
+  function applyGptSkippedUpdatePlan(raw,words,plan) {
+    let skipped=normalizeGptSkippedState(raw,words);
+    for(const item of plan||[])if(item.update)skipped=setGptSkippedState(skipped,words,item.id,item.skipped);
     return skipped;
+  }
+  function buildGptResultTargets(results,appliedIds,skippedPlan,ignoredOverlapIds=[]) {
+    const applied=new Set((appliedIds||[]).map(String)),skippedById=new Map((skippedPlan||[]).map(item=>[String(item.id),item])),ignored=new Set((ignoredOverlapIds||[]).map(String));
+    return(results||[]).map(({id,result})=>{
+      const key=String(id),skipUpdate=skippedById.get(key);
+      if(result==="skipped")return{id:key,target:false,reason:null};
+      if(applied.has(key))return{id:key,target:true,reason:null};
+      const reason=skipUpdate?.reason==="study"||ignored.has(key)?"study":skipUpdate?.reason==="outside"?"outside":null;
+      return{id:key,target:false,reason};
+    });
   }
   function prepareGptIntegration(obj,{sessions={},registeredIds=[],knownIds=[],words=[],state={},activeSession=null,currentView=null,pageSize,randomIds=[],studyProgress={},gptSkipped=null,forceFormalOnly=false,latestIssueSequence,now=new Date().toISOString()}={}) {
     const checked=inspectGptResults(obj,sessions,registeredIds,knownIds),sessionId=String(obj.sessionId);
@@ -713,13 +753,15 @@
       const pendingIds=new Set((activeSession?.studiedIds||[]).map(String).filter(id=>!finalizedIds.has(id)));
       const ignoredOverlapIds=checked.results.filter(result=>result.result!=="skipped"&&pendingIds.has(result.id)).map(result=>result.id);
       const ignored=new Set(ignoredOverlapIds),nextState=JSON.parse(JSON.stringify(state||{})),results=checked.results.filter(result=>result.result!=="skipped"&&!ignored.has(result.id));
+      const skippedPlan=planGptSkippedUpdates(checked.results,activeSession?.studiedIds||[],allowedSkippedIds);
       const updatedAt=typeof now==="number"?now:Date.parse(now);if(!Number.isFinite(updatedAt))throw new Error("GPT結果の登録時刻が不正です。");
       const stamp=new Date(updatedAt).toISOString();
       for(const {id,result} of results){const st=nextState[id]=normalizeState(nextState[id]||defaultState());st.studyCount+=1;st.lastStudiedAt=stamp;if(result==="correct"){st.correctCount+=1;appendResult(st,true)}else appendResult(st,false)}
       const replaySession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;if(replaySession&&results.length)replaySession.preserveTargetIds=true;
-      const nextSkipped=updateGptSkippedResults(gptSkipped,words,checked.results,activeSession?.studiedIds||[],allowedSkippedIds);
+      const nextSkipped=applyGptSkippedUpdatePlan(gptSkipped,words,skippedPlan);
+      const appliedIds=results.map(result=>result.id),resultTargets=buildGptResultTargets(checked.results,appliedIds,skippedPlan,ignoredOverlapIds);
       return{state:nextState,gptSessions:JSON.parse(JSON.stringify(sessions||{})),registeredGptSessionIds:[...registeredIds],activeSession:replaySession,gptSkipped:nextSkipped,studyProgress:normalizeStudyProgress(studyProgress),
-        applied:results.length,isReplay:true,mode:"formal-replay",jump:{canJump:false,reason:"replay",lastResultId:null,candidatePosition:null},samePage:false,
+        applied:results.length,appliedIds,resultTargets,isReplay:true,mode:"formal-replay",jump:{canJump:false,reason:"replay",lastResultId:null,candidatePosition:null},samePage:false,
         transition:{kind:"stay",view:currentView},formalApplied:results.length,provisionalIds:[],ignoredOverlapIds,skippedCount:checked.results.filter(result=>result.result==="skipped").length};
     }
     const original=sessions?.[sessionId],nextState=JSON.parse(JSON.stringify(state||{})),nextSessions=JSON.parse(JSON.stringify(sessions||{}));
@@ -731,6 +773,7 @@
     const overlapping=new Set(checked.results.filter(r=>r.result!=="skipped"&&pendingDisclosed.has(r.id)).map(r=>r.id));
     const ignoredOverlapIds=(original?.ids||[]).map(String).filter(id=>overlapping.has(id));
     const ignored=new Set(ignoredOverlapIds),eligible=checked.results.filter(r=>r.result!=="skipped"&&!ignored.has(r.id));
+    const skippedPlan=planGptSkippedUpdates(checked.results,activeSession?.studiedIds||[],allowedSkippedIds);
     const positionResults=checked.results;
     const activeMatchesDisplayedPage=!!(nextSession&&displayedPage&&nextSession.key===studySessionKey(currentView,pageSize)&&
       sameOrderedIds(nextSession.targetIds,displayedPage.ids));
@@ -820,13 +863,15 @@
     delete nextSessions[sessionId];if(!nextRegistered.includes(sessionId))nextRegistered.push(sessionId);
     const provisionalIds=candidatePage?candidatePage.ids.filter(id=>provisionalSet.has(id)):[];
     const formalApplied=formalResults.length,applied=formalApplied+provisionalIds.length;
-    const nextSkipped=updateGptSkippedResults(gptSkipped,words,checked.results,activeSession?.studiedIds||[],allowedSkippedIds);
+    const nextSkipped=applyGptSkippedUpdatePlan(gptSkipped,words,skippedPlan);
     const nextProgress=jump.canJump&&jump.lastResultId
       ?advanceStudyProgress(studyProgress,words,jump.issuedMode||currentView.sortMode,randomIds,jump.lastResultId)
       :normalizeStudyProgress(studyProgress);
     if(!jump.canJump&&formalApplied>0&&resultingSession)resultingSession.preserveTargetIds=true;
+    const appliedIds=[...formalResults.map(result=>result.id),...provisionalIds];
+    const resultTargets=buildGptResultTargets(checked.results,appliedIds,skippedPlan,ignoredOverlapIds);
     return{state:nextState,gptSessions:nextSessions,registeredGptSessionIds:nextRegistered,activeSession:resultingSession,gptSkipped:nextSkipped,studyProgress:nextProgress,applied,
-      formalApplied,provisionalIds,ignoredOverlapIds,isReplay:false,jump,samePage,
+      appliedIds,formalApplied,provisionalIds,ignoredOverlapIds,resultTargets,isReplay:false,jump,samePage,
       transition:jump.canJump?{kind:differentPage?"jump":"stay",view:differentPage?candidatePage.view:currentView,position:jump.candidatePosition,
         requiresModeRestore:jump.requiresModeRestore}:
         {kind:"stay",view:currentView,requiresModeRestore:false},
@@ -900,7 +945,7 @@
   function makeChatGptUrl(payload) {
     return `https://chatgpt.com/?prompt=${encodeURIComponent(makeGptPrompt(payload))}`;
   }
-  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,clearGptSkippedOutsideTarget,studyOrderIdentity,sameStudyOrderIdentity,studyOrderPosition,pagePositionForId,resolveDisplayFrontier,advanceCurtainFrontier,idsThroughPosition,curtainFrontierBoundary,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,gptIntegrationNotice,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,initialAnswerForToggle,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
+  const api={MAX_RECENT,deriveStreak,defaultState,normalizeWords,readJson,loadCore,saveCore,saveCoreTransition,normalizeGptSessionRecords,normalizeStudyProgress,normalizeOrderResume,studyContentFingerprint,normalizeGptSkippedState,setGptSkippedState,clearGptSkippedOutsideTarget,studyOrderIdentity,sameStudyOrderIdentity,studyOrderPosition,pagePositionForId,resolveDisplayFrontier,advanceCurtainFrontier,idsThroughPosition,curtainFrontierBoundary,recordStudyDisclosure,sessionFurthestProgressId,advanceSessionFrontier,advanceStudyProgress,preservedTargetPage,compareStudyProgress,normalizePreferences,resolveGptContinuationStart,selectGptWords,createGptIssueContext,buildGptJumpView,evaluateGptJump,gptIntegrationNotice,buildPageModel,buildRandomFixedPage,randomPageNavigation,safeRevealBoundary,processRevealThresholds,normalizeRandomStart,normalizeView,serializeView,studySessionKey,sameOrderedIds,safePageIndex,nextAvailablePageIndex,displayChangePlan,resolveInitialScreen,inspectInitialScreen,persistInitialScreen,tryRestoreSession,parseWordCsv,normalizeState,buildProgressSummary,formatRecentResults,buildHistoryPreview,appendResult,recordStudy,isStudySessionComplete,repeatStudyAction,hasPendingStudyResults,approvePendingStudyTransition,initialAnswerForToggle,setSessionAnswer,finalizeStudySession,finalizeSessionDraft,validateGptResults,inspectGptResults,summarizeGptResults,applyGptResults,prepareGptImport,prepareGptIntegration,makeGptPayload,makeGptPrompt,makeChatGptUrl};
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   else root.StudyCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this);

@@ -331,6 +331,137 @@ test('display-size frontier uses stable order IDs and places the cover after the
   assert.equal(C.curtainFrontierBoundary([{id:'41',bottom:20},{id:'43',bottom:40},{id:'52',bottom:60}],words,'normal',randomIds,'51'),40);
   assert.equal(C.curtainFrontierBoundary([{id:'52',bottom:20},{id:'53',bottom:40}],words,'normal',randomIds,'51'),0,'a filtered-out frontier keeps later visible rows fully covered');
 });
+test('order-resume records restore learned and untouched mode positions by stable ID and order identity',()=>{
+  const words=Array.from({length:100},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const randomIds=[...words].reverse().map(word=>word.id),normalIdentity=C.studyOrderIdentity(words,'normal',randomIds),randomIdentity=C.studyOrderIdentity(words,'random',randomIds);
+  const resume=C.normalizeOrderResume({
+    normal:{sortMode:'normal',anchorId:'35',learnedId:'35',identity:normalIdentity},
+    random:{sortMode:'random',anchorId:randomIds[50],learnedId:null,identity:randomIdentity}
+  });
+  assert.equal(C.pagePositionForId(words,'normal',randomIds,resume.normal.anchorId,10).pageIndex,3,'normal learned ID 35 returns to words 31–40');
+  assert.equal(C.pagePositionForId(words,'random',randomIds,resume.random.anchorId,10).randomStart,50,'random untouched page returns to its fixed-order positions 51–60');
+  const restoredSession={targetIds:words.slice(30,40).map(word=>word.id),studiedIds:[],curtainFrontierId:'35',curtainFrontierIdentity:normalIdentity,curtainFrontierResumeOnly:true};
+  const displayFrontier=C.resolveDisplayFrontier(restoredSession,words,'normal',randomIds,'31');
+  assert.equal(displayFrontier.id,'31','a resume-only curtain boundary does not pull a later page-size change back to word 35');
+  assert.equal(displayFrontier.learnedId,null);
+  assert.deepEqual(C.pagePositionForId(words,'normal',randomIds,displayFrontier.id,20),{sortMode:'normal',position:30,start:20,pageIndex:1},'the subsequent 20-word page is 21–40');
+  const invalid=C.normalizeOrderResume({...resume,random:{...resume.random,identity:{...randomIdentity,orderFingerprint:'0000000000000000'}}});
+  assert.equal(C.sameStudyOrderIdentity(invalid.random.identity,randomIdentity),false,'changed order identity cannot validate an old random resume record');
+});
+test('sort-order switch handlers capture source mode position and restore the destination mode anchor',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/const STORAGE_ORDER_RESUME="wordlist\.orderResume\.v1"/);
+  assert.match(html,/function captureCurrentOrderResume\(\)[\s\S]*?resolveDisplayFrontier\(activeSession,words,sortMode,randomIds,fallbackId\)/);
+  assert.match(html,/function viewForOrderResume\(mode,source=orderResume\)[\s\S]*?pagePositionForId\(words,mode,randomIds,entry\.anchorId,pageSize\)/);
+  const normal=html.match(/els\.normalOrder\.addEventListener\("click",\(\)=>\{([\s\S]*?)\n  \}\);/)?.[1];
+  const random=html.match(/els\.randomOrder\.addEventListener\("click",\(\)=>\{([\s\S]*?)\n  \}\);/)?.[1];
+  assert.ok(normal);assert.ok(random);
+  assert.match(normal,/captureCurrentOrderResume\(\)/);assert.match(normal,/viewForOrderResume\("normal",nextOrderResume\)/);assert.doesNotMatch(normal,/pageIndex:0/);
+  assert.match(random,/captureCurrentOrderResume\(\)/);assert.match(random,/pagePositionForId\(words,"random",order,target\.anchorId,pageSize\)/);
+  assert.match(html,/if\(writeRandomOrder\)draftOrderResume\.random=null/,'explicit shuffle invalidates the prior random resume anchor');
+  assert.match(html,/if\(curtainFrontier\.resumeOnly\)nextSession\.curtainFrontierResumeOnly=true/);
+  assert.match(html,/delete draftSession\.curtainFrontierResumeOnly/,'new study activity makes the resumed boundary an active session frontier');
+  assert.ok(normal.indexOf('orderChangeNeedsConfirmation()')<normal.indexOf('captureCurrentOrderResume()'),'cancelled normal-order switches return before capturing or saving resume state');
+  assert.ok(random.indexOf('orderChangeNeedsConfirmation()')<random.indexOf('captureCurrentOrderResume()'),'cancelled random-order switches return before capturing or saving resume state');
+});
+
+test('order-resume transition sequence preserves learned and untouched anchors, masks, persistence, and later resize behavior',()=>{
+  const words=Array.from({length:120},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
+  const normalIds=words.map(word=>word.id),randomIds=Array.from({length:120},(_,i)=>String((i*37)%120+1));
+  const storage=memoryStorage(),identityFor=mode=>C.studyOrderIdentity(words,mode,randomIds);
+  const pageIds=(mode,start,size)=> (mode==='random'?randomIds:normalIds).slice(start,start+size);
+  const makeSession=(mode,start,size,{studied=[],frontier=null,resumeOnly=false}={})=>{
+    const targetIds=pageIds(mode,start,size),session={sessionId:`${mode}-${start}-${size}`,key:`all:off:${mode}:${size}:${mode}:${start}`,updatedAt:1,revealY:0,targetIds,
+      viewState:{filter:'all',sortMode:mode,excludeStreak:false,masteryThreshold:3,pageIndex:mode==='normal'?start/size:0,randomStart:mode==='random'?start:0,pageSize:size},
+      studiedIds:[...studied],checkedIds:[],finalizedIds:[],furthestProgressId:studied.at(-1)||null,pendingId:null};
+    if(frontier){session.curtainFrontierId=frontier;session.curtainFrontierIdentity=identityFor(mode);if(resumeOnly)session.curtainFrontierResumeOnly=true}
+    return session;
+  };
+  const capture=(mode,start,size,session)=>{
+    const fallbackId=pageIds(mode,start,size)[0]??null,frontier=C.resolveDisplayFrontier(session,words,mode,randomIds,fallbackId);
+    if(frontier.id===null||!frontier.identity)return null;
+    if(session?.curtainFrontierResumeOnly&&session.curtainFrontierId&&C.sameStudyOrderIdentity(session.curtainFrontierIdentity,frontier.identity))
+      return{sortMode:mode,anchorId:String(session.curtainFrontierId),learnedId:String(session.curtainFrontierId),identity:frontier.identity};
+    return{sortMode:mode,anchorId:frontier.id,learnedId:frontier.learnedId,identity:frontier.identity};
+  };
+  const switchMode=(mode,start,size,session,resume,nextMode,nextSize)=>{
+    const nextResume=C.normalizeOrderResume(resume),record=capture(mode,start,size,session);if(record)nextResume[mode]=record;
+    const entry=nextResume[nextMode],identity=identityFor(nextMode);
+    const valid=entry&&C.sameStudyOrderIdentity(entry.identity,identity)&&C.studyOrderPosition(words,nextMode,randomIds,entry.anchorId)>=0?entry:null;
+    const position=valid?C.pagePositionForId(words,nextMode,randomIds,valid.anchorId,nextSize):null;
+    const nextStart=position?(nextMode==='random'?position.randomStart:position.start):0;
+    const nextSession=makeSession(nextMode,nextStart,nextSize,{frontier:valid?.learnedId||null,resumeOnly:!!valid?.learnedId});
+    const nextView={filter:'all',sortMode:nextMode,excludeStreak:false,masteryThreshold:3,pageIndex:nextMode==='normal'?nextStart/nextSize:0,randomStart:nextMode==='random'?nextStart:0};
+    C.saveCoreTransition(storage,'ledger',{state:{},activeSession:nextSession,gptSessions:{},registeredGptSessionIds:[],studyProgress:{},gptSkipped:null},[
+      {key:'orderResume',value:JSON.stringify(nextResume)},{key:'view',value:JSON.stringify(C.serializeView(nextView))}
+    ]);
+    return{start:nextStart,session:nextSession,resume:C.normalizeOrderResume(JSON.parse(storage.getItem('orderResume'))),view:nextView};
+  };
+
+  // Normal-order study through ID 35, switch away, resize while away, then return.
+  let resume=C.normalizeOrderResume(),normalSession=makeSession('normal',0,50,{studied:normalIds.slice(0,35),frontier:'35'});
+  let switched=switchMode('normal',0,50,normalSession,resume,'random',50);resume=switched.resume;
+  assert.equal(resume.normal.anchorId,'35');assert.equal(switched.session.furthestProgressId,null);
+  let randomSession=makeSession('random',0,10); // equivalent to page-size transition on the other order, with no study there
+  switched=switchMode('random',0,10,randomSession,resume,'normal',10);resume=switched.resume;
+  assert.equal(switched.start,30);assert.deepEqual(switched.session.targetIds,normalIds.slice(30,40));
+  assert.equal(switched.session.curtainFrontierId,'35');assert.equal(switched.session.curtainFrontierResumeOnly,true);
+  let protectedIds=C.idsThroughPosition(words,'normal',randomIds,switched.session.targetIds,switched.session.curtainFrontierId),opened=[];
+  const thresholds=switched.session.targetIds.map((id,index)=>({id,bottom:(index+1)*20}));
+  assert.equal(C.processRevealThresholds(thresholds,100,[],id=>{opened.push(id);return true},protectedIds),true);
+  assert.deepEqual(opened,[],'IDs 31–35 remain individual masks even though the resume boundary has passed them');
+  C.processRevealThresholds(thresholds,200,[],id=>{opened.push(id);return true},protectedIds);
+  assert.deepEqual(opened,normalIds.slice(35,40),'curtain movement can disclose only IDs 36–40');
+
+  // Persist and reload the resumed session, then resize without new study.
+  const restoredSnapshot=C.loadCore(storage,'ledger',{stateKey:'state',gptSessionsKey:'gpt',activeSessionKey:'active'});
+  const restored=C.tryRestoreSession(restoredSnapshot.activeSession,{currentKey:switched.session.key,legacyKey:'',filter:'all',sortMode:'normal',pageIndex:3,
+    excludeStreak:false,masteryThreshold:3,words,state:{},randomIds,currentPageIds:normalIds.slice(30,40)});
+  assert.equal(restored.curtainFrontierId,'35');assert.equal(restored.curtainFrontierResumeOnly,true);
+  const fallback='31',laterFrontier=C.resolveDisplayFrontier(restored,words,'normal',randomIds,fallback);
+  assert.equal(laterFrontier.id,'31');assert.equal(laterFrontier.learnedId,null);
+  const resized=C.pagePositionForId(words,'normal',randomIds,laterFrontier.id,20);
+  assert.equal(resized.start,20);assert.deepEqual(normalIds.slice(resized.start,resized.start+20),normalIds.slice(20,40));
+  const laterProtected=C.idsThroughPosition(words,'normal',randomIds,normalIds.slice(20,40),restored.curtainFrontierId);
+  assert.deepEqual(laterProtected,normalIds.slice(20,35),'the later resize uses the current page anchor but retains the old boundary protection');
+  const afterNewStudy={...restored,curtainFrontierResumeOnly:false,studiedIds:['36'],furthestProgressId:'36',curtainFrontierId:'36'};
+  assert.equal(C.resolveDisplayFrontier(afterNewStudy,words,'normal',randomIds,'31').id,'36','new study activity replaces the resume-only anchor');
+  const movedToFreshPage=makeSession('normal',40,20);
+  assert.equal(C.resolveDisplayFrontier(movedToFreshPage,words,'normal',randomIds,'41').id,'41','a fresh unstudied page is anchored to its own first ID');
+
+  const sameSizeAway=switchMode('normal',0,50,normalSession,C.normalizeOrderResume(),'random',50);
+  const sameSizeBack=switchMode('random',0,50,makeSession('random',0,50),sameSizeAway.resume,'normal',50);
+  assert.equal(sameSizeBack.start,0);assert.deepEqual(sameSizeBack.session.targetIds,normalIds.slice(0,50));
+  assert.equal(sameSizeBack.session.curtainFrontierId,'35','same-size return also restores the learned curtain boundary');
+
+  // Random-order restoration is symmetric and maps by the same fixed randomIds after resizing.
+  for(const returnSize of [50,10]){
+    const randomFrontier=randomIds[34],source=makeSession('random',0,50,{studied:randomIds.slice(0,35),frontier:randomFrontier});
+    let away=switchMode('random',0,50,source,C.normalizeOrderResume(),'normal',50);
+    if(returnSize!==50)away=switchMode('normal',away.start,50,away.session,away.resume,'random',returnSize);
+    else away=switchMode('normal',away.start,50,away.session,away.resume,'random',returnSize);
+    assert.equal(away.start,Math.floor(34/returnSize)*returnSize);
+    assert.deepEqual(away.session.targetIds,randomIds.slice(away.start,away.start+returnSize));
+    assert.equal(away.session.curtainFrontierId,randomFrontier);
+    assert.equal(away.session.curtainFrontierResumeOnly,true);
+  }
+
+  // Visiting an untouched normal page stores its first ID, not a stale progress cursor.
+  const untouched=makeSession('normal',50,50),untouchedAway=switchMode('normal',50,50,untouched,C.normalizeOrderResume(),'random',10);
+  const untouchedBack=switchMode('random',0,10,makeSession('random',0,10),untouchedAway.resume,'normal',10);
+  assert.equal(untouchedBack.start,50);assert.deepEqual(untouchedBack.session.targetIds,normalIds.slice(50,60));
+  assert.equal(untouchedBack.session.curtainFrontierId,undefined,'untouched-page return does not import old learned progress as a curtain boundary');
+
+  // An identity change makes a saved cursor unusable; an explicit shuffle clears it.
+  const changedWords=words.map(word=>({...word}));changedWords[0].answer='changed';
+  const changedIdentity=C.studyOrderIdentity(changedWords,'random',randomIds),savedRandom=untouchedAway.resume.random;
+  assert.equal(C.sameStudyOrderIdentity(savedRandom?.identity,changedIdentity),false);
+  const changedIdentityStart=C.sameStudyOrderIdentity(savedRandom?.identity,changedIdentity)
+    ?C.pagePositionForId(changedWords,'random',randomIds,savedRandom.anchorId,10).randomStart:0;
+  assert.equal(changedIdentityStart,0,'a changed dataset falls back safely instead of applying the stale anchor');
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/if\(writeRandomOrder\)draftOrderResume\.random=null/,'explicit reshuffle clears the old random resume record');
+});
 test('display-size transition clears only skipped IDs leaving the old target and keeps common or unrelated skips',()=>{
   const words=Array.from({length:100},(_,i)=>({id:String(i+1),question:`w${i+1}`,answer:`m${i+1}`}));
   let skipped=null;for(const id of ['30','44','59','99'])skipped=C.setGptSkippedState(skipped,words,id,true);
@@ -368,11 +499,12 @@ test('page-size input uses its isolated frontier transition while other display 
   assert.match(pageSize,/resolveDisplayFrontier\(activeSession,words,sortMode,randomIds,fallbackId\)/);
   assert.match(pageSize,/pagePositionForId\(words,sortMode,randomIds,frontier\.id,nextPageSize\)/);
   assert.match(pageSize,/finalize:true,resetCurtain:true,clearGptSkippedExitedTarget:true/);
-  assert.match(pageSize,/curtainFrontier:frontier/);
+  assert.match(pageSize,/const curtainResume=frontier\.learnedId\?frontier:resumeOnlyFrontier/);
+  assert.match(pageSize,/curtainFrontier:curtainResume/);
   const pageHandler=html.match(/els\.pageSize\.addEventListener\("change",\(\)=>\{([\s\S]*?)\n  \}\);/)?.[1];
   assert.ok(pageHandler);assert.match(pageHandler,/changePageSizePreservingLearningPosition\(next\)/);assert.doesNotMatch(pageHandler,/changeDisplaySettings/);
   assert.match(html,/const nextSession=!nextWords\.length\?null:finalize\|\|!priorSession[\s\S]*?studiedIds:\[\],checkedIds:\[\],finalizedIds:\[\]/);
-  assert.match(html,/saveCoreTransition\(localStorage,STORAGE_LEDGER,[\s\S]*?state=draftState;studyProgress=draftProgress;activeSession=nextSession/);
+  assert.match(html,/saveCoreTransition\(localStorage,STORAGE_LEDGER,[\s\S]*?state=draftState;studyProgress=draftProgress;orderResume=draftOrderResume;activeSession=nextSession/);
   assert.match(html,/clearGptSkippedOutsideTarget\(draftSkipped,nextWords,oldTarget\.ids,target\.ids\)/);
 });
 test('processRevealThresholds retry handles only remaining IDs without recounting committed words',()=>{
@@ -840,7 +972,7 @@ test('study screen groups controls, exposes accessible header icons, and places 
   assert.match(html,/function orderChangeNeedsConfirmation\(\)\{return pendingStudyTransitionNeedsConfirmation\("現在の学習結果を確定して、学習順序を切り替えますか？"\)\}/);
   assert.match(html,/excludeStreak\.addEventListener\("change",\(\)=>\{[\s\S]*pendingStudyTransitionNeedsConfirmation\("現在の学習結果を確定して、習得済み除外の設定を切り替えますか？"\)[\s\S]*els\.excludeStreak\.checked=excludeStreak/);
   assert.match(html,/if\(!restartViewSession\(\{\.\.\.currentView\(\),excludeStreak:els\.excludeStreak\.checked\}\)\)\{[\s\S]*els\.excludeStreak\.checked=excludeStreak/);
-  assert.match(html,/normalOrder\.addEventListener\("click",\(\)=>\{if\(sortMode==="normal"\)return;if\(!orderChangeNeedsConfirmation\(\)\)return;/);
+  assert.match(html,/normalOrder\.addEventListener\("click",\(\)=>\{[\s\S]*?if\(sortMode==="normal"\)return;if\(!orderChangeNeedsConfirmation\(\)\)return;[\s\S]*?viewForOrderResume\("normal",nextOrderResume\)/);
   assert.match(html,/randomOrder\.addEventListener\("click",\(\)=>\{[\s\S]*?if\(!orderChangeNeedsConfirmation\(\)\)return;/);
   assert.match(html,/els\.closeSettings\.addEventListener\("click",\(\)=>els\.settingsPanel\.close\(\)\)/);
   assert.match(html,/els\.closeGpt\.addEventListener\("click",\(\)=>els\.gptPanel\.close\(\)\)/);
@@ -1408,6 +1540,54 @@ test('GPT validation requires an issued pending session and preserves skipped', 
   assert.throws(()=>C.validateGptResults({version:1,sessionId:'s',results:[]},{...rec,applied:true},['a','b']));
   assert.deepEqual(C.inspectGptResults({version:1,sessionId:'s',results:[{id:'a',result:'correct'}]},{},['s'],['a']).isReplay,true);
 });
+test('GPT result review summary separates JSON outcomes, missing issued IDs, replay extras, and applied targets',()=>{
+  const summary=C.summarizeGptResults([
+    {id:'a',result:'correct'},{id:'b',result:'wrong'},{id:'c',result:'uncertain'},{id:'d',result:'skipped'},{id:'outside',result:'correct'}
+  ],['a','b','c','d','e'],3);
+  assert.deepEqual(summary,{issuedCount:5,resultCount:5,missingCount:1,outsideIssuedCount:1,counts:{correct:2,wrong:1,uncertain:1,skipped:1},appliedCount:3});
+  const empty=C.summarizeGptResults([],['a','b'],0);
+  assert.deepEqual([empty.issuedCount,empty.resultCount,empty.missingCount,empty.appliedCount],[2,0,2,0]);
+  const unknown=C.summarizeGptResults([{id:'x',result:'correct'}],null,1);
+  assert.deepEqual([unknown.issuedCount,unknown.missingCount,unknown.outsideIssuedCount],[null,null,null]);
+});
+test('GPT review targets match normal, skipped, active-study, empty, and replay integration outcomes',()=>{
+  const words=Array.from({length:4},(_,i)=>({id:String(i+1),question:`word-${i+1}`,answer:`meaning-${i+1}`}));
+  const view={filter:'all',sortMode:'normal',excludeStreak:false,masteryThreshold:3,pageIndex:0,randomStart:0};
+  const active={sessionId:'app',key:C.studySessionKey(view,2),updatedAt:1,revealY:1,targetIds:['1','2'],viewState:{...view,pageSize:2},studiedIds:['2'],checkedIds:[],finalizedIds:[],pendingId:'2'};
+  const results=[{id:'1',result:'correct'},{id:'2',result:'wrong'},{id:'3',result:'skipped'},{id:'4',result:'uncertain'}];
+  const normal=prepareIntegration({version:1,sessionId:'pending',results},{sessions:{pending:{ids:words.map(word=>word.id)}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:2,randomIds:[],gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.deepEqual(normal.resultTargets,[
+    {id:'1',target:true,reason:null},
+    {id:'2',target:false,reason:'study'},
+    {id:'3',target:false,reason:null},
+    {id:'4',target:true,reason:null}
+  ]);
+  assert.deepEqual(normal.appliedIds,['1','4']);
+  assert.equal(normal.resultTargets.filter(item=>item.target).length,normal.applied,'the result list target count matches applied history results');
+  assert.equal(normal.gptSkipped.ids.includes('3'),false,'out-of-range skipped does not become a target');
+
+  const explicitSkip=prepareIntegration({version:1,sessionId:'pending-skip',results:[{id:'1',result:'skipped'}]},
+    {sessions:{'pending-skip':{ids:['1']}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:2,randomIds:[],gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.deepEqual(explicitSkip.resultTargets,[{id:'1',target:false,reason:null}]);
+  assert.equal(explicitSkip.applied,0,'explicit skipped is excluded from the history target count');
+  assert.deepEqual(explicitSkip.gptSkipped.ids,['1']);
+
+  const skippedOnly=prepareIntegration({version:1,sessionId:'skipped-only',results:[{id:'2',result:'skipped'}]},
+    {sessions:{'skipped-only':{ids:['2']}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:null,currentView:view,pageSize:2,randomIds:[],gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.equal(skippedOnly.applied,0);
+  assert.deepEqual(skippedOnly.resultTargets,[{id:'2',target:false,reason:null}]);
+  assert.equal(skippedOnly.resultTargets.filter(item=>item.target).length,skippedOnly.applied);
+
+  const empty=prepareIntegration({version:1,sessionId:'empty',results:[]},
+    {sessions:{empty:{ids:['1','2']}},registeredIds:[],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:2,randomIds:[],gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.deepEqual(empty.resultTargets,[]);
+
+  const replay=prepareIntegration({version:1,sessionId:'done',results},
+    {sessions:{},registeredIds:['done'],knownIds:words.map(word=>word.id),words,state:{},activeSession:active,currentView:view,pageSize:2,randomIds:[],gptSkipped:null,now:'2026-10-12T00:00:00.000Z'});
+  assert.deepEqual(replay.resultTargets,normal.resultTargets,'replay extras retain existing acceptance while pending active overlaps and out-of-range skipped remain excluded');
+  assert.deepEqual(replay.appliedIds,['1','4']);
+  assert.equal(replay.resultTargets.filter(item=>item.target).length,replay.applied);
+});
 test('legacy individual keys migrate when no integrated snapshot exists', () => {
   const legacy={state:{a:{studyCount:3}},gptSessions:{g:{applied:false}},active:{key:'all',updatedAt:50,studiedIds:['a'],checkedIds:[],finalizedIds:[],revealY:80}};
   const store=memoryStorage({oldState:JSON.stringify(legacy.state),oldGpt:JSON.stringify(legacy.gptSessions),oldActive:JSON.stringify(legacy.active)});
@@ -1865,9 +2045,58 @@ test('result URL prefill retains the query until the registration dialog closes 
   assert.match(helper,/url\.pathname\}\$\{url\.search\}\$\{url\.hash/);
   assert.match(html,/receiveGptResultFromUrl\(\);/);
   assert.match(html,/els\.gptPanel\.addEventListener\("close",\(\)=>\{removeGptResultParamFromUrl\(\);resetGptIssueUi\(\)\}\)/);
-  const applyStart=html.indexOf('function applyGptResults()'),applyEnd=html.indexOf('\n  function receiveGptResultFromUrl()',applyStart),apply=html.slice(applyStart,applyEnd);
-  assert.ok(apply.indexOf('StudyCore.saveCoreTransition')<apply.indexOf('removeGptResultParamFromUrl()'));
-  assert.match(apply,/finally\{els\.resultJson\.value=""\}/);
+  const applyStart=html.indexOf('function applyGptResults()'),confirmStart=html.indexOf('function confirmGptResultRegistration()',applyStart),apply=html.slice(applyStart,confirmStart),confirmEnd=html.indexOf('\n  function receiveGptResultFromUrl()',confirmStart),confirm=html.slice(confirmStart,confirmEnd);
+  assert.ok(apply.indexOf('StudyCore.prepareGptIntegration')<apply.indexOf('els.gptResultConfirm.showModal()'));
+  assert.doesNotMatch(apply,/saveCoreTransition|removeGptResultParamFromUrl|state=draft\.state|finally\{els\.resultJson\.value/);
+  assert.doesNotMatch(apply,/confirm\(/,'replay confirmation is part of the custom dialog, not a second window.confirm');
+  assert.match(apply,/const rawJson=els\.resultJson\.value,obj=JSON\.parse\(rawJson\)/);
+  assert.match(apply,/StudyCore\.summarizeGptResults/);
+  assert.match(confirm,/StudyCore\.saveCoreTransition/);
+  assert.ok(confirm.indexOf('StudyCore.saveCoreTransition')<confirm.indexOf('removeGptResultParamFromUrl()'));
+  assert.ok(confirm.indexOf('StudyCore.saveCoreTransition')<confirm.indexOf('els.resultJson.value=""'));
+  assert.match(confirm,/gptResultReviewContextSignature\(\)!==review\.contextSignature/);
+  assert.match(confirm,/gptResultRegistrationInProgress=true;els\.confirmGptResult\.disabled=true/);
+  assert.match(confirm,/catch\(err\)\{[\s\S]*els\.gptResultConfirmError\.textContent=err\.message\|\|String\(err\)/);
+  assert.match(confirm,/finally\{[\s\S]*gptResultRegistrationInProgress=false/);
+  const closeStart=html.indexOf('function closeGptResultReview('),closeEnd=html.indexOf('\n  function confirmGptResultRegistration()',closeStart),close=html.slice(closeStart,closeEnd);
+  assert.doesNotMatch(close,/saveCoreTransition|resultJson\.value=/,'editing or cancelling a review never writes storage or clears input');
+  assert.match(html,/els\.editGptResultJson\.addEventListener\("click",\(\)=>closeGptResultReview\("edit"\)\)/);
+  assert.match(html,/els\.confirmGptResult\.addEventListener\("click",confirmGptResultRegistration\)/);
+  assert.match(html,/els\.confirmGptResult\.textContent=checked\.isReplay\?"確認して再登録":"確認して登録"/);
+  assert.match(html,/function closeGptResultReview\(returnValue="edit"\)[\s\S]*?if\(returnValue==="edit"\)requestAnimationFrame\(\(\)=>els\.resultJson\.focus\(\)\)/);
+  assert.match(html,/els\.gptResultConfirm\.addEventListener\("cancel",event=>\{event\.preventDefault\(\)/);
+  assert.match(html,/このセッションの結果は過去に登録されています/);
+  assert.match(html,/結果のない\$\{summary\.missingCount\}語は学習履歴に反映されません/);
+  assert.match(html,/登録しても学習履歴は増えず、この操作でセッションが終了します/);
+  assert.match(html,/textContent=title;body\.textContent=message/);
+  assert.doesNotMatch(html,/gptResultWarning\.innerHTML/);
+});
+
+test('GPT result review dialog clearly labels counts and preserves confirmation actions for mobile layouts',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8'),start=html.indexOf('<dialog id="gptResultConfirm"'),end=html.indexOf('</dialog>',start),dialog=html.slice(start,end);
+  assert.match(dialog,/aria-labelledby="gptResultConfirmTitle" aria-describedby="gptResultConfirmDescription"/);
+  for(const label of ['発行単語数','結果あり','結果なし','正解','不正解','曖昧','スキップ','JSONを修正','確認して登録'])assert.ok(dialog.includes(label),`dialog includes ${label}`);
+  assert.match(dialog,/id="gptResultConfirmError"[^>]*role="alert"/);
+  assert.match(html,/dialog\.gpt-result-confirm-dialog\{[^}]*max-height:calc\(100dvh - 24px\)[^}]*overflow:auto/);
+  assert.match(html,/@media\(max-width:380px\)\{\.gpt-result-confirm/);
+  assert.match(html,/\.gpt-result-stat-value\{[^}]*font-size:1\.3rem[^}]*white-space:nowrap/);
+  assert.match(html,/@media\(max-width:380px\)\{[^]*?\.gpt-result-stat-value\{font-size:1\.15rem\}/);
+  const applied=dialog.slice(dialog.indexOf('id="gptResultAppliedSummary"'));
+  assert.match(applied,/id="toggleGptResultList"[^>]*aria-expanded="false" aria-controls="gptResultListPanel"/);
+  assert.match(applied,/id="gptResultListPanel"[^>]*hidden/);
+  assert.match(applied,/<th scope="col">単語<\/th><th scope="col">GPT判定<\/th><th scope="col">登録対象<\/th>/);
+  assert.match(applied,/学習中の単語にはGPTの結果を反映しません。学習を確定してから登録してください。/);
+  assert.match(html,/function renderGptResultList\(review\)[\s\S]*?word\.question\|\|""/);
+  assert.match(html,/target=targetsById\.get\(String\(result\.id\)\)/);
+  assert.match(html,/rows\.sort\(\(a,b\)=>\(a\.word\?\.index\?\?Number\.MAX_SAFE_INTEGER\)-\(b\.word\?\.index\?\?Number\.MAX_SAFE_INTEGER\)\|\|a\.index-b\.index\)/);
+  assert.match(html,/els\.gptResultListBody\.replaceChildren\(\)/);
+  assert.match(html,/function renderGptResultReview\(review\)[\s\S]*?renderGptResultList\(review\);setGptResultListOpen\(false\)/);
+  assert.match(html,/function setGptResultListOpen\(open\)[\s\S]*?gptResultListPanel\.hidden=!isOpen;els\.toggleGptResultList\.setAttribute\("aria-expanded",String\(isOpen\)\)/);
+  const toggleStart=html.indexOf('function setGptResultListOpen('),toggleEnd=html.indexOf('\n  function renderGptResultList(',toggleStart),toggle=html.slice(toggleStart,toggleEnd);
+  assert.doesNotMatch(toggle,/saveCoreTransition|localStorage|state\s*=|activeSession\s*=/,'opening the read-only list never changes study state');
+  assert.match(html,/els\.toggleGptResultList\.addEventListener\("click",\(\)=>setGptResultListOpen\(els\.gptResultListPanel\.hidden\)\)/);
+  assert.match(html,/targetLabel\.textContent=target\?\.target\?"対象"/);
+  assert.doesNotMatch(html,/gptResultListBody\.innerHTML|gptResultListPanel\.innerHTML/);
 });
 
 test('result URL removal preserves unrelated query, hash, and existing history state',()=>{

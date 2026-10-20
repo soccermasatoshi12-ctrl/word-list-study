@@ -139,6 +139,16 @@
     .gpt-issue-confirm-actions #cancelGptIssue:hover,.gpt-issue-confirm-actions #cancelGptIssue:focus-visible{background:#f4f6f8!important;color:#273244!important;-webkit-text-fill-color:#273244!important}
     .gpt-issue-confirm-actions #confirmGptIssue,.gpt-issue-confirm-actions #confirmGptIssue:hover,.gpt-issue-confirm-actions #confirmGptIssue:focus-visible,.gpt-issue-confirm-actions #confirmGptIssue:active{background:#2563eb!important;border-color:#2563eb!important;color:#fff!important;-webkit-text-fill-color:#fff!important}
     .gpt-issue-confirm-actions button:focus-visible{outline:3px solid #2563eb66;outline-offset:2px}
+    dialog.gpt-result-confirm-dialog{width:min(480px,calc(100vw - 24px));max-height:calc(100dvh - 24px);margin:auto;padding:0;border:1px solid var(--border);border-radius:16px;background:var(--panel);color:var(--text);box-shadow:0 16px 44px rgba(15,23,42,.26);overflow:auto;overscroll-behavior:contain}
+    dialog.gpt-result-confirm-dialog::backdrop{background:rgba(15,23,42,.58)}
+    .gpt-result-confirm{display:grid;gap:16px;padding:clamp(16px,4vw,22px)}
+    .gpt-result-confirm-header{display:grid;gap:5px}.gpt-result-confirm-eyebrow{margin:0;color:var(--accent);font-size:.74rem;font-weight:700;letter-spacing:.04em}.gpt-result-confirm-header h2{margin:0;font-size:1.16rem;line-height:1.3}.gpt-result-confirm-intro{margin:0;color:var(--muted);font-size:.88rem;line-height:1.45}
+    .gpt-result-warning{display:grid;gap:8px;padding:10px 12px;border:1px solid #f0cf8a;border-radius:10px;background:#fff8e8;color:#704f0d;font-size:.84rem;line-height:1.45;overflow-wrap:anywhere}.gpt-result-warning[hidden]{display:none!important}.gpt-result-warning-item{display:grid;gap:2px}.gpt-result-warning strong{font-size:.86rem}
+    .gpt-result-counts{display:grid;gap:11px}.gpt-result-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.gpt-result-stat{display:grid;align-content:center;justify-items:center;gap:4px;min-width:0;min-height:80px;padding:9px 5px;border:1px solid var(--border);border-radius:11px;background:#f8fafc;text-align:center}.gpt-result-stat-label{color:var(--muted);font-size:.76rem;line-height:1.25;overflow-wrap:anywhere}.gpt-result-stat-value{font-size:1.3rem;font-weight:750;line-height:1.05;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .gpt-result-breakdown{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.gpt-result-breakdown-item{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--panel);font-size:.84rem}.gpt-result-breakdown-label{display:flex;align-items:center;gap:7px;min-width:0;overflow-wrap:anywhere}.gpt-result-breakdown-dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:#7b8491}.gpt-result-breakdown-item[data-result="correct"] .gpt-result-breakdown-dot{background:#16834b}.gpt-result-breakdown-item[data-result="wrong"] .gpt-result-breakdown-dot{background:#c53b35}.gpt-result-breakdown-item[data-result="uncertain"] .gpt-result-breakdown-dot{background:#c58b16}.gpt-result-breakdown-item[data-result="skipped"] .gpt-result-breakdown-dot{background:#737d8c}.gpt-result-breakdown-value{flex:0 0 auto;font-weight:750;font-variant-numeric:tabular-nums}
+    .gpt-result-count-note{margin:0;color:var(--muted);font-size:.76rem;line-height:1.45}.gpt-result-applied{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px 12px;padding:10px 12px;border-radius:10px;background:#eff6ff;color:#1e3a66;font-size:.84rem}.gpt-result-applied-main{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}.gpt-result-applied strong{font-size:1rem;font-variant-numeric:tabular-nums;white-space:nowrap}.gpt-result-list-toggle{min-height:32px;padding:5px 10px;border-radius:8px;background:#fff;border-color:#c7d7ee;color:#1e4f91;-webkit-text-fill-color:#1e4f91;font-size:.8rem;font-weight:600;white-space:nowrap}.gpt-result-list-toggle:hover{background:#f8fbff}.gpt-result-list-note,.gpt-result-list-panel{grid-column:1/-1}.gpt-result-list-note{margin:0;color:#52647c;font-size:.76rem;line-height:1.4}.gpt-result-list-panel[hidden]{display:none!important}.gpt-result-list-scroll{max-height:240px;overflow:auto;border:1px solid #d7e1ef;border-radius:8px;background:var(--panel);overscroll-behavior:contain}.gpt-result-list-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:.8rem;line-height:1.35}.gpt-result-list-table th,.gpt-result-list-table td{padding:7px 8px;border-bottom:1px solid #edf0f4;text-align:left;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}.gpt-result-list-table th{position:sticky;top:0;z-index:1;background:#f4f7fb;color:#536174;font-size:.74rem;font-weight:650}.gpt-result-list-table th:first-child,.gpt-result-list-table td:first-child{width:42%}.gpt-result-list-table th:nth-child(2),.gpt-result-list-table td:nth-child(2){width:27%}.gpt-result-list-table th:nth-child(3),.gpt-result-list-table td:nth-child(3){width:31%}.gpt-result-list-table tbody tr:last-child td{border-bottom:0}.gpt-result-target{font-weight:650;color:#176642}.gpt-result-target.is-excluded{color:#865f12;font-weight:500}.gpt-result-list-empty{text-align:center!important;color:var(--muted)}.gpt-result-confirm-error{margin:0;padding:9px 11px;border:1px solid #efb5b0;border-radius:9px;background:#fff2f1;color:#a12a22;font-size:.84rem;line-height:1.4;overflow-wrap:anywhere}.gpt-result-confirm-error[hidden]{display:none!important}
+    .gpt-result-confirm-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:2px}.gpt-result-confirm-actions button{box-sizing:border-box;min-width:0;min-height:42px;padding:8px 13px;border-radius:9px;font-size:.88rem;font-weight:650;white-space:nowrap}.gpt-result-confirm-actions .gpt-result-edit{background:#fff;border-color:#cfd5de;color:#273244;-webkit-text-fill-color:#273244}.gpt-result-confirm-actions .gpt-result-register{background:var(--accent);border-color:var(--accent);color:#fff;-webkit-text-fill-color:#fff}.gpt-result-confirm-actions button:focus-visible{outline:3px solid #2563eb66;outline-offset:2px}
+    @media(max-width:380px){.gpt-result-confirm{gap:13px}.gpt-result-overview{gap:5px}.gpt-result-stat{min-height:72px;padding:7px 3px}.gpt-result-stat-label{font-size:.7rem}.gpt-result-stat-value{font-size:1.15rem}.gpt-result-applied{grid-template-columns:minmax(0,1fr)}.gpt-result-list-toggle{justify-self:start}.gpt-result-list-table th,.gpt-result-list-table td{padding:7px 5px;font-size:.76rem}.gpt-result-confirm-actions{gap:6px}.gpt-result-confirm-actions button{padding-inline:9px;font-size:.82rem}}
     .gpt-result-entry{display:grid;gap:9px;min-width:0}
     #gptPanel #resultJson{display:block;width:100%;min-width:0;min-height:84px;max-height:26dvh;resize:vertical;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.84rem;line-height:1.4}
     #gptPanel #resultStatus{overflow-wrap:anywhere}
@@ -366,6 +376,48 @@
       <div class="gpt-issue-confirm-actions"><button id="cancelGptIssue" type="button" autofocus>キャンセル</button><button id="confirmGptIssue" type="button">発行する</button></div>
     </div>
   </dialog>
+  <dialog id="gptResultConfirm" class="gpt-result-confirm-dialog" aria-modal="true" aria-labelledby="gptResultConfirmTitle" aria-describedby="gptResultConfirmDescription">
+    <div class="gpt-result-confirm">
+      <header class="gpt-result-confirm-header">
+        <p class="gpt-result-confirm-eyebrow">登録前の確認</p>
+        <h2 id="gptResultConfirmTitle">GPT結果の確認</h2>
+        <p id="gptResultConfirmDescription" class="gpt-result-confirm-intro">以下の内容を確認してから学習結果を登録してください。</p>
+      </header>
+      <div id="gptResultWarning" class="gpt-result-warning" role="note" hidden></div>
+      <section class="gpt-result-counts" aria-label="結果サマリ">
+        <div class="gpt-result-overview">
+          <div class="gpt-result-stat"><span class="gpt-result-stat-label">発行単語数</span><strong id="gptResultIssuedCount" class="gpt-result-stat-value">—</strong></div>
+          <div class="gpt-result-stat"><span class="gpt-result-stat-label">結果あり</span><strong id="gptResultReturnedCount" class="gpt-result-stat-value">—</strong></div>
+          <div class="gpt-result-stat"><span class="gpt-result-stat-label">結果なし</span><strong id="gptResultMissingCount" class="gpt-result-stat-value">—</strong></div>
+        </div>
+        <div class="gpt-result-breakdown" aria-label="入力JSONの判定内訳">
+          <div class="gpt-result-breakdown-item" data-result="correct"><span class="gpt-result-breakdown-label"><i class="gpt-result-breakdown-dot" aria-hidden="true"></i>正解</span><strong id="gptResultCorrectCount" class="gpt-result-breakdown-value">0</strong></div>
+          <div class="gpt-result-breakdown-item" data-result="wrong"><span class="gpt-result-breakdown-label"><i class="gpt-result-breakdown-dot" aria-hidden="true"></i>不正解</span><strong id="gptResultWrongCount" class="gpt-result-breakdown-value">0</strong></div>
+          <div class="gpt-result-breakdown-item" data-result="uncertain"><span class="gpt-result-breakdown-label"><i class="gpt-result-breakdown-dot" aria-hidden="true"></i>曖昧</span><strong id="gptResultUncertainCount" class="gpt-result-breakdown-value">0</strong></div>
+          <div class="gpt-result-breakdown-item" data-result="skipped"><span class="gpt-result-breakdown-label"><i class="gpt-result-breakdown-dot" aria-hidden="true"></i>スキップ</span><strong id="gptResultSkippedCount" class="gpt-result-breakdown-value">0</strong></div>
+        </div>
+        <p class="gpt-result-count-note">判定内訳は入力JSONの件数です。適用対象は重複保護とスキップ除外後の件数で、暫定結果は学習セッション終了時に確定します。</p>
+      </section>
+      <div id="gptResultAppliedSummary" class="gpt-result-applied">
+        <div class="gpt-result-applied-main" role="group"><span>今回の結果適用対象</span><strong id="gptResultAppliedCount">—</strong></div>
+        <button id="toggleGptResultList" class="gpt-result-list-toggle" type="button" aria-expanded="false" aria-controls="gptResultListPanel">一覧を見る</button>
+        <p class="gpt-result-list-note">学習中の単語にはGPTの結果を反映しません。学習を確定してから登録してください。</p>
+        <div id="gptResultListPanel" class="gpt-result-list-panel" hidden>
+          <div class="gpt-result-list-scroll" role="region" aria-label="GPT結果と登録対象の一覧" tabindex="0">
+            <table class="gpt-result-list-table">
+              <thead><tr><th scope="col">単語</th><th scope="col">GPT判定</th><th scope="col">登録対象</th></tr></thead>
+              <tbody id="gptResultListBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <p id="gptResultConfirmError" class="gpt-result-confirm-error" role="alert" hidden></p>
+      <div class="gpt-result-confirm-actions">
+        <button id="editGptResultJson" class="gpt-result-edit" type="button" autofocus>JSONを修正</button>
+        <button id="confirmGptResult" class="gpt-result-register" type="button">確認して登録</button>
+      </div>
+    </div>
+  </dialog>
   <div id="studyFooterSpacer" aria-hidden="true"></div>
   </div>
 </div>
@@ -379,6 +431,7 @@
   const STORAGE_ACTIVE_SESSION="wordlist.activeStudySession.v2";
   const STORAGE_RANDOM_ORDER="wordlist.randomOrder.v1";
   const STORAGE_VIEW="wordlist.view.v1";
+  const STORAGE_ORDER_RESUME="wordlist.orderResume.v1";
   const STORAGE_SCREEN="wordlist.screen.v1";
   const STORAGE_LIST_TITLE="wordlist.listTitle.v1";
   const STORAGE_PREFERENCES="wordlist.preferences.v1";
@@ -399,6 +452,7 @@
   let gptIssueSequence=Number.isSafeInteger(savedCore.gptIssueSequence)&&savedCore.gptIssueSequence>=0?savedCore.gptIssueSequence:0;
   let gptSkipped=StudyCore.normalizeGptSkippedState(savedCore.gptSkipped,words);
   let randomIds=loadJson(STORAGE_RANDOM_ORDER,[]);
+  let orderResume=StudyCore.normalizeOrderResume(loadJson(STORAGE_ORDER_RESUME,{}));
   const rawSavedView=loadJson(STORAGE_VIEW,{});
   const rawSavedPreferences=loadJson(STORAGE_PREFERENCES,{});
   const savedSessionView=savedCore.activeSession?.viewState;
@@ -424,6 +478,7 @@
   let revealY=0, lastSessionUrl="", lastChatGptUrl="", lastChatGptPrompt="", activeSession=savedCore.activeSession, curtainLayoutObserver=null, curtainUserDragging=false;
   let curtainLocked=false,lockedY=null,lockScrollFrame=0,lockLastRevealY=0,lockFeedbackTimer=0;
   let gptIssueInProgress=false,gptIssueConfirmationPending=false,gptIssuedInCurrentModal=false;
+  let pendingGptResultConfirmation=null,gptResultRegistrationInProgress=false,gptResultPersistenceStale=false;
   let distributionMode="all";
 
   const els={
@@ -439,7 +494,7 @@
     excludeStreak:document.getElementById("excludeStreak"),
     normalOrder:document.getElementById("normalOrder"),randomOrder:document.getElementById("randomOrder"),reshuffle:document.getElementById("reshuffle"),
     makeSession:document.getElementById("makeSession"),gptIssueConfirm:document.getElementById("gptIssueConfirm"),cancelGptIssue:document.getElementById("cancelGptIssue"),confirmGptIssue:document.getElementById("confirmGptIssue"),openChatGpt:document.getElementById("openChatGpt"),copyChatGpt:document.getElementById("copyChatGpt"),gptPromptPreview:document.getElementById("gptPromptPreview"),gptPromptText:document.getElementById("gptPromptText"),gptPromptCopyFeedback:document.getElementById("gptPromptCopyFeedback"),
-    resultJson:document.getElementById("resultJson"),applyResults:document.getElementById("applyResults"),resultStatus:document.getElementById("resultStatus")
+    resultJson:document.getElementById("resultJson"),applyResults:document.getElementById("applyResults"),resultStatus:document.getElementById("resultStatus"),gptResultConfirm:document.getElementById("gptResultConfirm"),gptResultWarning:document.getElementById("gptResultWarning"),gptResultIssuedCount:document.getElementById("gptResultIssuedCount"),gptResultReturnedCount:document.getElementById("gptResultReturnedCount"),gptResultMissingCount:document.getElementById("gptResultMissingCount"),gptResultCorrectCount:document.getElementById("gptResultCorrectCount"),gptResultWrongCount:document.getElementById("gptResultWrongCount"),gptResultUncertainCount:document.getElementById("gptResultUncertainCount"),gptResultSkippedCount:document.getElementById("gptResultSkippedCount"),gptResultAppliedCount:document.getElementById("gptResultAppliedCount"),toggleGptResultList:document.getElementById("toggleGptResultList"),gptResultListPanel:document.getElementById("gptResultListPanel"),gptResultListBody:document.getElementById("gptResultListBody"),gptResultConfirmError:document.getElementById("gptResultConfirmError"),editGptResultJson:document.getElementById("editGptResultJson"),confirmGptResult:document.getElementById("confirmGptResult")
   };
 
   const savedGptStartPosition=localStorage.getItem(STORAGE_GPT_START_POSITION);
@@ -456,6 +511,28 @@
   }
   function writeCoreSnapshot(){StudyCore.saveCore(localStorage,STORAGE_LEDGER,{state,activeSession,gptSessions,registeredGptSessionIds,studyProgress,gptSkipped})}
   function currentView(){return{filter,sortMode,excludeStreak,excludeStreakN:masteryThreshold,masteryThreshold,pageIndex,randomStart}}
+  function validOrderResume(mode,source=orderResume){
+    const entry=source?.[mode],identity=StudyCore.studyOrderIdentity(words,mode,randomIds);
+    if(!entry||!identity||!StudyCore.sameStudyOrderIdentity(entry.identity,identity)||StudyCore.studyOrderPosition(words,mode,randomIds,entry.anchorId)<0)return null;
+    if(entry.learnedId!==null&&StudyCore.studyOrderPosition(words,mode,randomIds,entry.learnedId)<0)return null;
+    return entry;
+  }
+  function captureCurrentOrderResume(){
+    const orderedIds=sortMode==="random"?randomIds.map(String):words.map(word=>String(word.id));
+    const rawStart=sortMode==="random"?randomStart:pageIndex*pageSize,fallbackId=orderedIds[rawStart]??null;
+    const frontier=StudyCore.resolveDisplayFrontier(activeSession,words,sortMode,randomIds,fallbackId);
+    if(frontier.id===null||!frontier.identity)return null;
+    if(activeSession?.curtainFrontierResumeOnly&&activeSession.curtainFrontierId&&StudyCore.sameStudyOrderIdentity(activeSession.curtainFrontierIdentity,frontier.identity)){
+      return{sortMode,anchorId:String(activeSession.curtainFrontierId),learnedId:String(activeSession.curtainFrontierId),identity:frontier.identity};
+    }
+    return{sortMode,anchorId:frontier.id,learnedId:frontier.learnedId,identity:frontier.identity};
+  }
+  function viewForOrderResume(mode,source=orderResume){
+    const entry=validOrderResume(mode,source),position=entry?StudyCore.pagePositionForId(words,mode,randomIds,entry.anchorId,pageSize):null;
+    return mode==="random"
+      ?{...currentView(),sortMode:mode,randomStart:position?.randomStart??0}
+      :{...currentView(),sortMode:mode,pageIndex:position?.pageIndex??0};
+  }
   function sessionView(view=currentView(),size=pageSize){return{...view,pageSize:size}}
   function persistView(view=currentView()){
     localStorage.setItem(STORAGE_VIEW,JSON.stringify(StudyCore.serializeView(view)));
@@ -687,7 +764,7 @@
       finalizedIds:Array.isArray(restored.finalizedIds)?restored.finalizedIds:[],
       furthestProgressId:StudyCore.sessionFurthestProgressId(restored),
       pendingId:restored.pendingId||null,
-      ...(typeof restored.curtainFrontierId==="string"&&restored.curtainFrontierIdentity?{curtainFrontierId:restored.curtainFrontierId,curtainFrontierIdentity:restored.curtainFrontierIdentity}:{}),
+      ...(typeof restored.curtainFrontierId==="string"&&restored.curtainFrontierIdentity?{curtainFrontierId:restored.curtainFrontierId,curtainFrontierIdentity:restored.curtainFrontierIdentity,...(restored.curtainFrontierResumeOnly?{curtainFrontierResumeOnly:true}:{})}:{}),
       ...(typeof restored.gptRevealTargetId==="string"?{gptRevealTargetId:restored.gptRevealTargetId}:{}),
       ...(restored.preserveTargetIds?{preserveTargetIds:true,preservedTargetIdentity:restored.preservedTargetIdentity}: {})
     };
@@ -722,10 +799,12 @@
   function applyView(view,size,threshold,answer){
     filter=view.filter;sortMode=view.sortMode;excludeStreak=view.excludeStreak;masteryThreshold=threshold;defaultAnswer=answer;pageIndex=view.pageIndex;randomStart=view.randomStart;pageSize=size;
   }
-  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,writeListTitle=false,nextListTitle=listTitle,finalize=true,resetCurtain=finalize,curtainFrontier=null,clearGptSkippedExitedTarget=false}={}){
+  function transitionView(nextView,{nextPageSize=pageSize,nextThreshold=masteryThreshold,nextDefaultAnswer=defaultAnswer,nextGptWordCount=gptWordCount,nextRandomIds=randomIds,nextWords=words,nextState=null,writeWords=false,writeRandomOrder=false,writePreferences=false,writeListTitle=false,nextListTitle=listTitle,finalize=true,resetCurtain=finalize,curtainFrontier=null,clearGptSkippedExitedTarget=false,nextOrderResume=null}={}){
     let draftState=JSON.parse(JSON.stringify(nextState||state));
     let draftProgress=StudyCore.normalizeStudyProgress(studyProgress);
     if(writeRandomOrder)draftProgress.random=null;
+    let draftOrderResume=StudyCore.normalizeOrderResume(nextOrderResume||orderResume);
+    if(writeRandomOrder)draftOrderResume.random=null;
     const priorSession=activeSession?JSON.parse(JSON.stringify(activeSession)):null;
     const oldTarget=clearGptSkippedExitedTarget?buildTarget(currentView(),state,words,randomIds,pageSize,true):null;
     if(finalize&&priorSession)draftState=StudyCore.finalizeSessionDraft(draftState,priorSession).state;
@@ -734,7 +813,7 @@
     const nextSession=!nextWords.length?null:finalize||!priorSession
       ?{sessionId:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,key:sessionKey(view,nextPageSize),updatedAt:Date.now(),revealY:0,targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),studiedIds:[],checkedIds:[],finalizedIds:[],furthestProgressId:null,pendingId:null}
       :{...priorSession,key:sessionKey(view,nextPageSize),targetIds:[...target.ids],viewState:sessionView(view,nextPageSize),updatedAt:Date.now()};
-    if(nextSession&&curtainFrontier?.learnedId&&curtainFrontier.identity){nextSession.curtainFrontierId=String(curtainFrontier.learnedId);nextSession.curtainFrontierIdentity=curtainFrontier.identity}
+    if(nextSession&&curtainFrontier?.learnedId&&curtainFrontier.identity){nextSession.curtainFrontierId=String(curtainFrontier.learnedId);nextSession.curtainFrontierIdentity=curtainFrontier.identity;if(curtainFrontier.resumeOnly)nextSession.curtainFrontierResumeOnly=true}
     if(nextSession){delete nextSession.preserveTargetIds;delete nextSession.preservedTargetIdentity}
     let draftSkipped=StudyCore.normalizeGptSkippedState(gptSkipped,nextWords);
     if(clearGptSkippedExitedTarget&&oldTarget)draftSkipped=StudyCore.clearGptSkippedOutsideTarget(draftSkipped,nextWords,oldTarget.ids,target.ids);
@@ -743,10 +822,11 @@
     if(writeRandomOrder)writes.push({key:STORAGE_RANDOM_ORDER,value:JSON.stringify(nextRandomIds)});
     if(writePreferences)writes.push({key:STORAGE_PREFERENCES,value:JSON.stringify({pageSize:nextPageSize,masteryThreshold:nextThreshold,defaultAnswer:nextDefaultAnswer,gptWordCount:nextGptWordCount})});
     if(writeListTitle)writes.push({key:STORAGE_LIST_TITLE,value:JSON.stringify(nextListTitle)});
+    if(nextOrderResume||writeRandomOrder)writes.push({key:STORAGE_ORDER_RESUME,value:JSON.stringify(draftOrderResume)});
     writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(view))});
     StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draftState,activeSession:nextSession,gptSessions,registeredGptSessionIds,studyProgress:draftProgress,gptSkipped:draftSkipped},writes);
     releaseCurtainLock();
-    state=draftState;studyProgress=draftProgress;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;gptSkipped=draftSkipped;if(writeListTitle)listTitle=nextListTitle;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
+    state=draftState;studyProgress=draftProgress;orderResume=draftOrderResume;activeSession=nextSession;randomIds=nextRandomIds;words=nextWords;gptSkipped=draftSkipped;if(writeListTitle)listTitle=nextListTitle;gptWordCount=nextGptWordCount;applyView(view,nextPageSize,nextThreshold,nextDefaultAnswer);
     if(resetCurtain||!nextSession)revealY=0;else revealY=Number(nextSession.revealY||0);
     render();
   }
@@ -760,6 +840,7 @@
     const draftState=JSON.parse(JSON.stringify(state)),draftSession=JSON.parse(JSON.stringify(activeSession));
     const st=draftState[id]=normalizeState(draftState[id]||defaultState());if(!StudyCore.recordStudy(draftSession,id,st,undefined,studyDefaultAnswer))return true;
     draftSession.pendingId=id;draftSession.updatedAt=Date.now();draftSession.revealY=Number(committedRevealY)||0;
+    delete draftSession.curtainFrontierResumeOnly;
     let progressedSession=StudyCore.advanceSessionFrontier(draftSession,id);
     if(draftSession.curtainFrontierId)progressedSession=StudyCore.advanceCurtainFrontier(progressedSession,words,sortMode,randomIds,id);
     const draftProgress=clearSkipped
@@ -1262,18 +1343,107 @@
     if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return true}catch{}}
     const ta=document.createElement("textarea");ta.value=text;document.body.appendChild(ta);ta.select();const ok=document.execCommand("copy");ta.remove();return ok;
   }
+  function gptResultReviewStorageSnapshot(){
+    return [STORAGE_LEDGER,STORAGE_WORDS,STORAGE_VIEW,STORAGE_RANDOM_ORDER,STORAGE_ORDER_RESUME,STORAGE_PREFERENCES].map(key=>[key,localStorage.getItem(key)]);
+  }
+  function gptResultReviewContextSignature(){
+    return JSON.stringify({words,state,gptSessions,registeredGptSessionIds,activeSession,view:currentView(),pageSize,randomIds,studyProgress,orderResume,gptSkipped,gptIssueSequence});
+  }
+  function addGptResultWarning(message,title){
+    const warning=els.gptResultWarning,item=document.createElement("div"),heading=document.createElement("strong"),body=document.createElement("span");
+    item.className="gpt-result-warning-item";heading.textContent=title;body.textContent=message;item.append(heading,body);warning.append(item);warning.hidden=false;
+  }
+  function setGptResultListOpen(open){
+    const isOpen=!!open;els.gptResultListPanel.hidden=!isOpen;els.toggleGptResultList.setAttribute("aria-expanded",String(isOpen));els.toggleGptResultList.textContent=isOpen?"一覧を閉じる":"一覧を見る";
+  }
+  function renderGptResultList(review){
+    const wordsById=new Map(words.map((word,index)=>[String(word.id),{word,index}])),targetsById=new Map((review.draft.resultTargets||[]).map(item=>[String(item.id),item]));
+    const resultLabels={correct:"正解",wrong:"不正解",uncertain:"曖昧",skipped:"スキップ"};
+    const rows=review.checked.results.map((result,index)=>({result,index,word:wordsById.get(String(result.id))}));
+    rows.sort((a,b)=>(a.word?.index??Number.MAX_SAFE_INTEGER)-(b.word?.index??Number.MAX_SAFE_INTEGER)||a.index-b.index);
+    els.gptResultListBody.replaceChildren();
+    if(!rows.length){const row=document.createElement("tr"),cell=document.createElement("td");cell.colSpan=3;cell.className="gpt-result-list-empty";cell.textContent="結果はありません。";row.append(cell);els.gptResultListBody.append(row);return}
+    for(const {result,word} of rows){
+      const row=document.createElement("tr"),wordCell=document.createElement("td"),resultCell=document.createElement("td"),targetCell=document.createElement("td"),target=targetsById.get(String(result.id));
+      wordCell.textContent=word?.word.question||"";resultCell.textContent=resultLabels[result.result]||"不明";
+      const targetLabel=document.createElement("span");targetLabel.className=`gpt-result-target${target?.target?"":" is-excluded"}`;
+      targetLabel.textContent=target?.target?"対象":`対象外${target?.reason==="study"?"（学習中）":target?.reason==="outside"?"（表示対象外）":""}`;
+      targetCell.append(targetLabel);row.append(wordCell,resultCell,targetCell);els.gptResultListBody.append(row);
+    }
+  }
+  function renderGptResultReview(review){
+    const {checked,summary}=review;
+    els.gptResultWarning.replaceChildren();els.gptResultWarning.hidden=true;
+    els.gptResultConfirmError.textContent="";els.gptResultConfirmError.hidden=true;
+    els.gptResultIssuedCount.textContent=summary.issuedCount===null?"不明":String(summary.issuedCount);
+    els.gptResultReturnedCount.textContent=String(summary.resultCount);
+    els.gptResultMissingCount.textContent=summary.missingCount===null?"算出不可":String(summary.missingCount);
+    els.gptResultCorrectCount.textContent=String(summary.counts.correct);
+    els.gptResultWrongCount.textContent=String(summary.counts.wrong);
+    els.gptResultUncertainCount.textContent=String(summary.counts.uncertain);
+    els.gptResultSkippedCount.textContent=String(summary.counts.skipped);
+    els.gptResultAppliedCount.textContent=summary.appliedCount===null?"算出不可":String(summary.appliedCount);
+    if(checked.isReplay)addGptResultWarning("この結果を再登録すると、学習履歴や学習回数が重複して増える可能性があります。","このセッションの結果は過去に登録されています");
+    if(summary.missingCount>0&&summary.resultCount>0)addGptResultWarning(`結果のない${summary.missingCount}語は学習履歴に反映されません。`,`結果が返っていない単語があります`);
+    if(summary.resultCount===0)addGptResultWarning("登録しても学習履歴は増えず、この操作でセッションが終了します。","結果がありません");
+    if(summary.outsideIssuedCount>0)addGptResultWarning(`入力JSONには発行対象外の既知IDが${summary.outsideIssuedCount}件含まれています。再適用時の既存ルールに従って扱います。`,`発行対象外の単語があります`);
+    els.gptResultAppliedCount.closest(".gpt-result-applied-main").setAttribute("aria-label",`今回の結果適用対象 ${summary.appliedCount===null?"算出不可":summary.appliedCount}件。入力JSONの判定内訳とは異なる場合があります。`);
+    els.confirmGptResult.textContent=checked.isReplay?"確認して再登録":"確認して登録";
+    renderGptResultList(review);setGptResultListOpen(false);
+  }
   function applyGptResults(){
     els.resultStatus.className="status";
+    if(gptResultRegistrationInProgress||pendingGptResultConfirmation)return;
+    if(gptResultPersistenceStale){els.resultStatus.textContent="別の画面で学習データが更新されています。JSONを控えてこのページを再読み込みしてから登録してください。";els.resultStatus.className="status bad";return}
     try{
-      const obj=JSON.parse(els.resultJson.value);
+      const rawJson=els.resultJson.value,obj=JSON.parse(rawJson);
       const checked=StudyCore.inspectGptResults(obj,gptSessions,registeredGptSessionIds,words.map(w=>w.id));
-      if(checked.isReplay&&!confirm("学習結果を登録しますか？ この結果は過去に登録済みの可能性があります。重複して登録してもよろしいですか？")){
-        els.resultStatus.textContent="登録をキャンセルしました。";return;
-      }
       const sessionId=String(obj.sessionId);
       const integrationArgs={sessions:gptSessions,registeredIds:registeredGptSessionIds,knownIds:words.map(w=>w.id),words,state,activeSession,currentView:currentView(),pageSize,randomIds,studyProgress,gptSkipped,latestIssueSequence:gptIssueSequence,now:Date.now()};
       const prepare=options=>StudyCore.prepareGptIntegration(obj,{...integrationArgs,...options});
-      let draft=prepare({forceFormalOnly:false});
+      const draft=prepare({forceFormalOnly:false});
+      const issueRecord=gptSessions?.[sessionId];
+      const issuedIds=Array.isArray(issueRecord?.ids)&&issueRecord.ids.length?issueRecord.ids:null;
+      const summary=StudyCore.summarizeGptResults(checked.results,issuedIds,draft.applied);
+      const review={rawJson,obj,checked,summary,draft,prepare,sessionId,contextSignature:gptResultReviewContextSignature(),storageSnapshot:gptResultReviewStorageSnapshot()};
+      renderGptResultReview(review);pendingGptResultConfirmation=review;
+      els.gptResultConfirm.showModal();
+      requestAnimationFrame(()=>els.editGptResultJson.focus());
+    }catch(err){els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad"}
+  }
+  function closeGptResultReview(returnValue="edit"){
+    pendingGptResultConfirmation=null;
+    setGptResultListOpen(false);
+    if(els.gptResultConfirm.open)els.gptResultConfirm.close(returnValue);
+    if(returnValue==="edit")requestAnimationFrame(()=>els.resultJson.focus());
+  }
+  function confirmGptResultRegistration(){
+    const review=pendingGptResultConfirmation;
+    if(!review||gptResultRegistrationInProgress)return;
+    let inputChanged,contextChanged,storageChanged;
+    try{
+      inputChanged=els.resultJson.value!==review.rawJson;
+      contextChanged=gptResultReviewContextSignature()!==review.contextSignature;
+      storageChanged=JSON.stringify(gptResultReviewStorageSnapshot())!==JSON.stringify(review.storageSnapshot);
+    }catch(err){
+      const message=`確認時に保存状態を検証できませんでした。学習データは変更していません。${err.message||err}`;
+      els.gptResultConfirmError.textContent=message;els.gptResultConfirmError.hidden=false;els.resultStatus.textContent=message;els.resultStatus.className="status bad";return;
+    }
+    if(storageChanged){
+      gptResultPersistenceStale=true;els.confirmGptResult.disabled=true;
+      const message="別の画面で保存データが更新されたため、この内容は登録できません。JSONを控えてからページを再読み込みしてください。";
+      els.gptResultConfirmError.textContent=message;els.gptResultConfirmError.hidden=false;els.resultStatus.textContent=message;els.resultStatus.className="status bad";return;
+    }
+    if(inputChanged||contextChanged){
+      els.resultStatus.textContent="確認後に入力内容または学習状態が変わりました。JSONを確認し、もう一度登録操作を行ってください。";els.resultStatus.className="status bad";
+      closeGptResultReview("edit");return;
+    }
+    gptResultRegistrationInProgress=true;els.confirmGptResult.disabled=true;els.editGptResultJson.disabled=true;
+    els.gptResultConfirmError.textContent="";els.gptResultConfirmError.hidden=true;
+    let persisted=false;
+    try{
+      const {sessionId,prepare}=review;
+      let draft=review.draft;
       const shouldJump=!!draft.jump?.canJump;
       const shouldMovePage=draft.transition?.kind==="jump"&&draft.jump?.canJump;
       const modeChange=shouldMovePage&&draft.transition.requiresModeRestore;
@@ -1307,6 +1477,7 @@
       const writes=[];
       if(draft.transition?.kind==="jump"&&draft.jump?.canJump)writes.push({key:STORAGE_VIEW,value:JSON.stringify(StudyCore.serializeView(nextView))});
       StudyCore.saveCoreTransition(localStorage,STORAGE_LEDGER,{state:draft.state,activeSession:draft.activeSession,gptSessions:draft.gptSessions,registeredGptSessionIds:draft.registeredGptSessionIds,studyProgress:draft.studyProgress,gptSkipped:draft.gptSkipped},writes);
+      persisted=true;els.resultJson.value="";closeGptResultReview("registered");
       removeGptResultParamFromUrl();
       const didJump=!!draft.jump?.canJump;
       const changedPage=draft.transition?.kind==="jump"&&didJump;
@@ -1318,8 +1489,17 @@
       els.resultStatus.dataset.reasonCode=notice.reasonCode;
       els.resultStatus.textContent=notice.text;
       els.resultStatus.className="status good";
-    }catch(err){els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad"}
-    finally{els.resultJson.value=""}
+    }catch(err){
+      if(persisted){
+        const message=`学習結果は保存されましたが、画面更新に失敗しました。ページを再読み込みしてください。${err.message||err}`;
+        els.resultStatus.textContent=message;els.resultStatus.className="status bad";
+      }else{
+        els.gptResultConfirmError.textContent=err.message||String(err);els.gptResultConfirmError.hidden=false;
+        els.resultStatus.textContent=err.message||String(err);els.resultStatus.className="status bad";
+      }
+    }finally{
+      gptResultRegistrationInProgress=false;els.confirmGptResult.disabled=false;els.editGptResultJson.disabled=false;
+    }
   }
 
   function receiveGptResultFromUrl(){
@@ -1364,8 +1544,12 @@
     const position=frontier.id===null?null:StudyCore.pagePositionForId(words,sortMode,randomIds,frontier.id,nextPageSize);
     let nextView={...oldView};
     if(position){if(sortMode==="random")nextView.randomStart=position.randomStart;else nextView.pageIndex=position.pageIndex}
+    const resumeOnlyFrontier=activeSession?.curtainFrontierResumeOnly&&activeSession.curtainFrontierId&&
+      StudyCore.sameStudyOrderIdentity(activeSession.curtainFrontierIdentity,StudyCore.studyOrderIdentity(words,sortMode,randomIds))
+      ?{learnedId:activeSession.curtainFrontierId,identity:activeSession.curtainFrontierIdentity,resumeOnly:true}:null;
+    const curtainResume=frontier.learnedId?frontier:resumeOnlyFrontier;
     const options={nextPageSize,writePreferences:true,finalize:true,resetCurtain:true,clearGptSkippedExitedTarget:true,
-      ...(frontier.learnedId?{curtainFrontier:frontier}:{})};
+      ...(curtainResume?{curtainFrontier:curtainResume}:{})};
     if(!requestViewTransition(nextView,options)){els.pageSize.value=String(pageSize);return false}
     requestAnimationFrame(()=>{positionCurtain();syncStudyFooterSpacer();requestAnimationFrame(scrollToCurtainResumePosition)});
     return true;
@@ -1438,13 +1622,22 @@
     changeDisplaySettings(10,3,"wrong");
   });
 
-  els.normalOrder.addEventListener("click",()=>{if(sortMode==="normal")return;if(!orderChangeNeedsConfirmation())return;restartViewSession({...currentView(),sortMode:"normal",pageIndex:0})});
+  els.normalOrder.addEventListener("click",()=>{
+    if(sortMode==="normal")return;if(!orderChangeNeedsConfirmation())return;
+    const nextOrderResume=StudyCore.normalizeOrderResume(orderResume),captured=captureCurrentOrderResume();if(captured)nextOrderResume[sortMode]=captured;
+    const target=validOrderResume("normal",nextOrderResume),view=viewForOrderResume("normal",nextOrderResume);
+    requestViewTransition(view,{nextOrderResume,...(target?.learnedId?{curtainFrontier:{learnedId:target.learnedId,identity:target.identity,resumeOnly:true}}:{})});
+  });
   els.randomOrder.addEventListener("click",()=>{
     if(sortMode==="random"){render();return}
     if(!orderChangeNeedsConfirmation())return;
     let order=randomIds,writeRandomOrder=false;
     if(!sameIdSet(order,words.map(word=>String(word.id)))){order=shuffledIds();writeRandomOrder=words.length>0}
-    requestViewTransition({...currentView(),sortMode:"random"},{nextRandomIds:order,writeRandomOrder});
+    const nextOrderResume=StudyCore.normalizeOrderResume(orderResume),captured=captureCurrentOrderResume();if(captured)nextOrderResume.normal=captured;
+    const target=writeRandomOrder?null:validOrderResume("random",nextOrderResume),position=target?StudyCore.pagePositionForId(words,"random",order,target.anchorId,pageSize):null;
+    const view={...currentView(),sortMode:"random",randomStart:position?.randomStart??0};
+    if(writeRandomOrder)nextOrderResume.random=null;
+    requestViewTransition(view,{nextRandomIds:order,writeRandomOrder,nextOrderResume,...(target?.learnedId&&!writeRandomOrder?{curtainFrontier:{learnedId:target.learnedId,identity:target.identity,resumeOnly:true}}:{})});
   });
   els.randomNext.addEventListener("click",nextRandomPage);
   els.normalNext.addEventListener("click",nextNormalPage);
@@ -1465,8 +1658,8 @@
   els.clearData.addEventListener("click",()=>{
     if(!confirm("学習データと履歴をこの端末から削除しますか？"))return;
     releaseCurtainLock();
-    words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();gptSessions={};registeredGptSessionIds=[];gptSkipped=StudyCore.normalizeGptSkippedState(null,[]);randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;gptStartPosition="page";els.gptStartPosition.value=gptStartPosition;pageIndex=0;randomStart=0;revealY=0;
-    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_PREFERENCES,STORAGE_LIST_TITLE,STORAGE_GPT_START_POSITION])localStorage.removeItem(key);
+    words=[];listTitle="";state={};studyProgress=StudyCore.normalizeStudyProgress();orderResume=StudyCore.normalizeOrderResume();gptSessions={};registeredGptSessionIds=[];gptSkipped=StudyCore.normalizeGptSkippedState(null,[]);randomIds=[];activeSession=null;filter="all";sortMode="normal";excludeStreak=false;pageSize=10;masteryThreshold=3;defaultAnswer="wrong";gptWordCount=20;gptStartPosition="page";els.gptStartPosition.value=gptStartPosition;pageIndex=0;randomStart=0;revealY=0;
+    for(const key of [STORAGE_WORDS,STORAGE_STATE,STORAGE_GPT_SESSIONS,STORAGE_ACTIVE_SESSION,STORAGE_LEDGER,STORAGE_RANDOM_ORDER,STORAGE_VIEW,STORAGE_ORDER_RESUME,STORAGE_PREFERENCES,STORAGE_LIST_TITLE,STORAGE_GPT_START_POSITION])localStorage.removeItem(key);
     updateHome();
     startSession(true);render();
   });
@@ -1480,6 +1673,12 @@
   els.openChatGpt.addEventListener("click",()=>{if(lastChatGptUrl)window.open(lastChatGptUrl,"_blank","noopener,noreferrer")});
   els.copyChatGpt.addEventListener("click",async()=>{if(!lastChatGptPrompt)return;const label=await copyText(lastChatGptPrompt)?"コピーしました":"コピーできませんでした";els.gptPromptCopyFeedback.textContent=label;els.copyChatGpt.setAttribute("aria-label",label);els.copyChatGpt.title=label;setTimeout(()=>{els.gptPromptCopyFeedback.textContent="";els.copyChatGpt.setAttribute("aria-label","プロンプトをコピー");els.copyChatGpt.title="プロンプトをコピー"},1600)});
   els.applyResults.addEventListener("click",applyGptResults);
+  els.toggleGptResultList.addEventListener("click",()=>setGptResultListOpen(els.gptResultListPanel.hidden));
+  els.editGptResultJson.addEventListener("click",()=>closeGptResultReview("edit"));
+  els.confirmGptResult.addEventListener("click",confirmGptResultRegistration);
+  els.gptResultConfirm.addEventListener("cancel",event=>{event.preventDefault();if(!gptResultRegistrationInProgress)closeGptResultReview("edit")});
+  els.gptResultConfirm.addEventListener("click",event=>{event.stopPropagation();if(event.target===els.gptResultConfirm&&!gptResultRegistrationInProgress)closeGptResultReview("edit")});
+  els.gptResultConfirm.addEventListener("close",()=>{if(pendingGptResultConfirmation&&!gptResultRegistrationInProgress)pendingGptResultConfirmation=null});
   els.openProgressDetails.addEventListener("click",()=>{if(!els.progressDialog.open)els.progressDialog.showModal()});
   els.closeProgressDetails.addEventListener("click",()=>{if(els.progressDialog.open)els.progressDialog.close()});
   els.distributionAll.addEventListener("click",()=>{if(distributionMode==="all")return;distributionMode="all";renderProgressSummary()});

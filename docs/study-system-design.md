@@ -2,7 +2,7 @@
 
 ## 1. この文書について
 
-本書はWord List Studyの現行構造と動作を説明する設計資料である。記述時点の基準はHEAD `d5ad3e899bf29e77215192d67c9c3be1ee4010a3`（2026-10-19）とする。コード変更後は、関連コードと回帰テストを確認して必要な箇所を更新する。
+本書はWord List Studyの現行構造と動作を説明する設計資料である。記述時点の基準はHEAD `54ad36a6eb2b19858ccc5940268723459ec81b94`（2026-10-19）とする。コード変更後は、関連コードと回帰テストを確認して必要な箇所を更新する。
 
 記述は次のように区別する。
 
@@ -205,15 +205,25 @@ GPT結果は`?result=<URLエンコードされたJSON>`から受け取る。`rec
 
 ## 6. GPT結果登録（中心処理）
 
-画面経路は`applyGptResults()` → `inspectGptResults()` → `prepareGptIntegration()` → 必要な確認 → `saveCoreTransition()` → state/view/session反映 → `render()`。純粋な判定・draft生成は`study-core.js`にあり、DOM・confirm・localStorage適用は`index.html`にある。
+画面経路は`applyGptResults()` → `inspectGptResults()` → `prepareGptIntegration()` → 結果確認dialog → 必要なページ移動確認 → `saveCoreTransition()` → state/view/session反映 → `render()`。純粋な判定・draft生成は`study-core.js`にあり、DOM・dialog・localStorage適用は`index.html`にある。
 
 ### 6.1 検証・照合
 
 1. UIは入力JSONをparseし、`inspectGptResults()`を呼ぶ。
 2. version=1、session ID、results配列、IDの型・一意性、既知問題ID、未登録時の発行対象ID、許可result値を検証する。
 3. 許可値は`correct`、`wrong`、`uncertain`、`skipped`。`uncertain`は現行コードで受理され、通常の正答以外として履歴へ反映される。出力指示と将来変更時にこの語彙を照合する。
-4. 未登録セッションは発行記録のID列とcontextを使い、発行ID以外を拒否する。登録済みsession IDの再生は確認なしに進めず、重複登録confirmを要求する。再生済み記録は通常session記録から除かれるため、再生時に発行ID列が残っていないケースでは、既知IDとresult値は検証するが、過去の発行ID集合との照合はできない。
-5. GPT発行記録に含まれないID、未知ID、重複ID、未知のresultは拒否する。結果JSONにない発行IDは単に「結果なし」で、検証エラーやskippedではない。
+4. 未登録セッションは発行記録のID列とcontextを使い、発行ID以外を拒否する。登録済みsession IDの再適用は結果確認dialog内に重複注意を表示し、同じdialogの「確認して再登録」で承認する。別の再適用用`window.confirm`は使わない。再生済み記録は通常session記録から除かれるため、再生時に発行ID列が残っていないケースでは、既知IDとresult値は検証するが、過去の発行ID集合との照合はできない。
+5. 初回登録ではGPT発行記録に含まれないID、未知ID、重複ID、未知のresultを拒否する。登録済みsession IDの再適用では発行ID集合を照合できない場合があり、既知IDが受理され得る。結果JSONにない発行IDは単に「結果なし」で、検証エラーやskippedではない。
+
+有効な入力の検証後、`applyGptResults()`はdraftを作り、`StudyCore.summarizeGptResults()`で確認用件数を算出して`#gptResultConfirm`を開く。この段階ではdraftをlocalStorageへ保存せず、アプリの学習状態も差し替えない。不正JSON・不正結果・不正IDはdialogを開かずエラーにする。
+
+確認dialogでは発行単語数、JSONの結果あり件数、結果なし件数と、正解・不正解・曖昧・明示的スキップの内訳を表示する。発行単語数が正確に得られない再適用では「不明」、結果なしは「算出不可」とし、推測値を出さない。結果内訳は入力JSONを数えた値であり、重複保護やskipped除外などを反映した実適用件数とは区別する。「今回の結果適用対象」はdraftの`applied`件数を示す。発行対象外の既知IDが再適用で受理された場合は、サマリでも別件数として示す。
+
+部分結果では、結果にない発行単語が学習履歴に反映されないことを注意表示する。欠落IDは履歴にも`gptSkipped`にも加えない。`results: []`も有効な結果として確認後に登録でき、結果適用件数0・学習履歴の加算なしでpending発行記録を登録済みにする。明示的な`skipped`は結果内訳に数え、既存の`gptSkipped`ルールで処理する。
+
+「JSONを修正」、Escape、dialogの外側クリックは確認を取り消して入力を保持し、可能な場合はJSON欄へフォーカスを戻す。「確認して登録」または「確認して再登録」は、レビュー時のJSONと現在のアプリ状態・関連保存値が変わっていないことを確認してから登録する。状態が変化していれば古いdraftを適用しない。別画面でlocalStorageが更新されてアプリ内状態と一致しなくなった場合は、二重更新を避けるため登録を停止し、JSONを保持したまま再読み込みを案内する。ページ移動の確認は別の目的なので既存の確認処理を維持し、再適用警告の二重確認にはしない。
+
+`saveCoreTransition()`が失敗した場合はdialogを開いたままエラーを表示し、JSONを保持する。保存成功直後にJSON欄をクリアして確認dialogを閉じ、その後に画面stateを反映・描画する。保存後の画面更新に失敗した場合は保存済みであることを別のメッセージで示し、再読み込みを案内する。二重クリックは処理中フラグで抑止する。確認文・外部JSONに由来する表示文字列は`textContent`で出力し、HTMLとして解釈しない。
 
 ### 6.2 開示保護・重複
 
@@ -344,7 +354,15 @@ snapshotは`saveCoreTransition()`経由でstate、session、registered GPT IDs�
 
 `tryRestoreSession()`はsession key、ordered `targetIds`、`studiedIds`/`checkedIds`/`finalizedIds`の包含・一意性を照合する。対象が一致すれば開示・評価・`revealY`を復元し、`curtainFrontierId`/identityおよび`gptRevealTargetId`も妥当な形で引き継ぐ。不整合時には保存された開示結果を確定して新しいsessionへ進む経路がある。`studyProgress`、`gptSkipped`、order/content fingerprintsは独立に保存・検証する。
 
-通常/ランダム順の切替と再シャッフルは個別の遷移で、再シャッフルは新しいrandom orderを保存しrandom cursorを無効化して先頭から始める。CSV差替えは新しいリストの先頭を選び、除外条件を解除する。ID集合が変わる場合は通常順に戻しrandom orderを作り直す。共通IDの履歴stateはIDをキーに引き継ぐ。これらは表示数変更のfrontier復元とは別の経路。
+通常/ランダム順の切替は`STORAGE_ORDER_RESUME`（`wordlist.orderResume.v1`）に保存するモード別復帰記録を使う。各記録は`sortMode`、`anchorId`、`learnedId`、および`studyOrderIdentity()`が作るidentity（語数、順序fingerprint、CSV順fingerprint、内容fingerprint）を持つ。記録は`transitionView()`の遷移保存と一緒に書き込み、再読み込み時に正規化して読み込む。切替先ではidentityとIDの存在を検証し、`pagePositionForId()`で現在の表示件数に合わせたページへ戻す。記録がない、またはidentityが一致しない場合は先頭を使う。ランダム順のページ計算には保存済み`randomIds`を使い、通常順へ切り替えただけでは再シャッフルしない。
+
+切替前の記録は、現在のページ先頭をfallbackとして`resolveDisplayFrontier()`を使って作る。学習先端がある場合はそのIDと境界を記録する。学習先端がなく、ページを開いただけの場合は現在ページの先頭IDを`anchorId`とし、`learnedId`はnullにする。このため、古い`studyProgress`があっても、未開示の現在ページから離れた操作を以前の学習位置へ引き戻さない。未確定結果の確認・確定は順序切替ハンドラーが行い、承認後に復帰情報を捕捉して遷移する。取消時は捕捉・保存へ進まない。
+
+復帰ページの選択と、そのページ内のカーテン境界は別の情報である。復帰先セッションには、復元した境界を`curtainFrontierId`/`curtainFrontierIdentity`で持たせ、`curtainFrontierResumeOnly`を設定する。この境界はカーテン再構成と過去行の自動再開示防止に使う一方、`resolveDisplayFrontier()`はresume-only境界を新たな学習先端として扱わない。したがって復帰後に未開示のまま表示件数を変更した場合、現在ページ先頭を新しいページ選択fallbackにでき、復帰境界は個別マスク保護として引き継げる。実際に新たな単語を学習すると`markStudied()`がresume-onlyフラグを解除し、その後は通常のセッション進捗になる。
+
+identity不一致の記録は復帰先として利用しない。明示的な再シャッフルは新しい`randomIds`を書き、`transitionView()`でランダム順の`studyProgress`と復帰記録を無効化して先頭から始める。CSV差替えや単語内容・順序の変更時もidentity照合で古い復帰記録を使わない。復帰記録は無効時に必ず物理削除されるわけではなく、将来同一identityに戻った場合に再び有効となり得る。これは保存動作上の事実であり、意図の判断とは区別する。
+
+共通IDの確定履歴は従来どおりIDをキーに維持される。`studyProgress`は順序ごとの学習/GPT到達記録、`orderResume`は順序切替後の表示位置、`curtainFrontierId`は現在セッションでのカーテン境界を担い、相互に代替しない。CSV差替えは既存の専用経路で新しいリストの先頭を選び、ID集合変更時は通常順に戻してランダム順を作り直す。
 
 ホーム画面への切替はsessionをそのまま確定する操作ではなく、現在状態を保存してscreenを切り替える。再開時に`tryRestoreSession()`を試す。
 
@@ -419,6 +437,12 @@ snapshotは`saveCoreTransition()`経由でstate、session、registered GPT IDs�
 7. 「全体・各回のステータス表示」が行内の直近5件履歴以外のUIを指す場合、対象要素を特定できていない。現在確認できる行内履歴は等幅5枠で整列している。
 
 これらは現行動作の説明と将来の仕様判断を分けるための項目であり、未実装機能を予定として約束するものではない。
+
+### 12.5 GPT連携のセキュリティ上の既知の制約
+
+- **登録済みセッションの再適用**：初回登録では結果IDを発行記録のID集合に限定する。再適用では登録済みsession IDへの明示確認後、既知の単語IDであれば元の発行対象外でも受け入れ得る。再適用結果は履歴へ追加されるため、発行対象との対応を追えず履歴の整合性を弱める制約がある。現時点では修正を見送っている。検証経路の詳細は6.1節を参照。
+- **特殊な単語ID**：`__proto__`など通常のJavaScriptオブジェクトで特殊な意味を持つCSV IDでは、学習結果が期待どおり保存されない場合がある。グローバルなprototype汚染や任意コード実行が確認されたわけではない。ID制約または安全な状態格納方式は将来の改善候補である。
+- **プロンプトインジェクション**：CSV由来の単語・意味はGPT用プロンプトに含まれるため、そこに命令文があれば固定指示と同じ入力へ混入し得る。GPTがその命令に従うか、結果を改変するかは未検証である。主に第三者由来のCSVを使う場合のリスクとして認識し、現時点では対策を保留している。
 
 ## 13. 根拠ファイル
 
